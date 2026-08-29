@@ -9,6 +9,7 @@ namespace Monkeysphere.Web.Remote;
 public sealed record RemoteRecordType(
     Guid Id,
     string Name,
+    string Lifecycle,
     IReadOnlyList<RemoteFieldDefinition> Fields);
 
 public sealed record RemoteFieldDefinition(
@@ -149,6 +150,7 @@ public sealed class MonkeysphereRemoteQueries(
         new(
             details.RecordType.Id,
             details.RecordType.Name,
+            details.RecordType.Lifecycle.ToString().ToLowerInvariant(),
             details.Fields.Select(field => new RemoteFieldDefinition(
                 field.Definition.Id,
                 field.Definition.Name,

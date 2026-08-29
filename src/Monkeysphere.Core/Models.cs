@@ -6,13 +6,38 @@ public enum FieldLifecycle
     Retired,
 }
 
+public enum RecordTypeLifecycle
+{
+    Active,
+    Retired,
+}
+
 public sealed record RecordType(
     Guid Id,
     string Name,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     string? PresetKey = null,
-    int? PresetVersion = null);
+    int? PresetVersion = null,
+    RecordTypeLifecycle Lifecycle = RecordTypeLifecycle.Active);
+
+public sealed record RecordTypeRetirementPreview(
+    RecordType RecordType,
+    string Revision,
+    int RecordCount,
+    int SavedViewCount);
+
+public sealed record RecordTypeMergePreview(
+    RecordType Source,
+    RecordType Target,
+    string Revision,
+    int SourceRecordCount,
+    int TargetRecordCount,
+    int SourceSavedViewCount,
+    int SourceFieldCount,
+    int SharedFieldCount,
+    int AddedFieldCount,
+    int RequiredDowngradeCount);
 
 public sealed record FieldDefinition(
     Guid Id,

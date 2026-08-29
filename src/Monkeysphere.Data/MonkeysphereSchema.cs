@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 8,
+        currentVersion: 9,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -262,6 +262,13 @@ public static class MonkeysphereSchema
                 CREATE INDEX IX_FieldValueLocations_Coordinates
                     ON FieldValueLocations(Latitude, Longitude, FieldValueId)
                     WHERE Latitude IS NOT NULL;
+                """),
+            DnaXMigration.Sql(9, "record-type-lifecycle", "Add record-type lifecycle state", """
+                ALTER TABLE RecordTypes ADD COLUMN Lifecycle INTEGER NOT NULL DEFAULT 0
+                    CHECK (Lifecycle IN (0, 1));
+
+                CREATE INDEX IX_RecordTypes_Lifecycle_Name
+                    ON RecordTypes(Lifecycle, Name, Id);
                 """),
         ]);
 }

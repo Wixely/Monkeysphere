@@ -27,6 +27,75 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             timeProvider.GetUtcNow(),
             cancellationToken);
 
+    public async Task<RecordTypeRetirementPreview> PreviewRecordTypeRetirementAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        await store.PreviewRecordTypeRetirementAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new DomainValidationException("Record type was not found.");
+
+    public async Task RetireRecordTypeAsync(
+        Guid id,
+        string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RecordTypeRetirementPreview preview = await PreviewRecordTypeRetirementAsync(id, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(preview.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Record-type usage changed after the preview. Preview retirement again.");
+        }
+
+        await store.RetireRecordTypeAsync(
+            id,
+            expectedRevision,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<RecordTypeMergePreview> PreviewRecordTypeMergeAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceRecordTypeId == targetRecordTypeId)
+        {
+            throw new DomainValidationException("Choose a different target record type.");
+        }
+
+        return await store.PreviewRecordTypeMergeAsync(
+            sourceRecordTypeId,
+            targetRecordTypeId,
+            cancellationToken).ConfigureAwait(false)
+            ?? throw new DomainValidationException("One or both record types were not found.");
+    }
+
+    public async Task MergeRecordTypesAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RecordTypeMergePreview preview = await PreviewRecordTypeMergeAsync(
+            sourceRecordTypeId,
+            targetRecordTypeId,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(preview.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Record-type usage changed after the preview. Preview the merge again.");
+        }
+
+        if (preview.Target.Lifecycle != RecordTypeLifecycle.Active)
+        {
+            throw new DomainValidationException("The merge target must be active.");
+        }
+
+        await store.MergeRecordTypesAsync(
+            sourceRecordTypeId,
+            targetRecordTypeId,
+            expectedRevision,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public Task<FieldDefinition> CreateAndAttachFieldAsync(
         Guid recordTypeId,
         CreateFieldRequest request,
@@ -169,6 +238,11 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         CancellationToken cancellationToken = default)
     {
         RecordTypeDetails type = await RequireRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false);
+        if (type.RecordType.Lifecycle != RecordTypeLifecycle.Active)
+        {
+            throw new DomainValidationException("New records cannot be added to a retired record type.");
+        }
+
         IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values);
         string primaryName = FieldTypes.Required(displayName, "Display name", 300);
         return await store.CreateRecordAsync(

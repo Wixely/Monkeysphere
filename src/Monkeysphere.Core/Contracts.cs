@@ -12,6 +12,28 @@ public interface IMonkeysphereStore
 
     Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
 
+    Task<RecordTypeRetirementPreview?> PreviewRecordTypeRetirementAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task RetireRecordTypeAsync(
+        Guid id,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    Task<RecordTypeMergePreview?> PreviewRecordTypeMergeAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        CancellationToken cancellationToken = default);
+
+    Task MergeRecordTypesAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
     Task<FieldDefinition> CreateAndAttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,
@@ -104,6 +126,26 @@ public interface IMonkeysphereService
     Task<RecordType> CreateRecordTypeAsync(string name, CancellationToken cancellationToken = default);
 
     Task RenameRecordTypeAsync(Guid id, string name, CancellationToken cancellationToken = default);
+
+    Task<RecordTypeRetirementPreview> PreviewRecordTypeRetirementAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task RetireRecordTypeAsync(
+        Guid id,
+        string expectedRevision,
+        CancellationToken cancellationToken = default);
+
+    Task<RecordTypeMergePreview> PreviewRecordTypeMergeAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        CancellationToken cancellationToken = default);
+
+    Task MergeRecordTypesAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        string expectedRevision,
+        CancellationToken cancellationToken = default);
 
     Task<FieldDefinition> CreateAndAttachFieldAsync(Guid recordTypeId, CreateFieldRequest request, CancellationToken cancellationToken = default);
 

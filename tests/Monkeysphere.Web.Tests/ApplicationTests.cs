@@ -135,6 +135,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("Evolve field definitions", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("Type lifecycle", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("Preview retirement", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("Preview type merge", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Preview merge", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Preview conversion", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
@@ -489,6 +492,13 @@ public sealed class RemoteAccessApplicationTests
         string firstBody = await firstResponse.Content.ReadAsStringAsync();
         Assert.True(firstResponse.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)firstResponse.StatusCode}: {firstBody}");
         Assert.Contains("Ada Lovelace", firstBody, StringComparison.Ordinal);
+        HttpResponseMessage typesResponse = await SendAsync(
+            client,
+            firstRoute.EndpointPath + "/record-types",
+            firstCredential.Secret);
+        string typesBody = await typesResponse.Content.ReadAsStringAsync();
+        Assert.True(typesResponse.IsSuccessStatusCode, typesBody);
+        Assert.Contains("\"lifecycle\":\"active\"", typesBody, StringComparison.Ordinal);
         HttpResponseMessage recordResponse = await SendAsync(
             client,
             firstRoute.EndpointPath + $"/records/{adaId}",

@@ -9,6 +9,7 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 - Cookie authentication, explicit sign-out, CSRF validation, bounded session lifetime, and login rate limiting.
 - Authentication before record, field, search, remote administration, API, MCP, or detailed diagnostic operations.
 - Field merge and conversion are administrator-only application operations. Both require a read-only impact preview and explicit confirmation; a revision fingerprint rejects stale previews, conversion fails closed when any stored value would lose structure or validation, and the final mutation is transactional.
+- Record-type retirement and merge use the same administrator-only preview, explicit confirmation, stale-revision rejection, and transactional boundary. Retirement does not erase records, and merging never silently strengthens required-field rules for existing records.
 - Authentication before location queries or retrieval. Coordinates, accuracy, and approximation radii are treated as sensitive record data and are returned only through the existing authenticated application and scoped remote-record boundaries.
 - Authentication before image delivery. Uploaded images are byte-, dimension-, pixel-, and format-bounded, decoded before acceptance, stored under opaque paths, and rendered through regenerated WebP derivatives with source metadata removed.
 - DnaX remote access unavailable by default, with separate credentials, randomized routes, bounded requests, and redacted audit metadata when deliberately enabled.

@@ -20,15 +20,86 @@ else
         <div>
             <p class="eyebrow">Record type</p>
             <h1>@_details.RecordType.Name</h1>
-            <p class="muted">Stable ID @_details.RecordType.Id</p>
+            <p class="muted">Stable ID @_details.RecordType.Id - @_details.RecordType.Lifecycle</p>
         </div>
-        <a class="button" href="/records/new?typeId=@Id">Add record</a>
+        @if (_details.RecordType.Lifecycle == RecordTypeLifecycle.Active)
+        {
+            <a class="button" href="/records/new?typeId=@Id">Add record</a>
+        }
     </div>
 
     @if (!string.IsNullOrWhiteSpace(_message))
     {
         <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
     }
+
+    <section class="panel">
+        <h2>Type lifecycle</h2>
+        <p class="muted">Retirement preserves existing records. Merging moves records and saved views into another active type while retaining this type as retired history.</p>
+        <div class="settings-grid">
+            <div class="settings-card">
+                <h3>Retire this type</h3>
+                @if (_details.RecordType.Lifecycle == RecordTypeLifecycle.Retired)
+                {
+                    <p>This record type is retired. Existing records remain editable, but new records and field attachments are blocked.</p>
+                }
+                else
+                {
+                    <button class="button" type="button" @onclick="PreviewTypeRetirementAsync">Preview retirement</button>
+                    @if (_retirementPreview is not null)
+                    {
+                        <div class="operation-preview">
+                            <h4>Retirement preview</h4>
+                            <ul>
+                                <li>@_retirementPreview.RecordCount existing record(s) remain on this type</li>
+                                <li>@_retirementPreview.SavedViewCount saved view(s) remain available</li>
+                            </ul>
+                            <label class="checkbox-label">
+                                <InputCheckbox @bind-Value="_retirementConfirmed" />
+                                I reviewed this preview and want to retire the type.
+                            </label>
+                            <button class="button danger" type="button" @onclick="ApplyTypeRetirementAsync">Retire type</button>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="settings-card">
+                <h3>Merge into another type</h3>
+                <label>
+                    Active target type
+                    <select @bind="_typeMergeTargetId">
+                        <option value="">Choose the type to keep</option>
+                        @foreach (RecordType type in TypeMergeTargets)
+                        {
+                            <option value="@type.Id">@type.Name</option>
+                        }
+                    </select>
+                </label>
+                <button class="button" type="button" @onclick="PreviewTypeMergeAsync">Preview type merge</button>
+                @if (_typeMergePreview is not null)
+                {
+                    <div class="operation-preview">
+                        <h4>Type merge preview</h4>
+                        <p><strong>@_typeMergePreview.Source.Name</strong> will merge into <strong>@_typeMergePreview.Target.Name</strong>.</p>
+                        <ul>
+                            <li>@_typeMergePreview.SourceRecordCount record(s) move; @_typeMergePreview.TargetRecordCount already use the target</li>
+                            <li>@_typeMergePreview.SourceSavedViewCount saved view(s) move</li>
+                            <li>@_typeMergePreview.SharedFieldCount shared field attachment(s)</li>
+                            <li>@_typeMergePreview.AddedFieldCount source-only field(s) append as optional</li>
+                            <li>@_typeMergePreview.RequiredDowngradeCount required rule(s) become optional to preserve existing record validity</li>
+                        </ul>
+                        <p class="muted">The target keeps its stable identity and preset provenance. This source type remains as retired history.</p>
+                        <label class="checkbox-label">
+                            <InputCheckbox @bind-Value="_typeMergeConfirmed" />
+                            I reviewed this preview and want to apply the type merge transactionally.
+                        </label>
+                        <button class="button danger" type="button" @onclick="ApplyTypeMergeAsync">Apply type merge</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
 
     <section class="panel">
         <h2>Rename type</h2>
@@ -43,6 +114,8 @@ else
         </EditForm>
     </section>
 
+    @if (_details.RecordType.Lifecycle == RecordTypeLifecycle.Active)
+    {
     <section class="panel">
         <h2>Add a field</h2>
         <EditForm Model="_newField" OnValidSubmit="AddFieldAsync">
@@ -108,6 +181,7 @@ else
             </EditForm>
         }
     </section>
+    }
 
     <section class="panel">
         <h2>Fields</h2>
@@ -305,12 +379,18 @@ else
     private readonly ExistingFieldModel _existingField = new();
     private readonly MergeFieldModel _merge = new();
     private readonly ConvertFieldModel _conversion = new();
+    private IReadOnlyList<RecordType> _recordTypes = [];
     private IReadOnlyList<FieldDefinition> _definitions = [];
     private readonly Dictionary<Guid, string> _fieldNames = [];
     private string? _message;
     private bool _isError;
     private FieldMergePreview? _mergePreview;
     private FieldConversionPreview? _conversionPreview;
+    private RecordTypeRetirementPreview? _retirementPreview;
+    private RecordTypeMergePreview? _typeMergePreview;
+    private bool _retirementConfirmed;
+    private bool _typeMergeConfirmed;
+    private string _typeMergeTargetId = string.Empty;
 
     protected override async Task OnParametersSetAsync() => await ReloadAsync();
 
@@ -364,6 +444,51 @@ else
     {
         await Service.RenameFieldAsync(definition.Id, FieldName(definition));
         _message = "Field definition renamed everywhere it is reused.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task PreviewTypeRetirementAsync() => await RunAsync(async () =>
+    {
+        _retirementPreview = await Service.PreviewRecordTypeRetirementAsync(Id);
+        _retirementConfirmed = false;
+        _message = "Retirement preview is ready. Existing records and views will remain available.";
+    });
+
+    private async Task ApplyTypeRetirementAsync() => await RunAsync(async () =>
+    {
+        if (!_retirementConfirmed || _retirementPreview is null)
+        {
+            throw new DomainValidationException("Review and confirm the retirement preview first.");
+        }
+
+        await Service.RetireRecordTypeAsync(Id, _retirementPreview.Revision);
+        _message = "Record type retired. Existing records remain editable.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task PreviewTypeMergeAsync() => await RunAsync(async () =>
+    {
+        Guid targetId = TypeMergeTargetId();
+        _typeMergePreview = await Service.PreviewRecordTypeMergeAsync(Id, targetId);
+        _typeMergeConfirmed = false;
+        _message = "Type merge preview is ready. Review field and requiredness changes before applying.";
+    });
+
+    private async Task ApplyTypeMergeAsync() => await RunAsync(async () =>
+    {
+        if (!_typeMergeConfirmed || _typeMergePreview is null)
+        {
+            throw new DomainValidationException("Review and confirm the type merge preview first.");
+        }
+
+        Guid targetId = TypeMergeTargetId();
+        if (_typeMergePreview.Source.Id != Id || _typeMergePreview.Target.Id != targetId)
+        {
+            throw new DomainValidationException("The selected target changed. Preview the type merge again.");
+        }
+
+        await Service.MergeRecordTypesAsync(Id, targetId, _typeMergePreview.Revision);
+        _message = $"Merged this type into {_typeMergePreview.Target.Name}. This source type is now retired.";
         await ReloadAsync(preserveMessage: true);
     });
 
@@ -432,9 +557,12 @@ else
     private async Task ReloadAsync(bool preserveMessage = false)
     {
         _details = await Service.GetRecordTypeAsync(Id);
+        _recordTypes = await Service.ListRecordTypesAsync();
         _definitions = await Service.ListFieldDefinitionsAsync();
         _mergePreview = null;
         _conversionPreview = null;
+        _retirementPreview = null;
+        _typeMergePreview = null;
         if (_details is not null)
         {
             _rename.Name = _details.RecordType.Name;
@@ -459,6 +587,10 @@ else
                 _details.Fields.All(attachment => attachment.Definition.Id != definition.Id))
             .ToArray();
 
+    private IReadOnlyList<RecordType> TypeMergeTargets => _recordTypes
+        .Where(type => type.Id != Id && type.Lifecycle == RecordTypeLifecycle.Active)
+        .ToArray();
+
     private string FieldName(FieldDefinition definition) =>
         _fieldNames.GetValueOrDefault(definition.Id, definition.Name);
 
@@ -478,6 +610,10 @@ else
     private Guid ConversionSourceId() => Guid.TryParse(_conversion.SourceId, out Guid sourceId)
         ? sourceId
         : throw new DomainValidationException("Choose a source field definition.");
+
+    private Guid TypeMergeTargetId() => Guid.TryParse(_typeMergeTargetId, out Guid targetId)
+        ? targetId
+        : throw new DomainValidationException("Choose an active target record type.");
 
     private ConvertFieldRequest ConversionRequest()
     {

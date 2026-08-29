@@ -323,6 +323,11 @@ else
     protected override async Task OnParametersSetAsync()
     {
         _types = await Service.ListRecordTypesAsync();
+        if (!RecordId.HasValue)
+        {
+            _types = _types.Where(type => type.Lifecycle == RecordTypeLifecycle.Active).ToArray();
+        }
+
         if (RecordId is Guid id)
         {
             _record = await Service.GetRecordAsync(id);

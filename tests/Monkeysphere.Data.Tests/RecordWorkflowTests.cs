@@ -472,6 +472,109 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task RecordTypeRetirementPreservesExistingWorkAndRejectsStalePreviews()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ISavedViewService views = application.Services.GetRequiredService<ISavedViewService>();
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition name = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Known as", FieldTypes.Text, true));
+        RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", [new(name.Id, "Ada")]);
+        SavedViewDetails view = await views.CreateAsync(new SaveViewRequest(
+            "People",
+            person.Id,
+            null,
+            [name.Id],
+            []));
+
+        RecordTypeRetirementPreview preview = await records.PreviewRecordTypeRetirementAsync(person.Id);
+        Assert.Equal(1, preview.RecordCount);
+        Assert.Equal(1, preview.SavedViewCount);
+
+        await records.UpdateRecordAsync(ada.Record.Id, "Ada Lovelace", [new(name.Id, "Ada")]);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.RetireRecordTypeAsync(person.Id, preview.Revision));
+        preview = await records.PreviewRecordTypeRetirementAsync(person.Id);
+        await records.RetireRecordTypeAsync(person.Id, preview.Revision);
+
+        RecordType retired = Assert.Single(await records.ListRecordTypesAsync());
+        Assert.Equal(RecordTypeLifecycle.Retired, retired.Lifecycle);
+        Assert.NotNull(await views.GetAsync(view.View.Id));
+        RecordDetails corrected = await records.UpdateRecordAsync(
+            ada.Record.Id,
+            "Augusta Ada King",
+            [new(name.Id, "Ada")]);
+        Assert.Equal("Augusta Ada King", corrected.Record.DisplayName);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.CreateRecordAsync(
+            person.Id,
+            "New person",
+            [new(name.Id, "New")]));
+    }
+
+    [Fact]
+    public async Task RecordTypeMergeMovesRecordsAndViewsWhilePreservingValidFieldRules()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ISavedViewService views = application.Services.GetRequiredService<ISavedViewService>();
+        RecordType source = await records.CreateRecordTypeAsync("Contact");
+        RecordType target = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition shared = await records.CreateAndAttachFieldAsync(
+            source.Id,
+            new CreateFieldRequest("Notes", FieldTypes.Text, true));
+        await records.AttachFieldAsync(target.Id, shared.Id, isRequired: false);
+        FieldDefinition sourceOnly = await records.CreateAndAttachFieldAsync(
+            source.Id,
+            new CreateFieldRequest("Legacy code", FieldTypes.Text, true));
+        FieldDefinition targetOnly = await records.CreateAndAttachFieldAsync(
+            target.Id,
+            new CreateFieldRequest("Preferred name", FieldTypes.Text, true));
+        RecordDetails sourceRecord = await records.CreateRecordAsync(
+            source.Id,
+            "Ada",
+            [new(shared.Id, "Mathematician"), new(sourceOnly.Id, "A-1")]);
+        _ = await records.CreateRecordAsync(target.Id, "Grace", [new(targetOnly.Id, "Grace")]);
+        SavedViewDetails sourceView = await views.CreateAsync(new SaveViewRequest(
+            "Contacts",
+            source.Id,
+            null,
+            [sourceOnly.Id],
+            []));
+
+        RecordTypeMergePreview preview = await records.PreviewRecordTypeMergeAsync(source.Id, target.Id);
+        Assert.Equal(1, preview.SourceRecordCount);
+        Assert.Equal(1, preview.TargetRecordCount);
+        Assert.Equal(1, preview.SourceSavedViewCount);
+        Assert.Equal(2, preview.SourceFieldCount);
+        Assert.Equal(1, preview.SharedFieldCount);
+        Assert.Equal(1, preview.AddedFieldCount);
+        Assert.Equal(3, preview.RequiredDowngradeCount);
+
+        _ = await records.CreateRecordAsync(
+            source.Id,
+            "Charles",
+            [new(shared.Id, "Inventor"), new(sourceOnly.Id, "C-1")]);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.MergeRecordTypesAsync(
+            source.Id,
+            target.Id,
+            preview.Revision));
+        preview = await records.PreviewRecordTypeMergeAsync(source.Id, target.Id);
+        await records.MergeRecordTypesAsync(source.Id, target.Id, preview.Revision);
+
+        RecordTypeDetails sourceDetails = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(source.Id));
+        RecordTypeDetails targetDetails = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(target.Id));
+        Assert.Equal(RecordTypeLifecycle.Retired, sourceDetails.RecordType.Lifecycle);
+        Assert.Equal(RecordTypeLifecycle.Active, targetDetails.RecordType.Lifecycle);
+        Assert.Equal(2, sourceDetails.Fields.Count);
+        Assert.Equal(3, targetDetails.Fields.Count);
+        Assert.All(targetDetails.Fields, field => Assert.False(field.IsRequired));
+        Assert.Equal(target.Id, (await records.GetRecordAsync(sourceRecord.Record.Id))!.Record.RecordTypeId);
+        Assert.Equal(target.Id, (await views.GetAsync(sourceView.View.Id))!.View.RecordTypeId);
+        Assert.Equal(target.Id, targetDetails.RecordType.Id);
+    }
+
+    [Fact]
     public async Task SavedViewRoundTripsMultipleFiltersColumnsGroupingSortingAndLifecycle()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

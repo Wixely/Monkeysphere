@@ -15,7 +15,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RecordTypeRow> rows = await connection.QueryAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion FROM RecordTypes ORDER BY Name COLLATE NOCASE, Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(MapRecordType).ToArray();
     }
@@ -25,7 +25,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RecordTypeRow? type = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion FROM RecordTypes WHERE Id = @Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle FROM RecordTypes WHERE Id = @Id;",
                 new { Id = Key(id) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (type is null)
@@ -92,6 +92,227 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         RequireChanged(changed, "Record type was not found.");
     }
 
+    public async Task<RecordTypeRetirementPreview?> PreviewRecordTypeRetirementAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        RecordType? recordType = await QueryRecordTypeAsync(connection, id, transaction, cancellationToken).ConfigureAwait(false);
+        if (recordType is null)
+        {
+            return null;
+        }
+
+        using SqlMapper.GridReader counts = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT COUNT(*) FROM Records WHERE RecordTypeId = @Id;
+            SELECT COUNT(*) FROM SavedViews WHERE RecordTypeId = @Id;
+            """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int records = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int savedViews = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        string revision = await ComputeRecordTypeRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new RecordTypeRetirementPreview(recordType, revision, records, savedViews);
+    }
+
+    public async Task RetireRecordTypeAsync(
+        Guid id,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string revision = await ComputeRecordTypeRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Record-type usage changed after the preview. Preview retirement again.");
+        }
+
+        int changed = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE RecordTypes SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @Id AND Lifecycle = 0;",
+            new { Id = Key(id), Now = Timestamp(now) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        RequireChanged(changed, "Active record type was not found.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<RecordTypeMergePreview?> PreviewRecordTypeMergeAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        RecordType? source = await QueryRecordTypeAsync(connection, sourceRecordTypeId, transaction, cancellationToken).ConfigureAwait(false);
+        RecordType? target = await QueryRecordTypeAsync(connection, targetRecordTypeId, transaction, cancellationToken).ConfigureAwait(false);
+        if (source is null || target is null)
+        {
+            return null;
+        }
+
+        DynamicParameters parameters = new();
+        parameters.Add("SourceId", Key(sourceRecordTypeId));
+        parameters.Add("TargetId", Key(targetRecordTypeId));
+        using SqlMapper.GridReader counts = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT COUNT(*) FROM Records WHERE RecordTypeId = @SourceId;
+            SELECT COUNT(*) FROM Records WHERE RecordTypeId = @TargetId;
+            SELECT COUNT(*) FROM SavedViews WHERE RecordTypeId = @SourceId;
+            SELECT COUNT(*) FROM RecordTypeFields WHERE RecordTypeId = @SourceId;
+            SELECT COUNT(*)
+            FROM RecordTypeFields source
+            WHERE source.RecordTypeId = @SourceId
+              AND EXISTS (
+                  SELECT 1 FROM RecordTypeFields target
+                  WHERE target.RecordTypeId = @TargetId
+                    AND target.FieldDefinitionId = source.FieldDefinitionId);
+            SELECT COUNT(*)
+            FROM RecordTypeFields source
+            WHERE source.RecordTypeId = @SourceId
+              AND NOT EXISTS (
+                  SELECT 1 FROM RecordTypeFields target
+                  WHERE target.RecordTypeId = @TargetId
+                    AND target.FieldDefinitionId = source.FieldDefinitionId);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int sourceRecords = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int targetRecords = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int savedViews = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int sourceFields = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int sharedFields = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int addedFields = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int requiredDowngrades = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
+            SELECT COUNT(*)
+            FROM (
+                SELECT source.FieldDefinitionId
+                FROM RecordTypeFields source
+                JOIN RecordTypeFields target ON target.FieldDefinitionId = source.FieldDefinitionId
+                WHERE source.RecordTypeId = @SourceId AND target.RecordTypeId = @TargetId
+                  AND source.IsRequired <> target.IsRequired
+                UNION ALL
+                SELECT source.FieldDefinitionId
+                FROM RecordTypeFields source
+                WHERE source.RecordTypeId = @SourceId AND source.IsRequired = 1
+                  AND NOT EXISTS (
+                      SELECT 1 FROM RecordTypeFields target
+                      WHERE target.RecordTypeId = @TargetId
+                        AND target.FieldDefinitionId = source.FieldDefinitionId)
+                UNION ALL
+                SELECT target.FieldDefinitionId
+                FROM RecordTypeFields target
+                WHERE @SourceRecordCount > 0
+                  AND target.RecordTypeId = @TargetId AND target.IsRequired = 1
+                  AND NOT EXISTS (
+                      SELECT 1 FROM RecordTypeFields source
+                      WHERE source.RecordTypeId = @SourceId
+                        AND source.FieldDefinitionId = target.FieldDefinitionId)
+            );
+            """, new
+        {
+            SourceId = Key(sourceRecordTypeId),
+            TargetId = Key(targetRecordTypeId),
+            SourceRecordCount = sourceRecords,
+        }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        string revision = await ComputeRecordTypeRevisionAsync(
+            connection,
+            [sourceRecordTypeId, targetRecordTypeId],
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new RecordTypeMergePreview(
+            source,
+            target,
+            revision,
+            sourceRecords,
+            targetRecords,
+            savedViews,
+            sourceFields,
+            sharedFields,
+            addedFields,
+            requiredDowngrades);
+    }
+
+    public async Task MergeRecordTypesAsync(
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceRecordTypeId == targetRecordTypeId)
+        {
+            throw new DomainValidationException("Choose a different target record type.");
+        }
+
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string revision = await ComputeRecordTypeRevisionAsync(
+            connection,
+            [sourceRecordTypeId, targetRecordTypeId],
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Record-type usage changed after the preview. Preview the merge again.");
+        }
+
+        RecordType? source = await QueryRecordTypeAsync(connection, sourceRecordTypeId, transaction, cancellationToken).ConfigureAwait(false);
+        RecordType? target = await QueryRecordTypeAsync(connection, targetRecordTypeId, transaction, cancellationToken).ConfigureAwait(false);
+        if (source is null || target is null || target.Lifecycle != RecordTypeLifecycle.Active)
+        {
+            throw new DomainValidationException("The source and an active target record type are required.");
+        }
+
+        DynamicParameters parameters = new();
+        parameters.Add("SourceId", Key(sourceRecordTypeId));
+        parameters.Add("TargetId", Key(targetRecordTypeId));
+        parameters.Add("Now", Timestamp(now));
+        int sourceRecordCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM Records WHERE RecordTypeId = @SourceId;",
+            parameters,
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        parameters.Add("SourceHasRecords", sourceRecordCount > 0 ? 1 : 0);
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE RecordTypeFields AS target
+            SET IsRequired = MIN(IsRequired, (
+                SELECT source.IsRequired FROM RecordTypeFields source
+                WHERE source.RecordTypeId = @SourceId
+                  AND source.FieldDefinitionId = target.FieldDefinitionId))
+            WHERE target.RecordTypeId = @TargetId
+              AND EXISTS (
+                  SELECT 1 FROM RecordTypeFields source
+                  WHERE source.RecordTypeId = @SourceId
+                    AND source.FieldDefinitionId = target.FieldDefinitionId);
+
+            UPDATE RecordTypeFields AS target
+            SET IsRequired = 0
+            WHERE @SourceHasRecords = 1 AND target.RecordTypeId = @TargetId AND target.IsRequired = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM RecordTypeFields source
+                  WHERE source.RecordTypeId = @SourceId
+                    AND source.FieldDefinitionId = target.FieldDefinitionId);
+
+            INSERT INTO RecordTypeFields (RecordTypeId, FieldDefinitionId, SortOrder, IsRequired)
+            SELECT @TargetId, source.FieldDefinitionId,
+                   (SELECT COALESCE(MAX(existing.SortOrder) + 1, 0)
+                    FROM RecordTypeFields existing WHERE existing.RecordTypeId = @TargetId)
+                       + ROW_NUMBER() OVER (ORDER BY source.SortOrder, source.FieldDefinitionId) - 1,
+                   0
+            FROM RecordTypeFields source
+            WHERE source.RecordTypeId = @SourceId
+              AND NOT EXISTS (
+                  SELECT 1 FROM RecordTypeFields target
+                  WHERE target.RecordTypeId = @TargetId
+                    AND target.FieldDefinitionId = source.FieldDefinitionId)
+            ORDER BY source.SortOrder, source.FieldDefinitionId;
+
+            UPDATE Records SET RecordTypeId = @TargetId, UpdatedAtUtc = @Now WHERE RecordTypeId = @SourceId;
+            UPDATE SavedViews SET RecordTypeId = @TargetId, UpdatedAtUtc = @Now WHERE RecordTypeId = @SourceId;
+            UPDATE RecordTypes SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @SourceId;
+            UPDATE RecordTypes SET UpdatedAtUtc = @Now WHERE Id = @TargetId;
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<FieldDefinition> CreateAndAttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,
@@ -107,7 +328,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         int typeExists = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM RecordTypes WHERE Id = @Id;",
+            "SELECT COUNT(*) FROM RecordTypes WHERE Id = @Id AND Lifecycle = 0;",
             new { Id = Key(recordTypeId) },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -165,7 +386,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             SELECT COUNT(*)
             FROM RecordTypes rt
             CROSS JOIN FieldDefinitions fd
-            WHERE rt.Id = @RecordTypeId AND fd.Id = @FieldDefinitionId AND fd.Lifecycle = 0;
+            WHERE rt.Id = @RecordTypeId AND rt.Lifecycle = 0 AND fd.Id = @FieldDefinitionId AND fd.Lifecycle = 0;
             """,
             new { RecordTypeId = Key(recordTypeId), FieldDefinitionId = Key(fieldDefinitionId) },
             transaction,
@@ -1083,6 +1304,49 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         return rows.Select(row => new RecordTypeField(MapField(row), row.SortOrder, row.IsRequired != 0)).ToArray();
     }
 
+    private static async Task<RecordType?> QueryRecordTypeAsync(
+        SqliteConnection connection,
+        Guid id,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        RecordTypeRow? row = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(new CommandDefinition("""
+            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle
+            FROM RecordTypes
+            WHERE Id = @Id;
+            """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return row is null ? null : MapRecordType(row);
+    }
+
+    private static async Task<string> ComputeRecordTypeRevisionAsync(
+        SqliteConnection connection,
+        IReadOnlyList<Guid> recordTypeIds,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        string[] ids = recordTypeIds.Select(Key).Order(StringComparer.Ordinal).ToArray();
+        IEnumerable<string> rows = await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT Snapshot
+            FROM (
+                SELECT 'type|' || Id || '|' || Name || '|' || Lifecycle || '|' ||
+                       COALESCE(PresetKey, '') || '|' || COALESCE(PresetVersion, '') || '|' || UpdatedAtUtc AS Snapshot
+                FROM RecordTypes WHERE Id IN @Ids
+                UNION ALL
+                SELECT 'attachment|' || RecordTypeId || '|' || FieldDefinitionId || '|' || SortOrder || '|' || IsRequired
+                FROM RecordTypeFields WHERE RecordTypeId IN @Ids
+                UNION ALL
+                SELECT 'record|' || Id || '|' || RecordTypeId || '|' || UpdatedAtUtc
+                FROM Records WHERE RecordTypeId IN @Ids
+                UNION ALL
+                SELECT 'view|' || Id || '|' || RecordTypeId || '|' || UpdatedAtUtc
+                FROM SavedViews WHERE RecordTypeId IN @Ids
+            )
+            ORDER BY Snapshot;
+            """, new { Ids = ids }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        byte[] snapshot = Encoding.UTF8.GetBytes(string.Join('\n', rows));
+        return Convert.ToHexString(SHA256.HashData(snapshot));
+    }
+
     private static Task<FieldDefinition?> QueryFieldDefinitionAsync(
         SqliteConnection connection,
         Guid id,
@@ -1215,7 +1479,14 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     }
 
     private static RecordType MapRecordType(RecordTypeRow row) =>
-        new(ParseGuid(row.Id), row.Name, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.PresetKey, row.PresetVersion);
+        new(
+            ParseGuid(row.Id),
+            row.Name,
+            ParseTimestamp(row.CreatedAtUtc),
+            ParseTimestamp(row.UpdatedAtUtc),
+            row.PresetKey,
+            row.PresetVersion,
+            (RecordTypeLifecycle)row.Lifecycle);
 
     private static FieldDefinition MapField(FieldRow row) =>
         new(
@@ -1262,6 +1533,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public required string UpdatedAtUtc { get; init; }
         public string? PresetKey { get; init; }
         public int? PresetVersion { get; init; }
+        public int Lifecycle { get; init; }
     }
 
     private sealed class FieldRow

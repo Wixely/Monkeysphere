@@ -85,6 +85,10 @@
                     {
                         <span class="pill">preset v@type.PresetVersion</span>
                     }
+                    @if (type.Lifecycle == RecordTypeLifecycle.Retired)
+                    {
+                        <span class="pill">retired</span>
+                    }
                     <span class="muted">Updated @type.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
                 </li>
             }
