@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+.vscode/*.user
+TestResults/
+artifacts/
+data/
+secrets/*
+!secrets/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+*.monkeysphere-backup
+*.user
+*.suo

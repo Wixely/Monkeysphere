@@ -1,0 +1,21 @@
+[Unit]
+Description=Monkeysphere relationship memory
+After=network.target
+
+[Service]
+Type=notify
+WorkingDirectory=/opt/monkeysphere
+ExecStart=/usr/bin/dotnet /opt/monkeysphere/Monkeysphere.Web.dll
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+Environment=MONKEYSPHERE_DATA_ROOT=/var/lib/monkeysphere
+Environment=MONKEYSPHERE_ADMIN_PASSWORD_FILE=/etc/monkeysphere/admin-password
+User=monkeysphere
+Group=monkeysphere
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/monkeysphere
+
+[Install]
+WantedBy=multi-user.target

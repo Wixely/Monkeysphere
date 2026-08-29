@@ -1,0 +1,43 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+
+<PageTitle>Sign in · Monkeysphere</PageTitle>
+
+<section class="auth-card">
+    <p class="eyebrow">Private deployment</p>
+    <h1>Sign in</h1>
+    <p>Use the administrator identity configured for this Monkeysphere deployment.</p>
+
+    @if (Error == 1)
+    {
+        <div class="notice error" role="alert">The username or password was not accepted.</div>
+    }
+
+    <form method="post" action="/auth/login">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+        <label>
+            Username
+            <input name="username" autocomplete="username" required autofocus />
+        </label>
+        <label>
+            Password
+            <input name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="button primary" type="submit">Sign in</button>
+    </form>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public int? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private string SafeReturnUrl =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith("/", StringComparison.Ordinal) && !ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+            ? ReturnUrl
+            : "/";
+}

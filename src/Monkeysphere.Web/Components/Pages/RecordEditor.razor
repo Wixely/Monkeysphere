@@ -1,0 +1,265 @@
+@page "/records/new"
+@page "/records/{RecordId:guid}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Service
+@inject NavigationManager Navigation
+
+<PageTitle>@(RecordId.HasValue ? "Edit record" : "New record") · Monkeysphere</PageTitle>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else if (RecordId.HasValue && _record is null)
+{
+    <h1>Record not found</h1>
+    <p><a href="/records">Return to records</a></p>
+}
+else
+{
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">@(RecordId.HasValue ? "Edit record" : "New record")</p>
+            <h1>@(RecordId.HasValue ? _model.DisplayName : "Add to your sphere")</h1>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="notice error" role="alert">@_message</div>
+    }
+
+    @if (_types.Count == 0)
+    {
+        <section class="panel">
+            <p>You need a record type before you can create a record.</p>
+            <a class="button primary" href="/record-types">Create a record type</a>
+        </section>
+    }
+    else
+    {
+        <EditForm Model="_model" OnValidSubmit="SaveAsync" class="panel record-form">
+            <DataAnnotationsValidator />
+            <div class="form-grid">
+                <label>
+                    Record type
+                    <select value="@_selectedTypeValue" @onchange="TypeChangedAsync" disabled="@RecordId.HasValue">
+                        <option value="">Select a type</option>
+                        @foreach (RecordType type in _types)
+                        {
+                            <option value="@type.Id">@type.Name</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Display name
+                    <InputText @bind-Value="_model.DisplayName" />
+                    <ValidationMessage For="() => _model.DisplayName" />
+                </label>
+            </div>
+
+            @if (_selectedType is not null)
+            {
+                <div class="field-stack">
+                    @foreach (EditorField editor in _editors)
+                    {
+                        <div class="field-card">
+                            <label>
+                                @editor.Field.Definition.Name
+                                @if (editor.Field.IsRequired)
+                                {
+                                    <span class="required">required</span>
+                                }
+                                @if (editor.Field.Definition.Lifecycle == FieldLifecycle.Retired)
+                                {
+                                    <span class="pill">retired</span>
+                                }
+                                @switch (editor.Field.Definition.TypeId)
+                                {
+                                    case FieldTypes.MultilineText:
+                                        <textarea @bind="editor.Scalar" rows="5"></textarea>
+                                        break;
+                                    case FieldTypes.Number:
+                                        <input @bind="editor.Scalar" inputmode="decimal" placeholder="Invariant number, for example 42.5" />
+                                        break;
+                                    case FieldTypes.ExactDate:
+                                        <input type="date" value="@editor.Scalar" @onchange="args => SetScalar(editor, args)" />
+                                        break;
+                                    case FieldTypes.Choice:
+                                        <select @bind="editor.Scalar">
+                                            <option value="">Choose…</option>
+                                            @foreach (string choice in FieldTypes.ChoiceOptions(editor.Field.Definition))
+                                            {
+                                                <option value="@choice">@choice</option>
+                                            }
+                                        </select>
+                                        break;
+                                    case FieldTypes.Tags:
+                                        <input @bind="editor.Tags" placeholder="Comma-separated tags" />
+                                        break;
+                                    default:
+                                        <input @bind="editor.Scalar" />
+                                        break;
+                                }
+                            </label>
+                            @if (!FieldTypes.Recognized.Contains(editor.Field.Definition.TypeId, StringComparer.Ordinal))
+                            {
+                                <span class="muted">Unknown type <code>@editor.Field.Definition.TypeId</code> uses lossless text editing.</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="action-row">
+                <button class="button primary" type="submit">@(RecordId.HasValue ? "Save changes" : "Create record")</button>
+                <a class="button" href="/records">Cancel</a>
+            </div>
+        </EditForm>
+
+        @if (RecordId.HasValue)
+        {
+            <section class="panel danger-zone">
+                <h2>Delete record</h2>
+                <p>This removes the record and all its field values. Backups may still retain older copies.</p>
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_confirmDelete" />
+                    I understand this record will be deleted.
+                </label>
+                <button class="button danger" type="button" disabled="@(!_confirmDelete)" @onclick="DeleteAsync">Delete record</button>
+            </section>
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid? RecordId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "typeId")]
+    public Guid? InitialTypeId { get; set; }
+
+    private readonly RecordModel _model = new();
+    private IReadOnlyList<RecordType> _types = [];
+    private RecordTypeDetails? _selectedType;
+    private RecordDetails? _record;
+    private List<EditorField> _editors = [];
+    private string _selectedTypeValue = string.Empty;
+    private string? _message;
+    private bool _loading = true;
+    private bool _confirmDelete;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _types = await Service.ListRecordTypesAsync();
+        if (RecordId is Guid id)
+        {
+            _record = await Service.GetRecordAsync(id);
+            if (_record is not null)
+            {
+                _model.DisplayName = _record.Record.DisplayName;
+                _selectedTypeValue = _record.Record.RecordTypeId.ToString();
+                _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
+                BuildEditors(_record);
+            }
+        }
+        else if (InitialTypeId is Guid typeId)
+        {
+            _selectedTypeValue = typeId.ToString();
+            _selectedType = await Service.GetRecordTypeAsync(typeId);
+            BuildEditors(null);
+        }
+
+        _loading = false;
+    }
+
+    private async Task TypeChangedAsync(ChangeEventArgs args)
+    {
+        _selectedTypeValue = args.Value?.ToString() ?? string.Empty;
+        _selectedType = Guid.TryParse(_selectedTypeValue, out Guid typeId)
+            ? await Service.GetRecordTypeAsync(typeId)
+            : null;
+        BuildEditors(null);
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            if (_selectedType is null)
+            {
+                throw new DomainValidationException("Select a record type.");
+            }
+
+            FieldValueInput[] values = _editors.Select(editor =>
+                string.Equals(editor.Field.Definition.TypeId, FieldTypes.Tags, StringComparison.Ordinal)
+                    ? new FieldValueInput(
+                        editor.Field.Definition.Id,
+                        Tags: string.IsNullOrWhiteSpace(editor.Tags)
+                            ? []
+                            : editor.Tags.Split(',', StringSplitOptions.TrimEntries))
+                    : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
+
+            RecordDetails saved = RecordId is Guid id
+                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values)
+                : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values);
+            Navigation.NavigateTo($"/records/{saved.Record.Id}");
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!_confirmDelete || RecordId is not Guid id)
+        {
+            return;
+        }
+
+        await Service.DeleteRecordAsync(id);
+        Navigation.NavigateTo("/records");
+    }
+
+    private void BuildEditors(RecordDetails? record)
+    {
+        if (_selectedType is null)
+        {
+            _editors = [];
+            return;
+        }
+
+        Dictionary<Guid, RecordValue> values = (record?.Values ?? [])
+            .ToDictionary(value => value.FieldDefinitionId);
+        _editors = _selectedType.Fields
+            .Where(field => field.Definition.Lifecycle == FieldLifecycle.Active || values.ContainsKey(field.Definition.Id))
+            .Select(field =>
+            {
+                values.TryGetValue(field.Definition.Id, out RecordValue? value);
+                return new EditorField
+                {
+                    Field = field,
+                    Scalar = value?.TextValue ?? value?.NumberValue ?? value?.DateValue ?? string.Empty,
+                    Tags = value is null ? string.Empty : string.Join(", ", value.Tags),
+                };
+            }).ToList();
+    }
+
+    private sealed class RecordModel
+    {
+        [Required, StringLength(300)]
+        public string DisplayName { get; set; } = string.Empty;
+    }
+
+    private static void SetScalar(EditorField editor, ChangeEventArgs args) =>
+        editor.Scalar = args.Value?.ToString() ?? string.Empty;
+
+    private sealed class EditorField
+    {
+        public required RecordTypeField Field { get; init; }
+        public string Scalar { get; set; } = string.Empty;
+        public string Tags { get; set; } = string.Empty;
+    }
+}

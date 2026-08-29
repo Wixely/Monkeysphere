@@ -1,0 +1,149 @@
+@page "/records"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Service
+
+<PageTitle>Records · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Memory</p>
+        <h1>Records</h1>
+        <p>Search display names, text, dates, numbers, and tags.</p>
+    </div>
+    <a class="button primary" href="/records/new">Add record</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice error" role="alert">@_message</div>
+}
+
+<section class="panel search-panel">
+    <div class="form-grid">
+        <label>
+            Search
+            <input @bind="_query" placeholder="Name or field value" />
+        </label>
+        <label>
+            Record type
+            <select @bind="_recordTypeValue">
+                <option value="">All types</option>
+                @foreach (RecordType type in _types)
+                {
+                    <option value="@type.Id">@type.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Field filter
+            <select @bind="_fieldValue">
+                <option value="">No typed filter</option>
+                @foreach (RecordTypeField field in _filterFields)
+                {
+                    <option value="@field.Definition.Id">@field.Definition.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Operator
+            <select @bind="_operatorValue">
+                @foreach (FieldFilterOperator operation in Enum.GetValues<FieldFilterOperator>())
+                {
+                    <option value="@operation">@operation</option>
+                }
+            </select>
+        </label>
+        <label>
+            Filter value
+            <input @bind="_filterValue" />
+        </label>
+    </div>
+    <button class="button primary" type="button" @onclick="SearchAsync">Search</button>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Results</h2>
+        <span class="muted">@_results.TotalCount total</span>
+    </div>
+    @if (_results.Items.Count == 0)
+    {
+        <p class="empty-state">No records match.</p>
+    }
+    else
+    {
+        <ul class="item-list">
+            @foreach (RecordSummary record in _results.Items)
+            {
+                <li>
+                    <a href="/records/@record.Id">@record.DisplayName</a>
+                    <span class="pill">@record.RecordTypeName</span>
+                    <span class="muted">Updated @record.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
+                </li>
+            }
+        </ul>
+        <div class="pagination">
+            <button class="button" disabled="@(_results.Page <= 1)" @onclick="PreviousAsync">Previous</button>
+            <span>Page @_results.Page</span>
+            <button class="button" disabled="@(_results.Page * _results.PageSize >= _results.TotalCount)" @onclick="NextAsync">Next</button>
+        </div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<RecordTypeField> _filterFields = [];
+    private PagedResult<RecordSummary> _results = new([], 1, 25, 0);
+    private string _query = string.Empty;
+    private string _recordTypeValue = string.Empty;
+    private string _fieldValue = string.Empty;
+    private string _operatorValue = FieldFilterOperator.Equals.ToString();
+    private string _filterValue = string.Empty;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Service.ListRecordTypesAsync();
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync() => await LoadPageAsync(1);
+    private async Task PreviousAsync() => await LoadPageAsync(Math.Max(1, _results.Page - 1));
+    private async Task NextAsync() => await LoadPageAsync(_results.Page + 1);
+
+    private async Task LoadPageAsync(int page)
+    {
+        try
+        {
+            Guid? typeId = Guid.TryParse(_recordTypeValue, out Guid parsedType) ? parsedType : null;
+            if (typeId is Guid selectedType)
+            {
+                _filterFields = (await Service.GetRecordTypeAsync(selectedType))?.Fields ?? [];
+            }
+            else
+            {
+                _filterFields = [];
+                _fieldValue = string.Empty;
+            }
+
+            Guid? fieldId = Guid.TryParse(_fieldValue, out Guid parsedField) ? parsedField : null;
+            FieldFilterOperator? operation = fieldId.HasValue && Enum.TryParse(_operatorValue, out FieldFilterOperator parsedOperation)
+                ? parsedOperation
+                : null;
+            _results = await Service.SearchRecordsAsync(new RecordSearch(
+                _query,
+                typeId,
+                fieldId,
+                operation,
+                fieldId.HasValue ? _filterValue : null,
+                page,
+                25));
+            _message = null;
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+}

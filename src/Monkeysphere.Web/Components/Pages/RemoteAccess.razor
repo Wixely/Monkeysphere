@@ -1,0 +1,164 @@
+@page "/remote-access"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using DnaX.RemoteAccess
+@inject IDnaXRemoteAccessAdministration Administration
+
+<PageTitle>Remote access · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Automation boundary</p>
+        <h1>Remote access</h1>
+        <p>HTTP API and MCP access are independently gated, credentialed, bounded, and audited by DnaX.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(_oneTimeSecret))
+{
+    <section class="panel credential-reveal">
+        <h2>Copy this credential now</h2>
+        <p>DnaX stores only its hash. It cannot be displayed again.</p>
+        <code class="secret-value">@_oneTimeSecret</code>
+        <button class="button" type="button" @onclick="ClearSecret">I have saved it</button>
+    </section>
+}
+
+@if (_state is null)
+{
+    <p>Loading…</p>
+}
+else if (!_state.Enabled)
+{
+    <section class="panel">
+        <h2>Unavailable by deployment policy</h2>
+        <p>The master DnaX remote-access gate is disabled. This is the secure default. Enable it in deployment configuration and restart before any runtime activation is possible.</p>
+    </section>
+}
+else
+{
+    <div class="surface-grid">
+        @SurfacePanel(_state.Api, "HTTP API")
+        @SurfacePanel(_state.Mcp, "MCP")
+    </div>
+
+    <section class="panel">
+        <h2>Recent redacted activity</h2>
+        @if (_activity.Count == 0)
+        {
+            <p class="empty-state">No audited remote requests.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Time</th><th>Surface</th><th>Action</th><th>Result</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (DnaXRemoteAuditRecord item in _activity)
+                        {
+                            <tr>
+                                <td>@item.Event.OccurredAtUtc.ToLocalTime().ToString("g")</td>
+                                <td>@item.Event.Surface</td>
+                                <td>@item.Event.Action</td>
+                                <td>@item.Event.Result</td>
+                                <td>@item.Event.StatusCode</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private DnaXRemoteAdministrationState? _state;
+    private IReadOnlyList<DnaXRemoteAuditRecord> _activity = [];
+    private string? _message;
+    private bool _isError;
+    private string? _oneTimeSecret;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private RenderFragment SurfacePanel(DnaXRemoteEffectiveSurface surface, string title) => @<section class="panel remote-surface">
+            <div class="section-heading">
+                <h2>@title</h2>
+                <span class="pill">@surface.Availability</span>
+            </div>
+            <dl>
+                <dt>Active</dt><dd>@(surface.IsActive ? "Yes" : "No")</dd>
+                <dt>Route mode</dt><dd>@surface.RouteMode</dd>
+                <dt>Endpoint</dt><dd><code>@(surface.EndpointPath ?? "Not assigned")</code></dd>
+                <dt>Credential</dt><dd>@(surface.Credential is null ? "None" : $"Ending {surface.Credential.Suffix}")</dd>
+            </dl>
+            <div class="action-row wrap">
+                <button class="button" type="button" @onclick="() => RotateCredentialAsync(surface)">Rotate credential</button>
+                <button class="button" type="button" @onclick="() => RotateEndpointAsync(surface)">Rotate endpoint</button>
+                <button class="button primary" type="button" @onclick="() => SetActivationAsync(surface, !surface.IsActive)">@(surface.IsActive ? "Deactivate" : "Activate")</button>
+                <button class="button danger subtle" type="button" disabled="@(surface.Credential is null)" @onclick="() => RevokeCredentialAsync(surface)">Revoke credential</button>
+            </div>
+        </section>;
+
+    private async Task RotateCredentialAsync(DnaXRemoteEffectiveSurface surface) => await RunAsync(async () =>
+    {
+        DnaXGeneratedCredential credential = await Administration.RotateCredentialAsync(
+            surface.Surface,
+            surface.Version,
+            ["records.read"]);
+        _oneTimeSecret = credential.Secret;
+        _message = $"{surface.Surface} credential rotated.";
+    });
+
+    private async Task RotateEndpointAsync(DnaXRemoteEffectiveSurface surface) => await RunAsync(async () =>
+    {
+        await Administration.RotateEndpointAsync(surface.Surface, surface.Version);
+        _message = $"{surface.Surface} endpoint rotated. The previous route is invalid.";
+    });
+
+    private async Task SetActivationAsync(DnaXRemoteEffectiveSurface surface, bool active) => await RunAsync(async () =>
+    {
+        await Administration.SetActivationAsync(surface.Surface, active, allowAnonymous: false, expectedVersion: surface.Version);
+        _message = $"{surface.Surface} {(active ? "activated" : "deactivated")}.";
+    });
+
+    private async Task RevokeCredentialAsync(DnaXRemoteEffectiveSurface surface) => await RunAsync(async () =>
+    {
+        await Administration.RevokeCredentialAsync(surface.Surface, surface.Version);
+        _message = $"{surface.Surface} credential revoked.";
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        try
+        {
+            _isError = false;
+            await action();
+            await ReloadAsync(preserveMessage: true);
+        }
+        catch (Exception exception) when (exception is DnaXRemotePolicyException or DnaXRemoteConcurrencyException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _isError = true;
+            await ReloadAsync(preserveMessage: true);
+        }
+    }
+
+    private async Task ReloadAsync(bool preserveMessage = false)
+    {
+        _state = await Administration.GetStateAsync();
+        _activity = _state.AuditEnabled
+            ? await Administration.GetRecentActivityAsync(100)
+            : [];
+        if (!preserveMessage)
+        {
+            _message = null;
+        }
+    }
+
+    private void ClearSecret() => _oneTimeSecret = null;
+}

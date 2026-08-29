@@ -1,0 +1,44 @@
+@page "/"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Service
+
+<PageTitle>Overview · Monkeysphere</PageTitle>
+
+<h1>Your private sphere</h1>
+<p class="lede">Remember useful context without turning it into somebody else's social network.</p>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="metric-grid" aria-label="Dataset summary">
+        <article class="metric-card">
+            <strong>@_typeCount</strong>
+            <span>record types</span>
+        </article>
+        <article class="metric-card">
+            <strong>@_recordCount</strong>
+            <span>records</span>
+        </article>
+    </section>
+    <div class="action-row">
+        <a class="button primary" href="/record-types">Define a record type</a>
+        <a class="button" href="/records/new">Add a record</a>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private int _typeCount;
+    private int _recordCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _typeCount = (await Service.ListRecordTypesAsync()).Count;
+        _recordCount = (await Service.SearchRecordsAsync(new RecordSearch(PageSize: 1))).TotalCount;
+        _loading = false;
+    }
+}

@@ -1,0 +1,301 @@
+@page "/record-types/{Id:guid}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Service
+
+<PageTitle>@(_details?.RecordType.Name ?? "Record type") · Monkeysphere</PageTitle>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else if (_details is null)
+{
+    <h1>Record type not found</h1>
+    <p><a href="/record-types">Return to record types</a></p>
+}
+else
+{
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Record type</p>
+            <h1>@_details.RecordType.Name</h1>
+            <p class="muted">Stable ID @_details.RecordType.Id</p>
+        </div>
+        <a class="button" href="/records/new?typeId=@Id">Add record</a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+    }
+
+    <section class="panel">
+        <h2>Rename type</h2>
+        <EditForm Model="_rename" OnValidSubmit="RenameAsync">
+            <DataAnnotationsValidator />
+            <label>
+                Name
+                <InputText @bind-Value="_rename.Name" />
+                <ValidationMessage For="() => _rename.Name" />
+            </label>
+            <button class="button" type="submit">Save name</button>
+        </EditForm>
+    </section>
+
+    <section class="panel">
+        <h2>Add a field</h2>
+        <EditForm Model="_newField" OnValidSubmit="AddFieldAsync">
+            <DataAnnotationsValidator />
+            <div class="form-grid">
+                <label>
+                    Field name
+                    <InputText @bind-Value="_newField.Name" />
+                    <ValidationMessage For="() => _newField.Name" />
+                </label>
+                <label>
+                    Type identifier
+                    <InputText @bind-Value="_newField.TypeId" list="field-types" />
+                    <datalist id="field-types">
+                        @foreach (string typeId in FieldTypes.Recognized)
+                        {
+                            <option value="@typeId"></option>
+                        }
+                    </datalist>
+                    <ValidationMessage For="() => _newField.TypeId" />
+                </label>
+            </div>
+            @if (string.Equals(_newField.TypeId, FieldTypes.Choice, StringComparison.OrdinalIgnoreCase))
+            {
+                <label>
+                    Choices (one per line)
+                    <InputTextArea @bind-Value="_newField.Choices" rows="5" />
+                </label>
+            }
+            <label class="checkbox-label">
+                <InputCheckbox @bind-Value="_newField.IsRequired" />
+                Required on every record
+            </label>
+            <button class="button primary" type="submit">Add field</button>
+        </EditForm>
+    </section>
+
+    <section class="panel">
+        <h2>Reuse an existing field</h2>
+        @if (AvailableDefinitions.Count == 0)
+        {
+            <p class="empty-state">There are no other active field definitions to attach.</p>
+        }
+        else
+        {
+            <EditForm Model="_existingField" OnValidSubmit="AttachExistingAsync">
+                <DataAnnotationsValidator />
+                <label>
+                    Field definition
+                    <select @bind="_existingField.FieldDefinitionId" required>
+                        <option value="">Choose a field</option>
+                        @foreach (FieldDefinition definition in AvailableDefinitions)
+                        {
+                            <option value="@definition.Id">@definition.Name (@definition.TypeId)</option>
+                        }
+                    </select>
+                </label>
+                <label class="checkbox-label">
+                    <InputCheckbox @bind-Value="_existingField.IsRequired" />
+                    Required on every record of this type
+                </label>
+                <button class="button" type="submit">Attach existing field</button>
+            </EditForm>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Fields</h2>
+        @if (_details.Fields.Count == 0)
+        {
+            <p class="empty-state">This type has no fields yet.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Field</th><th>Type</th><th>Required</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (RecordTypeField field in _details.Fields)
+                        {
+                            <tr>
+                                <td>
+                                    @if (field.Definition.Lifecycle == FieldLifecycle.Active)
+                                    {
+                                        <input value="@FieldName(field.Definition)" aria-label="Rename @field.Definition.Name"
+                                               @onchange="args => SetFieldName(field.Definition.Id, args)" />
+                                    }
+                                    else
+                                    {
+                                        @field.Definition.Name
+                                    }
+                                </td>
+                                <td><code>@field.Definition.TypeId</code></td>
+                                <td>@(field.IsRequired ? "Yes" : "No")</td>
+                                <td>@field.Definition.Lifecycle</td>
+                                <td>
+                                    @if (field.Definition.Lifecycle == FieldLifecycle.Active)
+                                    {
+                                        <button class="button subtle" type="button" @onclick="() => RenameFieldAsync(field.Definition)">Rename</button>
+                                        <button class="button danger subtle" type="button" @onclick="() => RetireAsync(field.Definition)">Retire</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool _loading = true;
+    private RecordTypeDetails? _details;
+    private readonly RenameModel _rename = new();
+    private readonly NewFieldModel _newField = new();
+    private readonly ExistingFieldModel _existingField = new();
+    private IReadOnlyList<FieldDefinition> _definitions = [];
+    private readonly Dictionary<Guid, string> _fieldNames = [];
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnParametersSetAsync() => await ReloadAsync();
+
+    private async Task RenameAsync() => await RunAsync(async () =>
+    {
+        await Service.RenameRecordTypeAsync(Id, _rename.Name);
+        _message = "Record type renamed.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task AddFieldAsync() => await RunAsync(async () =>
+    {
+        string[]? choices = string.Equals(_newField.TypeId, FieldTypes.Choice, StringComparison.OrdinalIgnoreCase)
+            ? _newField.Choices.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : null;
+        await Service.CreateAndAttachFieldAsync(Id, new CreateFieldRequest(
+            _newField.Name,
+            _newField.TypeId,
+            _newField.IsRequired,
+            choices));
+        _newField.Name = string.Empty;
+        _newField.TypeId = FieldTypes.Text;
+        _newField.Choices = string.Empty;
+        _newField.IsRequired = false;
+        _message = "Field added.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task RetireAsync(FieldDefinition definition) => await RunAsync(async () =>
+    {
+        await Service.RetireFieldAsync(definition.Id);
+        _message = $"Retired {definition.Name}. Existing values remain preserved.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task AttachExistingAsync() => await RunAsync(async () =>
+    {
+        if (!Guid.TryParse(_existingField.FieldDefinitionId, out Guid fieldDefinitionId))
+        {
+            throw new DomainValidationException("Choose an active field definition.");
+        }
+
+        await Service.AttachFieldAsync(Id, fieldDefinitionId, _existingField.IsRequired);
+        _existingField.FieldDefinitionId = string.Empty;
+        _existingField.IsRequired = false;
+        _message = "Existing field attached with its stable identity preserved.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task RenameFieldAsync(FieldDefinition definition) => await RunAsync(async () =>
+    {
+        await Service.RenameFieldAsync(definition.Id, FieldName(definition));
+        _message = "Field definition renamed everywhere it is reused.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task ReloadAsync(bool preserveMessage = false)
+    {
+        _details = await Service.GetRecordTypeAsync(Id);
+        _definitions = await Service.ListFieldDefinitionsAsync();
+        if (_details is not null)
+        {
+            _rename.Name = _details.RecordType.Name;
+            foreach (RecordTypeField field in _details.Fields)
+            {
+                _fieldNames[field.Definition.Id] = field.Definition.Name;
+            }
+        }
+
+        if (!preserveMessage)
+        {
+            _message = null;
+        }
+
+        _loading = false;
+    }
+
+    private IReadOnlyList<FieldDefinition> AvailableDefinitions => _details is null
+        ? []
+        : _definitions
+            .Where(definition => definition.Lifecycle == FieldLifecycle.Active &&
+                _details.Fields.All(attachment => attachment.Definition.Id != definition.Id))
+            .ToArray();
+
+    private string FieldName(FieldDefinition definition) =>
+        _fieldNames.GetValueOrDefault(definition.Id, definition.Name);
+
+    private void SetFieldName(Guid id, ChangeEventArgs args) =>
+        _fieldNames[id] = args.Value?.ToString() ?? string.Empty;
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        try
+        {
+            _isError = false;
+            await action();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private sealed class RenameModel
+    {
+        [Required, StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+    }
+
+    private sealed class NewFieldModel
+    {
+        [Required, StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required, StringLength(100)]
+        public string TypeId { get; set; } = FieldTypes.Text;
+
+        public bool IsRequired { get; set; }
+
+        public string Choices { get; set; } = string.Empty;
+    }
+
+    private sealed class ExistingFieldModel
+    {
+        public string FieldDefinitionId { get; set; } = string.Empty;
+
+        public bool IsRequired { get; set; }
+    }
+}

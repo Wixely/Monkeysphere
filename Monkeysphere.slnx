@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Monkeysphere.Core/Monkeysphere.Core.csproj" />
+    <Project Path="src/Monkeysphere.Data/Monkeysphere.Data.csproj" />
+    <Project Path="src/Monkeysphere.Web/Monkeysphere.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Monkeysphere.Core.Tests/Monkeysphere.Core.Tests.csproj" />
+    <Project Path="tests/Monkeysphere.Data.Tests/Monkeysphere.Data.Tests.csproj" />
+    <Project Path="tests/Monkeysphere.Web.Tests/Monkeysphere.Web.Tests.csproj" />
+  </Folder>
+</Solution>

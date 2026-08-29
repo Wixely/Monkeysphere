@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Monkeysphere.Core/Monkeysphere.Core.csproj" />
+    <ProjectReference Include="../Monkeysphere.Data/Monkeysphere.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DnaX.Hosting" />
+    <PackageReference Include="DnaX.RemoteAccess" />
+    <PackageReference Include="DnaX.RemoteAccess.Mcp" />
+    <PackageReference Include="DnaX.RemoteAccess.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,86 @@
+@page "/record-types"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Service
+
+<PageTitle>Record types · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Structure</p>
+        <h1>Record types</h1>
+        <p>Define the kinds of things you want to remember and the fields each kind carries.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+<section class="panel">
+    <h2>Create a record type</h2>
+    <EditForm Model="_model" OnValidSubmit="CreateAsync">
+        <DataAnnotationsValidator />
+        <label>
+            Name
+            <InputText @bind-Value="_model.Name" placeholder="Person, pet, organisation…" />
+            <ValidationMessage For="() => _model.Name" />
+        </label>
+        <button class="button primary" type="submit">Create type</button>
+    </EditForm>
+</section>
+
+<section class="panel">
+    <h2>Existing types</h2>
+    @if (_types.Count == 0)
+    {
+        <p class="empty-state">No record types yet.</p>
+    }
+    else
+    {
+        <ul class="item-list">
+            @foreach (RecordType type in _types)
+            {
+                <li>
+                    <a href="/record-types/@type.Id">@type.Name</a>
+                    <span class="muted">Updated @type.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    private readonly CreateTypeModel _model = new();
+    private IReadOnlyList<RecordType> _types = [];
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            RecordType created = await Service.CreateRecordTypeAsync(_model.Name);
+            _model.Name = string.Empty;
+            _message = $"Created {created.Name}.";
+            _isError = false;
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task ReloadAsync() => _types = await Service.ListRecordTypesAsync();
+
+    private sealed class CreateTypeModel
+    {
+        [Required, StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+    }
+}

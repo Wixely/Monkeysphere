@@ -1,0 +1,178 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "DnaX.Hosting": {
+        "type": "Direct",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "sbRkOtojc09EoH59QcfL5ao3yrO3i6rPC8IDwrSY6eZpyUs5su6kUH4qSn6bZmi4TKVNAuyjA1K/Pdfy9iN5Ww=="
+      },
+      "DnaX.RemoteAccess": {
+        "type": "Direct",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "/CMv1vEyfOe39iSqGlhtlD57+uS4gocxnssFl3V6tdrYBH3gZUtXI8A8WktlE8suXek5VBx7u/llZbpo0KlUtA=="
+      },
+      "DnaX.RemoteAccess.Mcp": {
+        "type": "Direct",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "/mdsTqU0fTgfqLYN7IfA1EQfdsGib+qAmK3TIG833dUMKKGsQY8188cpXQCDf7QreVBfPNjfgt509m65odSzmA==",
+        "dependencies": {
+          "DnaX.RemoteAccess": "10.0.0-alpha.3",
+          "ModelContextProtocol.AspNetCore": "2.2.0"
+        }
+      },
+      "DnaX.RemoteAccess.Sqlite": {
+        "type": "Direct",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "5/by73iFICh29Bfiy+sRQDg5fU6V/NGan3EhEEd7D+Uv1nS/jaRCqXh5EjkVNproUUD5LkEVmL2qO31qLKyG4g==",
+        "dependencies": {
+          "DnaX.Data.Migrations": "10.0.0-alpha.3",
+          "DnaX.Data.Migrations.Sqlite": "10.0.0-alpha.3",
+          "DnaX.RemoteAccess": "10.0.0-alpha.3",
+          "Microsoft.Data.Sqlite": "10.0.11"
+        }
+      },
+      "Microsoft.AspNetCore.App.Internal.Assets": {
+        "type": "Direct",
+        "requested": "[10.0.8, )",
+        "resolved": "10.0.8",
+        "contentHash": "v6KocthydFtUHBIRI29YsOHKOgsqcQubkNywVOxiYr4GSDSv+XO/AeyMJywlX+1tGUTGdydu/X7V+Tzeq4SsoA=="
+      },
+      "Microsoft.Extensions.Hosting.Systemd": {
+        "type": "Direct",
+        "requested": "[10.0.11, )",
+        "resolved": "10.0.11",
+        "contentHash": "qDc27iV5ysvH2j2Hf6DwsN1aZl0YU3HNgYUvtFXEhuHrke5awU5cIvCGaaJCkILgML9rQZG+yjM2nbkv+ZqKog=="
+      },
+      "Microsoft.Extensions.Hosting.WindowsServices": {
+        "type": "Direct",
+        "requested": "[10.0.11, )",
+        "resolved": "10.0.11",
+        "contentHash": "OTlOHRxmt4IyYR5tBejF5ffdVMbo9n5NbPJRzCe0bnJmzTQt0kHNiDiEU96t4KkB3wE3vZqPETtXJVLujrRJnA==",
+        "dependencies": {
+          "System.ServiceProcess.ServiceController": "10.0.11"
+        }
+      },
+      "Microsoft.Data.Sqlite.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.11",
+        "contentHash": "hubA20AGenQ4Sx0ElWaPpB8DISjXpdx463+1zOGRslsT0e/t/06ITv+pHsop8CcJ0d8PZLfgnT7juCDVD79Dkw==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.12"
+        }
+      },
+      "Microsoft.Extensions.AI.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.8.3",
+        "contentHash": "K0B05oApxmviWalNHPMBBcRC7erKiDATz3ENNR/jqTR9JwIwLRefgDhj2jCRwL1aca99pXUe0qyQC73/xIuZig=="
+      },
+      "ModelContextProtocol": {
+        "type": "Transitive",
+        "resolved": "2.2.0",
+        "contentHash": "4Pb9u02Nwsp0poueDsqNdyGRojFxOYpljB7zDBsq+aHL+Afou3OgxlBc3GWFVnsRMRJrUtWqDh3s6k2JgPzmrQ==",
+        "dependencies": {
+          "ModelContextProtocol.Core": "[2.2.0]"
+        }
+      },
+      "ModelContextProtocol.AspNetCore": {
+        "type": "Transitive",
+        "resolved": "2.2.0",
+        "contentHash": "3JelDMuFIwFzXybsh6K30G6wXu5gmqKnuRnieqgBMuR0FkqqXRv4B+NYZuPgthSyNq5UwRyvv2U2VJBE3RD3PQ==",
+        "dependencies": {
+          "ModelContextProtocol": "[2.2.0]"
+        }
+      },
+      "ModelContextProtocol.Core": {
+        "type": "Transitive",
+        "resolved": "2.2.0",
+        "contentHash": "FeBfXU6T8k+jw4afg4sfxdEX2rL/e5oKOk9ROOGztu9k47+7Bz08sdaToYt2XvMY1opNbwxYQOFMj6wH9TInhA==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.8.3"
+        }
+      },
+      "SQLitePCLRaw.bundle_e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.12",
+        "contentHash": "mAgscpQMLw5/nfA1Q5oJVAT29yROUo1ifZGbbTpx/lwZpSxMUGoYbKfmvdm8oXER+RzxqBmmQzeBEVKfeHv2nw==",
+        "dependencies": {
+          "SQLitePCLRaw.lib.e_sqlite3": "2.1.12",
+          "SQLitePCLRaw.provider.e_sqlite3": "2.1.12"
+        }
+      },
+      "SQLitePCLRaw.core": {
+        "type": "Transitive",
+        "resolved": "2.1.12",
+        "contentHash": "ETpNw9DY3ckWLgRRAeCHj+GKOuPi61aeczkXhgHexUvqoZBAYg8RYESE2J7O1M7+o6QbdSEZwrw9bfqztUVWXg=="
+      },
+      "SQLitePCLRaw.lib.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.12",
+        "contentHash": "fWi8Dbknuhgg72fWinIdjXVaqO1hHL4YBBwVLnr7e1c9TAZwJ0QE38j9syW1hwx6HaqEVTwI+O07WPdZn8Rp0w=="
+      },
+      "SQLitePCLRaw.provider.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.12",
+        "contentHash": "W3oH4XIfCzFrgUSDKHhN6N+dgzA5YHOR2VxX8GB6Qy7CyrJJgxPEG8NirgYWlPQC5P2jz2knSsexWu4tDUL33g==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.12"
+        }
+      },
+      "System.ServiceProcess.ServiceController": {
+        "type": "Transitive",
+        "resolved": "10.0.11",
+        "contentHash": "khROyIQ3GAZy5MbCabfmlbvxf9nuvdveFP2XbRCteZ9Lq8OFEvImmrjV6acl1LegRu/9T6VMxi9Lr+KZu29VHg=="
+      },
+      "monkeysphere.core": {
+        "type": "Project"
+      },
+      "monkeysphere.data": {
+        "type": "Project",
+        "dependencies": {
+          "Dapper": "[2.1.79, )",
+          "DnaX.Data.Migrations": "[10.0.0-alpha.3, )",
+          "DnaX.Data.Migrations.Sqlite": "[10.0.0-alpha.3, )",
+          "DnaX.Hosting": "[10.0.0-alpha.3, )",
+          "Microsoft.Data.Sqlite": "[10.0.11, )",
+          "Monkeysphere.Core": "[1.0.0, )"
+        }
+      },
+      "Dapper": {
+        "type": "CentralTransitive",
+        "requested": "[2.1.79, )",
+        "resolved": "2.1.79",
+        "contentHash": "8YijbzgTfmqmQOnVNorYM6K++pxqnW3nJ4aC1sRHzxUA2CcuoJ9gsTem3kgBnPRMc38zZHl4Esb6hAezXIEEuw=="
+      },
+      "DnaX.Data.Migrations": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "2LAl6ZBvxBM5Qpw9kR4AbN2jBoRA7ruAOIPodxZMX62UklxyAiDDIr/a8JVoODKwEIxvXm6crr9jR5/vQ9DV1A=="
+      },
+      "DnaX.Data.Migrations.Sqlite": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.0-alpha.3, )",
+        "resolved": "10.0.0-alpha.3",
+        "contentHash": "EDOsP7q0nG/IvYRFLaFVnoMEaHGq8F7JpMpB9/9aINBNVbmkKpcZ5RNKKGZX1fsZXkldPXkU71yHbKE/3DOumQ==",
+        "dependencies": {
+          "DnaX.Data.Migrations": "10.0.0-alpha.3",
+          "Microsoft.Data.Sqlite": "10.0.11"
+        }
+      },
+      "Microsoft.Data.Sqlite": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.11, )",
+        "resolved": "10.0.11",
+        "contentHash": "7je7UELzm131GiLYc4PpZvfKXIgIyzPM+v+tjcd/nbnuWRfgcONYKzDTqJlURxwVCFsVnlpmq6y6yn4qvR8QXQ==",
+        "dependencies": {
+          "Microsoft.Data.Sqlite.Core": "10.0.11",
+          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.12",
+          "SQLitePCLRaw.core": "2.1.12"
+        }
+      }
+    }
+  }
+}
