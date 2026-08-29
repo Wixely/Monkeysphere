@@ -73,11 +73,13 @@ Record types can be retired without deleting their records or saved views. Exist
 ## Deployment
 
 - Interactive Windows: use `eng/Run.ps1` or `dotnet run`.
-- Windows Service: the host detects service execution; installation guidance will be verified before support is claimed.
-- Linux/systemd: a unit template is under `deploy/systemd`; verification remains required.
+- Windows Service: the host detects service execution; an explicit, self-cleaning lifecycle verifier is available, but live verification remains required before support is claimed.
+- Linux/systemd: a unit template and interactive/static verification scripts are included; live lifecycle verification remains required.
 - Docker: use `docker compose up --build`. It defaults to `admin` / `admin`; set `MONKEYSPHERE_ADMIN_USERNAME` and `MONKEYSPHERE_ADMIN_PASSWORD` in the Docker deployment environment to override them.
 
 See [architecture](docs/architecture.md), [security](docs/security.md), the [initial-release threat model](docs/threat-model.md), [performance and load boundaries](docs/performance-boundaries.md), [dependencies](docs/dependencies.md), [verification status](docs/verification.md), the [release process](docs/releasing.md), and [third-party notices](THIRD-PARTY-NOTICES.md).
+
+The reproducible package, service, systemd, and Docker checks are documented in [deployment verification](docs/deployment-verification.md).
 
 ## License
 

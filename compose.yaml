@@ -3,7 +3,7 @@ services:
     build:
       context: .
     ports:
-      - "5080:8080"
+      - "${MONKEYSPHERE_PORT:-5080}:8080"
     environment:
       MONKEYSPHERE_ADMIN_USERNAME: "${MONKEYSPHERE_ADMIN_USERNAME:-admin}"
       MONKEYSPHERE_ADMIN_PASSWORD: "${MONKEYSPHERE_ADMIN_PASSWORD:-admin}"

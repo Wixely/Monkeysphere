@@ -30,6 +30,14 @@ jobs:
         shell: powershell
         run: .\eng\Build.ps1
 
+      - name: Package and smoke-test Windows deployment
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\eng\PackageRelease.ps1 -Version "ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $package = Get-ChildItem ".artifacts\releases\ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\*-win-x64.zip" | Select-Object -First 1
+          .\eng\VerifyWindowsPackage.ps1 -PackagePath $package.FullName
+
       - name: Restore on Linux
         if: runner.os == 'Linux'
         shell: bash
@@ -44,3 +52,27 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: dotnet test Monkeysphere.slnx --configuration Release --no-build --logger 'console;verbosity=normal'
+
+      - name: Publish and smoke-test Linux deployment
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dotnet publish src/Monkeysphere.Web/Monkeysphere.Web.csproj --configuration Release --runtime linux-x64 --self-contained false --no-restore --output .artifacts/linux-smoke
+          ./eng/VerifyLinuxPackage.sh .artifacts/linux-smoke
+          ./eng/VerifySystemdUnit.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact revision without a Node action
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Build and smoke-test Docker deployment
+        shell: bash
+        run: ./eng/VerifyDocker.sh

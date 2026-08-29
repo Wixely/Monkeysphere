@@ -16,6 +16,8 @@ The two RID-specific packages and `SHA256SUMS.txt` are written beneath `.artifac
 
 Verify the ZIP on a clean Windows machine and a clean Linux machine before treating it as portable release evidence. The local package command proves deterministic inputs and layout, not cross-platform execution.
 
+Use the repository's [deployment verification](deployment-verification.md) scripts for repeatable package, service, systemd-unit, and Docker checks. Record the exact commit and environment; do not convert a static check or an unexecuted CI job into a platform-support claim.
+
 ## GitHub automation
 
 The verification workflow runs locked restore, Release build, and tests on Windows and Linux. The Windows leg additionally enforces vendored hashes, central NuGet versions, notices, and the no-CDN browser boundary. Workflows check out Git directly and use only shell and .NET commands; they do not add Node.js or Python actions/tooling to the project.
