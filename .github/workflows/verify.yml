@@ -1,0 +1,46 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact revision without a Node action
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Verify on Windows with repository build
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\eng\Build.ps1
+
+      - name: Restore on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: dotnet restore Monkeysphere.slnx --locked-mode
+
+      - name: Build on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: dotnet build Monkeysphere.slnx --configuration Release --no-restore
+
+      - name: Test on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: dotnet test Monkeysphere.slnx --configuration Release --no-build --logger 'console;verbosity=normal'

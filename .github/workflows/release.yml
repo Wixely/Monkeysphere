@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact tag without a Node action
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Verify
+        shell: powershell
+        run: .\eng\Build.ps1
+
+      - name: Audit current NuGet advisories
+        shell: powershell
+        run: .\eng\VerifySupplyChain.ps1 -AuditVulnerabilities
+
+      - name: Package framework-dependent release
+        shell: powershell
+        run: .\eng\PackageRelease.ps1 -Version $env:GITHUB_REF_NAME
+
+      - name: Publish durable GitHub Release assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseRoot = Join-Path '.artifacts\releases' $env:GITHUB_REF_NAME
+          $assets = @(Get-ChildItem -LiteralPath $releaseRoot -File -Filter '*.zip' | Select-Object -ExpandProperty FullName)
+          $assets += Join-Path $releaseRoot 'SHA256SUMS.txt'
+          gh release create $env:GITHUB_REF_NAME @assets `
+            --verify-tag `
+            --generate-notes `
+            --title "Monkeysphere $($env:GITHUB_REF_NAME)"
