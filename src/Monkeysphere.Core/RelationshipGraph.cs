@@ -5,8 +5,8 @@ public sealed record RelationshipGraphQuery(
     Guid? RelationshipTypeId = null,
     Guid? FocusRecordId = null,
     int Depth = 1,
-    int NodeLimit = 500,
-    int EdgeLimit = 2_000);
+    int NodeLimit = RelationshipGraphService.MaximumNodes,
+    int EdgeLimit = RelationshipGraphService.MaximumEdges);
 
 public sealed record RelationshipGraphNode(
     Guid RecordId,
@@ -46,6 +46,9 @@ public interface IRelationshipGraphService
 
 public sealed class RelationshipGraphService(IRelationshipGraphStore store) : IRelationshipGraphService
 {
+    public const int MaximumNodes = 500;
+    public const int MaximumEdges = 2_000;
+
     public Task<RelationshipGraphResult> QueryAsync(
         RelationshipGraphQuery query,
         CancellationToken cancellationToken = default)
@@ -61,12 +64,12 @@ public sealed class RelationshipGraphService(IRelationshipGraphStore store) : IR
             throw new DomainValidationException("Graph neighbour depth must be between 0 and 3.");
         }
 
-        if (query.NodeLimit is < 1 or > 500)
+        if (query.NodeLimit is < 1 or > MaximumNodes)
         {
             throw new DomainValidationException("Graph node limit must be between 1 and 500.");
         }
 
-        if (query.EdgeLimit is < 1 or > 2_000)
+        if (query.EdgeLimit is < 1 or > MaximumEdges)
         {
             throw new DomainValidationException("Graph edge limit must be between 1 and 2,000.");
         }

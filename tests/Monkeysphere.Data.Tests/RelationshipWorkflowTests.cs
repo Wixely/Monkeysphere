@@ -112,6 +112,118 @@ public sealed class RelationshipWorkflowTests
         Assert.Equal(2, truncated.Nodes.Count);
         Assert.DoesNotContain(truncated.Nodes, node => node.RecordId == unrelated.Record.Id);
     }
+
+    [Fact]
+    public async Task RelationshipGraphEnforcesRenderingBoundsAtAcceptedStorageScale()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+        IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
+        MonkeysphereConnectionFactory connections = application.Services.GetRequiredService<MonkeysphereConnectionFactory>();
+        RecordType type = await records.CreateRecordTypeAsync("Scale person");
+        RelationshipType connection = await relationships.CreateTypeAsync(new(
+            "scale connection", RelationshipDirectionality.Symmetric));
+        Guid focusId = await SeedScaleGraphAsync(connections, type.Id, connection.Id);
+
+        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+        RelationshipGraphResult result = await graph.QueryAsync(new(
+            FocusRecordId: focusId,
+            Depth: 1,
+            NodeLimit: RelationshipGraphService.MaximumNodes,
+            EdgeLimit: RelationshipGraphService.MaximumEdges), deadline.Token);
+
+        Assert.Equal(RelationshipGraphService.MaximumNodes, result.Nodes.Count);
+        Assert.Equal(RelationshipGraphService.MaximumEdges, result.Edges.Count);
+        Assert.True(result.NodesTruncated);
+        Assert.True(result.EdgesTruncated);
+        Assert.Equal(focusId, result.Nodes[0].RecordId);
+    }
+
+    private static async Task<Guid> SeedScaleGraphAsync(
+        MonkeysphereConnectionFactory connections,
+        Guid recordTypeId,
+        Guid relationshipTypeId)
+    {
+        const int recordCount = 10_000;
+        const int relationshipCount = 50_000;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        Guid[] recordIds = Enumerable.Range(0, recordCount)
+            .Select(index => new Guid(index + 1, 0, 0, new byte[8]))
+            .ToArray();
+
+        await using SqliteConnection connection = await connections.OpenConnectionAsync();
+        await using SqliteTransaction transaction = connection.BeginTransaction();
+        await using (SqliteCommand insertRecord = connection.CreateCommand())
+        {
+            insertRecord.Transaction = transaction;
+            insertRecord.CommandText = """
+                INSERT INTO Records (Id, RecordTypeId, DisplayName, CreatedAtUtc, UpdatedAtUtc)
+                VALUES (@Id, @RecordTypeId, @DisplayName, @CreatedAtUtc, @UpdatedAtUtc);
+                """;
+            SqliteParameter id = insertRecord.Parameters.Add("@Id", SqliteType.Text);
+            insertRecord.Parameters.AddWithValue("@RecordTypeId", recordTypeId.ToString("D"));
+            SqliteParameter displayName = insertRecord.Parameters.Add("@DisplayName", SqliteType.Text);
+            insertRecord.Parameters.AddWithValue("@CreatedAtUtc", now.ToString("O"));
+            insertRecord.Parameters.AddWithValue("@UpdatedAtUtc", now.ToString("O"));
+            for (int index = 0; index < recordIds.Length; index++)
+            {
+                id.Value = recordIds[index].ToString("D");
+                displayName.Value = $"Record {index:D5}";
+                await insertRecord.ExecuteNonQueryAsync();
+            }
+        }
+
+        await using SqliteCommand insertRelationship = connection.CreateCommand();
+        insertRelationship.Transaction = transaction;
+        insertRelationship.CommandText = """
+            INSERT INTO Relationships
+                (Id, RelationshipTypeId, SourceRecordId, TargetRecordId, Note, CreatedAtUtc, UpdatedAtUtc)
+            VALUES (@Id, @RelationshipTypeId, @SourceRecordId, @TargetRecordId, NULL, @CreatedAtUtc, @UpdatedAtUtc);
+            """;
+        SqliteParameter relationshipId = insertRelationship.Parameters.Add("@Id", SqliteType.Text);
+        insertRelationship.Parameters.AddWithValue("@RelationshipTypeId", relationshipTypeId.ToString("D"));
+        SqliteParameter sourceId = insertRelationship.Parameters.Add("@SourceRecordId", SqliteType.Text);
+        SqliteParameter targetId = insertRelationship.Parameters.Add("@TargetRecordId", SqliteType.Text);
+        insertRelationship.Parameters.AddWithValue("@CreatedAtUtc", now.ToString("O"));
+        insertRelationship.Parameters.AddWithValue("@UpdatedAtUtc", now.ToString("O"));
+        int relationshipIndex = 0;
+
+        async Task InsertAsync(int sourceIndex, int targetIndex)
+        {
+            relationshipId.Value = new Guid(100_001 + relationshipIndex, 0, 0, new byte[8]).ToString("D");
+            sourceId.Value = recordIds[sourceIndex].ToString("D");
+            targetId.Value = recordIds[targetIndex].ToString("D");
+            await insertRelationship.ExecuteNonQueryAsync();
+            relationshipIndex++;
+        }
+
+        for (int targetIndex = 1; targetIndex <= 600; targetIndex++)
+        {
+            await InsertAsync(0, targetIndex);
+        }
+
+        for (int sourceIndex = 1; sourceIndex <= 65; sourceIndex++)
+        {
+            for (int targetIndex = sourceIndex + 1; targetIndex <= 65; targetIndex++)
+            {
+                await InsertAsync(sourceIndex, targetIndex);
+            }
+        }
+
+        for (int offset = 1; relationshipIndex < relationshipCount; offset++)
+        {
+            for (int sourceIndex = 601; sourceIndex < recordCount && relationshipIndex < relationshipCount; sourceIndex++)
+            {
+                int targetIndex = 601 + ((sourceIndex - 601 + offset) % (recordCount - 601));
+                await InsertAsync(sourceIndex, targetIndex);
+            }
+        }
+
+        await transaction.CommitAsync();
+        Assert.Equal(relationshipCount, relationshipIndex);
+        return recordIds[0];
+    }
 }
 
 internal sealed class TestApplication : IAsyncDisposable

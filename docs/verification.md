@@ -4,7 +4,7 @@ Last verified: 2026-08-29
 
 ## Verified on Windows
 
-- `eng/Build.ps1` verified vendored dependency hashes and browser egress boundaries, restored in locked mode, built Release with zero warnings, and passed 94 tests.
+- `eng/Build.ps1` verified vendored dependency hashes and browser egress boundaries, restored in locked mode, built Release with zero warnings, and passed 95 tests.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
 - Authenticated editor rendering and static-asset tests cover the private map-pin control and vendored OpenLayers delivery.
 - Core, SQLite integration, and authenticated rendering tests cover map-query bounds, single and multi-field filters, pagination, R-tree migration history, approximation-radius viewport intersection, structured location summaries, and private map access.
@@ -12,6 +12,7 @@ Last verified: 2026-08-29
 - An offline restore integration test changes live data after backup, restores the earlier package with rollback retention, restarts against the restored data root, and verifies database rollback plus lazy image-derivative regeneration.
 - Schedule tests cover daily, weekly, and end-of-month recurrence calculations; scheduling remains off by default in the application and Docker configuration.
 - Core, SQLite integration, and authenticated rendering tests cover graph limits, alias search, relationship-type filtering, neighbour depth, deterministic node truncation, private route protection, and vendored Cytoscape.js delivery.
+- A production-path scale regression creates 10,000 records and 50,000 relationships, completes a one-hop focused query under a 10-second cancellation deadline, and proves simultaneous 500-node and 2,000-edge truncation. This verifies the accepted boundary, not a latency SLA.
 - Application tests verify the global anti-framing, no-referrer, MIME-sniffing, permissions, base-URI, and object-embedding response headers.
 - `eng/VerifySupplyChain.ps1 -AuditVulnerabilities` reported no known direct or transitive NuGet vulnerability from the configured sources on 2026-08-29. The audit is time-sensitive and is not treated as permanent evidence.
 - DnaX historical verification constructed and upgraded every Monkeysphere schema version to the same canonical schema.
