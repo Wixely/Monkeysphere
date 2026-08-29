@@ -7,18 +7,28 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_root=$(CDPATH= cd -- "$1" && pwd)
-application="$package_root/Monkeysphere.Web.dll"
-if [ ! -f "$application" ]; then
+application_dll="$package_root/Monkeysphere.Web.dll"
+application_host="$package_root/Monkeysphere.Web"
+if [ ! -f "$application_dll" ]; then
     echo "Published directory does not contain Monkeysphere.Web.dll: $package_root" >&2
     exit 2
 fi
 
-for command_name in dotnet curl sed grep mktemp; do
+for command_name in curl sed grep mktemp; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required command is unavailable: $command_name" >&2
         exit 2
     fi
 done
+
+if command -v dotnet >/dev/null 2>&1; then
+    launch_kind=framework-dependent
+elif [ -x "$application_host" ]; then
+    launch_kind=self-contained
+else
+    echo "Neither a .NET runtime nor an executable self-contained Monkeysphere host is available." >&2
+    exit 2
+fi
 
 working_root=$(mktemp -d -t monkeysphere-linux-verify-XXXXXX)
 data_root="$working_root/data"
@@ -56,11 +66,19 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 start_application() {
-    ASPNETCORE_ENVIRONMENT=Production \
-    MONKEYSPHERE_DATA_ROOT="$data_root" \
-    MONKEYSPHERE_ADMIN_USERNAME=admin \
-    MONKEYSPHERE_ADMIN_PASSWORD=admin \
-    dotnet "$application" --urls "$base_uri" >"$log_file" 2>&1 &
+    if [ "$launch_kind" = framework-dependent ]; then
+        ASPNETCORE_ENVIRONMENT=Production \
+        MONKEYSPHERE_DATA_ROOT="$data_root" \
+        MONKEYSPHERE_ADMIN_USERNAME=admin \
+        MONKEYSPHERE_ADMIN_PASSWORD=admin \
+        dotnet "$application_dll" --urls "$base_uri" >"$log_file" 2>&1 &
+    else
+        ASPNETCORE_ENVIRONMENT=Production \
+        MONKEYSPHERE_DATA_ROOT="$data_root" \
+        MONKEYSPHERE_ADMIN_USERNAME=admin \
+        MONKEYSPHERE_ADMIN_PASSWORD=admin \
+        "$application_host" --urls "$base_uri" >"$log_file" 2>&1 &
+    fi
     application_pid=$!
 }
 
@@ -108,4 +126,4 @@ start_application
 smoke_http
 stop_application
 
-echo "Linux interactive restart and persistent-data smoke passed at $base_uri."
+echo "Linux $launch_kind interactive restart and persistent-data smoke passed at $base_uri."

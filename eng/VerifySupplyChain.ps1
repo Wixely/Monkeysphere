@@ -60,6 +60,23 @@ try {
         }
     }
 
+    $dockerfile = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Dockerfile') -Raw
+    $requiredContainerPins = @(
+        'mcr.microsoft.com/dotnet/sdk:10.0.400@sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c',
+        'mcr.microsoft.com/dotnet/aspnet:10.0.11@sha256:a4556ed033fa96f984bb7a8d348851cb2d36b1281dd2420070045f664fbb5f94',
+        'RuntimeFrameworkVersion=10.0.8'
+    )
+    foreach ($requiredContainerPin in $requiredContainerPins) {
+        if (-not $dockerfile.Contains($requiredContainerPin)) {
+            throw "Dockerfile is missing an enforced container/runtime pin: $requiredContainerPin"
+        }
+    }
+    $nestedDockerVerifier = Get-Content -LiteralPath (Join-Path $repositoryRoot 'eng\VerifyNestedDocker.sh') -Raw
+    $nestedDockerPin = 'docker.io/library/docker:28.5.2-dind@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac'
+    if (-not $nestedDockerVerifier.Contains($nestedDockerPin)) {
+        throw "Nested Docker verifier is missing its enforced engine pin: $nestedDockerPin"
+    }
+
     if ($AuditVulnerabilities) {
         $auditOutput = & dotnet package list --project Monkeysphere.slnx --vulnerable --include-transitive --no-restore --format json --output-version 1
         if ($LASTEXITCODE -ne 0) {

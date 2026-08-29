@@ -2,7 +2,7 @@
 
 Last verified: 2026-08-29
 
-## Verified on Windows
+## Verified evidence
 
 - `eng/Build.ps1` verified vendored dependency hashes and browser egress boundaries, restored in locked mode, built Release with zero warnings, and passed 95 tests.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
@@ -18,6 +18,10 @@ Last verified: 2026-08-29
 - `eng/PackageRelease.ps1` produced separate framework-dependent Windows x64 and Linux x64 ZIPs plus a two-entry SHA-256 file. Archive inspection found no PDB, database, backup, key, secret, or log candidate; execution of the Linux package remains unverified.
 - The packaged Windows x64 executable passed readiness, default-credential sign-in, authenticated setup rendering, managed-database creation, process restart, and persistent-data-root smoke checks twice on 2026-08-29.
 - The systemd unit passed `systemd-analyze verify` against isolated existing command/data paths and retained its notify, privilege-escalation, private-temporary-directory, and read-only-system hardening directives. This was a static unit check, not a service lifecycle test.
+- A temporary self-contained Linux x64 publish used the already-cached .NET 10.0.8 runtime pack and passed fresh startup, readiness, default-credential authentication, managed-database creation, process restart, and persistent-data-root checks on the WSL2 Linux kernel without installing or configuring the distribution.
+- A non-privileged transient user service under systemd passed `Type=notify` readiness, default-credential authentication, stop/start lifecycle, and persistent-data-root checks with the same temporary Linux publish. Packaged system-unit installation and boot enablement remain separate gaps.
+- The digest-pinned Dockerfile built successfully with rootless Podman. The resulting OCI container ran as UID 1654, passed readiness and default-credential authentication, created both managed databases in a named volume, and passed the same checks after container removal and recreation against that volume.
+- Docker Engine 28.5.2 and Docker Compose 2.40.3 ran inside an isolated, ephemeral nested daemon and passed the exact Compose build, readiness, default-credential authentication, database-volume, stop/start, and cleanup workflow. This verifies the Compose deployment behavior without installing a host daemon; production host storage, networking, and boot policy remain operator concerns.
 - DnaX historical verification constructed and upgraded every Monkeysphere schema version to the same canonical schema.
 - Automated tests cover authentication and antiforgery, cookie transport behavior, restart persistence, alias persistence, update validation and search, structured-location validation, coordinate normalization, context-only approximations, persistence, search/filtering and remote serialization, image decoding and normalization, captions, cover selection, ordering, non-destructive correction validation, authenticated derivative and original delivery, byte-identical original retention, image deletion/promotion and record cascading, temporal precision, exact-date calendar inclusion and filtering, approximate/coarse-date exclusion, authenticated calendar rendering and export, iCalendar escaping and UTF-8 folding, reminder eligibility, duplicate prevention, persistence across date edits, dismissal and cleanup, vCard 3.0/4.0 parsing, malformed-input rejection, semantic extension round-tripping, mapping preview, exact-import and content duplicate detection, create/skip/merge/replace behavior, whole-batch rollback, authenticated selected-contact export, relationship lifecycle and directionality, saved-view CRUD, multiple filters, field grouping/sorting, rename/retirement stability, previewed compatible-field merging, explicit conflict resolution, stale-preview rejection, saved-view reference migration, fail-closed field conversion, record-type retirement, record/type/view migration, required-rule relaxation, preset provenance and versioning, customizable transactional starter installation, persistent blank-slate setup, wizard example rendering, remote-disabled defaults, DnaX API route and credential rotation, scope denial, credential separation, relationship and image-metadata retrieval, and an MCP tool call.
 - An MCP-driven browser smoke test verified `admin` / `admin` login, record-type and field creation, saved-view creation and duplication, record creation, saved filter application, grouping, and configured table-column rendering in Chromium.
@@ -28,7 +32,6 @@ Last verified: 2026-08-29
 
 - Dedicated screen-reader, Windows high-contrast, browser-zoom, and automated accessibility-scanner verification.
 - Windows Service installation, start, stop, upgrade, and recovery behavior. A guarded lifecycle verifier is ready but was not run because the current session is not elevated and service installation changes the host.
-- Docker image build and persistent-volume smoke tests. Docker is not installed in the current environment.
-- Linux interactive and systemd operation. A systemd-enabled WSL2 distribution is now visible, but it has no .NET runtime; installing one was not authorized, so application execution remains unverified.
+- The distributed framework-dependent Linux package against an independently installed ASP.NET Core runtime; the available WSL2 distribution has no installed .NET runtime. System-unit installation, boot enablement, upgrade, and failure recovery also remain unverified.
 
 These are verification gaps, not support claims. Re-run the full suite and update this file when an appropriate environment is available.
