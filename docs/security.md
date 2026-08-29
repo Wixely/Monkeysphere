@@ -5,7 +5,7 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 ## Initial controls
 
 - No public registration, tenant system, roles, or anonymous record access.
-- Administrator password supplied at deployment, rejected when missing/default/invalid, hashed in memory with the ASP.NET Core password hasher, and never persisted or logged in plaintext.
+- The unconfigured login is deliberately `admin` / `admin`. Deployment configuration can override the username and can override the password directly or through a password file; Docker Compose exposes interpolated credential settings for deployment overrides. The effective password is hashed in memory with the ASP.NET Core password hasher and is never persisted or logged in plaintext.
 - Cookie authentication, explicit sign-out, CSRF validation, bounded session lifetime, and login rate limiting.
 - Authentication before record, field, search, remote administration, API, MCP, or detailed diagnostic operations.
 - DnaX remote access unavailable by default, with separate credentials, randomized routes, bounded requests, and redacted audit metadata when deliberately enabled.
@@ -14,6 +14,8 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 ## Transport
 
 The application serves HTTP. External confidentiality depends on an operator-managed HTTPS reverse proxy. Forwarded headers are trusted only from explicitly configured proxies or networks; remote access must not be enabled externally until this boundary is configured and tested.
+
+The built-in credential is public and must be overridden before exposing a deployment outside a trusted local environment.
 
 ## Known initial non-goals
 

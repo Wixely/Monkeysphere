@@ -5,17 +5,12 @@ services:
     ports:
       - "5080:8080"
     environment:
-      MONKEYSPHERE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      MONKEYSPHERE_ADMIN_USERNAME: "${MONKEYSPHERE_ADMIN_USERNAME:-admin}"
+      MONKEYSPHERE_ADMIN_PASSWORD: "${MONKEYSPHERE_ADMIN_PASSWORD:-admin}"
       DnaX__RemoteAccess__Enabled: "false"
-    secrets:
-      - admin_password
     volumes:
       - monkeysphere-data:/data
     restart: unless-stopped
-
-secrets:
-  admin_password:
-    file: ./secrets/admin-password.txt
 
 volumes:
   monkeysphere-data:

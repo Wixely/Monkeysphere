@@ -4,7 +4,7 @@ Last verified: 2026-08-29
 
 ## Verified on Windows
 
-- `eng/Build.ps1` restored in locked mode, built Release with zero warnings, and passed 49 tests.
+- `eng/Build.ps1` restored in locked mode, built Release with zero warnings, and passed 48 tests.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
 - DnaX historical verification constructed and upgraded every Monkeysphere schema version to the same canonical schema.
 - Automated tests cover authentication and antiforgery, cookie transport behavior, restart persistence, temporal precision, relationship lifecycle and directionality, remote-disabled defaults, DnaX API route and credential rotation, scope denial, credential separation, relationship retrieval, and an MCP tool call.

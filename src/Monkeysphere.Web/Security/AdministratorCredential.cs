@@ -5,19 +5,6 @@ namespace Monkeysphere.Web.Security;
 
 public sealed class AdministratorCredential
 {
-    private static readonly HashSet<string> KnownPlaceholders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "admin",
-        "changeme",
-        "change-me",
-        "default",
-        "letmein",
-        "monkeysphere",
-        "password",
-        "password123",
-        "secret",
-    };
-
     private readonly PasswordHasher<AdministratorIdentity> _hasher;
     private readonly AdministratorIdentity _identity;
     private readonly string _passwordHash;
@@ -65,8 +52,8 @@ public sealed class AdministratorCredential
 
         string password = !string.IsNullOrWhiteSpace(passwordFile)
             ? ReadPasswordFile(passwordFile)
-            : directPassword ?? string.Empty;
-        ValidatePassword(username, password);
+            : directPassword ?? "admin";
+        ValidatePassword(password);
         return new AdministratorCredential(username, password);
     }
 
@@ -87,16 +74,11 @@ public sealed class AdministratorCredential
         return File.ReadAllText(fullPath).TrimEnd('\r', '\n');
     }
 
-    private static void ValidatePassword(string username, string password)
+    private static void ValidatePassword(string password)
     {
-        if (password.Length is < 14 or > 1024)
+        if (string.IsNullOrWhiteSpace(password) || password.Length > 1024)
         {
-            throw new InvalidOperationException("The administrator password must contain between 14 and 1024 characters.");
-        }
-
-        if (KnownPlaceholders.Contains(password) || string.Equals(username, password, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("The administrator password is a known placeholder or default.");
+            throw new InvalidOperationException("The administrator password must contain between 1 and 1024 non-blank characters.");
         }
     }
 

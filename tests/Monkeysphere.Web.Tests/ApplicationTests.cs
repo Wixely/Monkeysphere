@@ -149,12 +149,20 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
 public sealed class AdministratorCredentialTests
 {
+    [Fact]
+    public void MissingConfigurationUsesDefaultAdministratorCredential()
+    {
+        IConfiguration configuration = new ConfigurationBuilder().Build();
+        AdministratorCredential credential = AdministratorCredential.Load(configuration);
+
+        Assert.True(credential.Verify("admin", "admin"));
+        Assert.False(credential.Verify("admin", "incorrect"));
+    }
+
     [Theory]
-    [InlineData(null)]
     [InlineData("")]
-    [InlineData("password")]
-    [InlineData("too-short")]
-    public void InvalidOrPlaceholderPasswordsFailClosed(string? password)
+    [InlineData("   ")]
+    public void ExplicitBlankPasswordIsRejected(string password)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

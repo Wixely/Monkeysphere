@@ -10,7 +10,7 @@ The current slice provides one administrator account, configurable record types 
 
 - .NET SDK 10.0.300 or a compatible later 10.0 feature band.
 - Windows PowerShell 5.1 for repository scripts.
-- An administrator password supplied through configuration or a secret file. Never commit it.
+- No credential setup is required for local testing. Configure a non-default administrator password before exposing a deployment outside a trusted local environment.
 
 No Node.js or Python toolchain is used.
 
@@ -22,11 +22,13 @@ No Node.js or Python toolchain is used.
 
 ### Test in VS Code
 
-Open the repository root in VS Code, install the recommended C# Dev Kit extension if prompted, and press `F5`. Select **Monkeysphere Web** if VS Code asks for a configuration. Enter a temporary administrator password of at least 14 characters when prompted; the browser opens at `http://localhost:5080`, and the username is `admin`.
+Open the repository root in VS Code, install the recommended C# Dev Kit extension if prompted, and press `F5`. Select **Monkeysphere Web** if VS Code asks for a configuration. The browser opens at `http://localhost:5080`; sign in with username `admin` and password `admin`.
 
 VS Code stores this test deployment beneath the ignored `.local/vscode-data` directory so records survive debugging restarts without entering source control. Use **Terminal → Run Task → verify** to run the locked restore, Release build, and complete test suite.
 
-For local development, store the password outside the repository and point `MONKEYSPHERE_ADMIN_PASSWORD_FILE` at that file, or set `MONKEYSPHERE_ADMIN_PASSWORD` only in the process environment. Then run:
+Without credential configuration, Monkeysphere uses `admin` / `admin`. Override the username with `MONKEYSPHERE_ADMIN_USERNAME` and the password with either `MONKEYSPHERE_ADMIN_PASSWORD` or `MONKEYSPHERE_ADMIN_PASSWORD_FILE`. Docker Compose exposes the username and password as interpolated configuration values with the same defaults, so shell variables, a Compose `.env` file, or an override file can replace them.
+
+Then run:
 
 ```powershell
 .\eng\Run.ps1
@@ -51,7 +53,7 @@ Temporal values preserve century, decade, year, month, day, minute, or second pr
 - Interactive Windows: use `eng/Run.ps1` or `dotnet run`.
 - Windows Service: the host detects service execution; installation guidance will be verified before support is claimed.
 - Linux/systemd: a unit template is under `deploy/systemd`; verification remains required.
-- Docker: use `docker compose up --build` after creating the administrator password file referenced by `compose.yaml`.
+- Docker: use `docker compose up --build`. It defaults to `admin` / `admin`; set `MONKEYSPHERE_ADMIN_USERNAME` and `MONKEYSPHERE_ADMIN_PASSWORD` in the Docker deployment environment to override them.
 
 See [architecture](docs/architecture.md), [security](docs/security.md), [dependencies](docs/dependencies.md), [verification status](docs/verification.md), and [third-party notices](THIRD-PARTY-NOTICES.md).
 
