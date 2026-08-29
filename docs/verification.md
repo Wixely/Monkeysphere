@@ -4,7 +4,7 @@ Last verified: 2026-08-29
 
 ## Verified evidence
 
-- `eng/Build.ps1` verified vendored dependency hashes and browser egress boundaries, restored in locked mode, built Release with zero warnings, and passed 95 tests.
+- `eng/Build.ps1` verified strict UTF-8 text decoding, mojibake and invisible-control exclusions, vendored dependency hashes, and browser egress boundaries; restored in locked mode; built Release with zero warnings; and passed 95 tests.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
 - Authenticated editor rendering and static-asset tests cover the private map-pin control and vendored OpenLayers delivery.
 - Core, SQLite integration, and authenticated rendering tests cover map-query bounds, single and multi-field filters, pagination, R-tree migration history, approximation-radius viewport intersection, structured location summaries, and private map access.
@@ -27,6 +27,7 @@ Last verified: 2026-08-29
 - An MCP-driven browser smoke test verified `admin` / `admin` login, record-type and field creation, saved-view creation and duplication, record creation, saved filter application, grouping, and configured table-column rendering in Chromium.
 - A separate Release process smoke test applied DnaX migration 5 to a fresh SQLite data root, accepted the default administrator login, and served the authenticated four-tier wizard and its examples successfully.
 - A focused Chromium accessibility review covered desktop and 390 by 844 mobile layouts, keyboard access to the skip link, setup selection state, mobile navigation wrapping, and the accessibility tree. Graph and map visualizations now expose bounded standard-control or HTML-list alternatives.
+- A Chromium visual and rendering sweep covered the first-run wizard and every primary authenticated route at desktop and 390 by 844 mobile sizes. It confirmed the sans-serif stack, compact spacing, zero document overflow, correct Unicode rendering, no visible Blazor error UI, and successful delivery of the fingerprinted favicon.
 
 ## Not yet verified
 

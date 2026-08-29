@@ -1,5 +1,6 @@
 :root {
     color-scheme: light;
+    --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     --ink: #2d2418;
     --ink-soft: #4c3d2a;
     --muted: #756752;
@@ -13,6 +14,8 @@
     --accent-dark: #713703;
     --accent-bright: #e79521;
     --accent-soft: #f4ddb1;
+    --amber-50: #fff7e7;
+    --amber-500: #d8780c;
     --header: #2a1b0c;
     --header-muted: #d7c4a0;
     --danger: #a33d2f;
@@ -22,7 +25,8 @@
     --success-soft: #e7efd9;
     --shadow: 0 18px 45px rgba(78, 48, 12, .10);
     --shadow-small: 0 7px 20px rgba(78, 48, 12, .08);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --radius: .7rem;
+    font-family: var(--font-sans);
 }
 
 * {
@@ -42,7 +46,7 @@ body {
         radial-gradient(circle at 8% 0%, rgba(231, 149, 33, .18), transparent 27rem),
         radial-gradient(circle at 95% 12%, rgba(169, 85, 8, .08), transparent 32rem),
         linear-gradient(180deg, #f8f2e7 0, var(--paper) 38rem, #f1e6d2 100%);
-    line-height: 1.55;
+    line-height: 1.48;
 }
 
 a {
@@ -59,14 +63,14 @@ h1,
 h2,
 h3 {
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", ui-serif, serif;
-    line-height: 1.08;
-    letter-spacing: -.025em;
+    font-family: var(--font-sans);
+    line-height: 1.12;
+    letter-spacing: -.02em;
 }
 
 h1 {
     margin: 0 0 .65rem;
-    font-size: clamp(2.25rem, 5vw, 4rem);
+    font-size: clamp(2.15rem, 5vw, 3.65rem);
     font-weight: 700;
 }
 
@@ -80,11 +84,11 @@ h3 {
 }
 
 .site-header {
-    min-height: 4.75rem;
+    min-height: 4.25rem;
     display: flex;
     align-items: center;
-    gap: 2rem;
-    padding: .75rem clamp(1rem, 4vw, 3rem);
+    gap: 1.35rem;
+    padding: .55rem clamp(1rem, 3vw, 2.25rem);
     border-bottom: 1px solid #4b351d;
     background: rgba(42, 27, 12, .97);
     box-shadow: 0 8px 30px rgba(38, 23, 6, .18);
@@ -115,10 +119,10 @@ h3 {
 .brand {
     display: inline-flex;
     align-items: center;
-    gap: .65rem;
+    gap: .5rem;
     color: #fff5df;
-    font-family: Georgia, "Times New Roman", ui-serif, serif;
-    font-size: 1.3rem;
+    font-family: var(--font-sans);
+    font-size: 1.2rem;
     font-weight: 700;
     letter-spacing: -.02em;
     text-decoration: none;
@@ -130,8 +134,8 @@ h3 {
 }
 
 .brand-mark {
-    width: 2.1rem;
-    height: 2.1rem;
+    width: 1.9rem;
+    height: 1.9rem;
     display: inline-grid;
     place-items: center;
     border: 1px solid #f1b75e;
@@ -155,7 +159,7 @@ h3 {
 .button-link {
     border: 1px solid transparent;
     border-radius: .55rem;
-    padding: .5rem .72rem;
+    padding: .42rem .62rem;
     color: var(--header-muted);
     background: transparent;
     font: inherit;
@@ -184,7 +188,7 @@ h3 {
 .page-shell {
     width: min(1140px, calc(100% - 2rem));
     margin: 0 auto;
-    padding: clamp(2.5rem, 6vw, 4.5rem) 0 6rem;
+    padding: clamp(1.75rem, 4vw, 3rem) 0 4rem;
 }
 
 .lede {
@@ -235,8 +239,8 @@ h3 {
 }
 
 .page-heading {
-    margin-bottom: 2rem;
-    padding-bottom: 1.35rem;
+    margin-bottom: 1.4rem;
+    padding-bottom: 1rem;
     border-bottom: 1px solid var(--line);
 }
 
@@ -250,8 +254,8 @@ h3 {
 
 .panel,
 .auth-card {
-    padding: clamp(1.25rem, 3vw, 2rem);
-    margin-bottom: 1.25rem;
+    padding: clamp(1rem, 2.25vw, 1.5rem);
+    margin-bottom: 1rem;
     border: 1px solid var(--line);
     border-radius: .9rem;
     background: rgba(255, 250, 240, .94);
@@ -283,12 +287,12 @@ h3 {
 .surface-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-    gap: 1rem;
-    margin: 2rem 0;
+    gap: .8rem;
+    margin: 1.4rem 0;
 }
 
 .metric-card {
-    padding: 1.45rem 1.55rem;
+    padding: 1.1rem 1.2rem;
     border: 1px solid var(--line);
     border-radius: .85rem;
     background: linear-gradient(145deg, rgba(255, 251, 242, .98), rgba(247, 232, 203, .78));
@@ -298,8 +302,8 @@ h3 {
 .metric-card strong {
     display: block;
     color: var(--accent-dark);
-    font-family: Georgia, "Times New Roman", ui-serif, serif;
-    font-size: 2.65rem;
+    font-family: var(--font-sans);
+    font-size: 2.4rem;
     line-height: 1;
 }
 
@@ -309,24 +313,24 @@ h3 {
 
 .setup-heading {
     max-width: 52rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1.4rem;
 }
 
 .setup-tier-grid,
 .preset-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
-    gap: 1rem;
-    margin-bottom: 2rem;
+    gap: .8rem;
+    margin-bottom: 1.4rem;
 }
 
 .setup-tier {
-    min-height: 16rem;
+    min-height: 14rem;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
     gap: .7rem;
     position: relative;
-    padding: 1.4rem;
+    padding: 1.1rem;
     border: 1px solid var(--line-strong);
     border-radius: .9rem;
     color: var(--ink);
@@ -351,7 +355,7 @@ h3 {
 .setup-tier strong {
     padding-right: 1.8rem;
     color: var(--accent-dark);
-    font-family: Georgia, "Times New Roman", ui-serif, serif;
+    font-family: var(--font-sans);
     font-size: 1.35rem;
 }
 
@@ -418,12 +422,12 @@ h3 {
 }
 
 .preset-card {
-    min-height: 15rem;
+    min-height: 13.5rem;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 1.2rem;
+    gap: .8rem;
+    padding: 1rem;
     border: 1px solid var(--line);
     border-radius: .75rem;
     background: var(--panel-warm);
@@ -447,7 +451,7 @@ h3 {
 
 form {
     display: grid;
-    gap: 1rem;
+    gap: .8rem;
 }
 
 label {
@@ -464,7 +468,7 @@ select {
     width: 100%;
     border: 1px solid var(--line-strong);
     border-radius: .58rem;
-    padding: .72rem .8rem;
+    padding: .6rem .7rem;
     color: var(--ink);
     background: #fffdf8;
     box-shadow: inset 0 1px 2px rgba(80, 49, 12, .04);
@@ -503,7 +507,7 @@ input[type="checkbox"] {
 .form-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-    gap: 1rem;
+    gap: .8rem;
 }
 
 .form-wide {
@@ -513,7 +517,7 @@ input[type="checkbox"] {
 .split-layout {
     display: grid;
     grid-template-columns: minmax(15rem, 1fr) minmax(0, 2fr);
-    gap: 1.25rem;
+    gap: 1rem;
     align-items: start;
 }
 
@@ -529,8 +533,8 @@ input[type="checkbox"] {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     gap: .7rem;
-    margin: 1.5rem 0;
-    padding: 1rem;
+    margin: 1.1rem 0;
+    padding: .85rem;
     border: 1px solid var(--line);
     border-radius: .7rem;
     background: rgba(251, 242, 223, .55);
@@ -547,7 +551,7 @@ input[type="checkbox"] {
     grid-template-columns: minmax(10rem, 1fr) minmax(9rem, .7fr) minmax(10rem, 1fr) auto;
     gap: .75rem;
     align-items: end;
-    padding: 1rem;
+    padding: .85rem;
     border: 1px solid var(--line);
     border-radius: .7rem;
     background: var(--panel-warm);
@@ -590,25 +594,25 @@ input[type="checkbox"] {
 .field-stack {
     display: grid;
     gap: .85rem;
-    margin: 1rem 0;
+    margin: .8rem 0;
 }
 
 .field-card {
-    padding: 1rem;
+    padding: .85rem;
     border: 1px solid var(--line);
     border-radius: .7rem;
     background: var(--panel-warm);
 }
 
 .button {
-    min-height: 2.65rem;
+    min-height: 2.55rem;
     width: fit-content;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--line-strong);
     border-radius: .58rem;
-    padding: .58rem 1.05rem;
+    padding: .5rem .9rem;
     color: var(--ink-soft);
     background: #fffaf0;
     box-shadow: 0 2px 0 rgba(83, 49, 7, .05);
@@ -660,7 +664,7 @@ input[type="checkbox"] {
     display: flex;
     align-items: center;
     gap: .75rem;
-    margin-top: 1.25rem;
+    margin-top: 1rem;
 }
 
 .action-row.wrap {
@@ -974,7 +978,7 @@ table {
 
 th,
 td {
-    padding: .78rem;
+    padding: .62rem .68rem;
     border-bottom: 1px solid var(--line);
     text-align: left;
     vertical-align: top;
@@ -1258,7 +1262,12 @@ dd {
     }
 
     .page-shell {
-        padding-top: 2rem;
+        padding-top: 1.4rem;
+    }
+
+    .setup-tier,
+    .preset-card {
+        min-height: 0;
     }
 
     .panel:has(.calendar-grid) {

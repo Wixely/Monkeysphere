@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $repositoryRoot
 try {
+    & (Join-Path $PSScriptRoot 'VerifyTextEncoding.ps1')
     & (Join-Path $PSScriptRoot 'VerifySupplyChain.ps1')
 
     dotnet restore Monkeysphere.slnx --locked-mode
