@@ -27,6 +27,7 @@ public sealed record RemoteRecordSummary(
 
 public sealed record RemoteRecord(
     RemoteRecordSummary Record,
+    IReadOnlyList<string> Aliases,
     IReadOnlyList<RemoteRecordValue> Values,
     IReadOnlyList<RemoteRelationship> Relationships);
 
@@ -142,6 +143,7 @@ public sealed class MonkeysphereRemoteQueries(
     private static RemoteRecord MapRecord(RecordDetails details, IReadOnlyList<RemoteRelationship> relationships) =>
         new(
             MapSummary(details.Record),
+            details.Aliases,
             details.Values.Select(value => new RemoteRecordValue(
                 value.FieldDefinitionId,
                 value.FieldName,

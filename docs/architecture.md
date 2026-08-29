@@ -14,7 +14,7 @@ The application database and DnaX remote-access database are separate files unde
 
 ## Identifiers and values
 
-Domain entities use UUIDv7 identifiers. Reusable field definitions carry an open string type identifier. Recognized scalar values use typed relational columns; tags use ordered child rows; unknown types use lossless text fallback.
+Domain entities use UUIDv7 identifiers. Each record has one primary display name plus zero or more ordered alternate names in relational child rows. Alternate names are case-insensitively unique within a record, cascade with that record, and participate in bounded text search. Reusable field definitions carry an open string type identifier. Recognized scalar values use typed relational columns; tags use ordered child rows; unknown types use lossless text fallback.
 
 Temporal values retain their explicit precision, a canonical sort key, an approximation flag, and an optional explanatory note. Relationship types use either directional forward/inverse labels or one symmetric label. Relationship rows reference two records relationally; symmetric endpoints are canonicalized to reject reverse-order duplicates.
 

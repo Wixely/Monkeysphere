@@ -44,16 +44,20 @@ public sealed class RecordWorkflowTests
             new(category.Id, "friend"),
             new(tags.Id, Tags: ["mathematics", "Pioneer", "mathematics"]),
             new(custom.Id, "First programmer"),
-        ]);
+        ], ["Augusta Ada King", "Enchantress of Numbers"]);
 
         RecordDetails reloaded = Assert.IsType<RecordDetails>(await service.GetRecordAsync(created.Record.Id));
         Assert.Equal("42.50", Assert.Single(reloaded.Values, item => item.FieldDefinitionId == score.Id).NumberValue);
         Assert.Equal("Friend", Assert.Single(reloaded.Values, item => item.FieldDefinitionId == category.Id).TextValue);
         Assert.Equal(["mathematics", "Pioneer"], Assert.Single(reloaded.Values, item => item.FieldDefinitionId == tags.Id).Tags);
         Assert.Equal("First programmer", Assert.Single(reloaded.Values, item => item.FieldDefinitionId == custom.Id).TextValue);
+        Assert.Equal(["Augusta Ada King", "Enchantress of Numbers"], reloaded.Aliases);
 
         PagedResult<RecordSummary> textSearch = await service.SearchRecordsAsync(new RecordSearch(Query: "pioneer"));
         Assert.Equal(created.Record.Id, Assert.Single(textSearch.Items).Id);
+
+        PagedResult<RecordSummary> aliasSearch = await service.SearchRecordsAsync(new RecordSearch(Query: "Enchantress"));
+        Assert.Equal(created.Record.Id, Assert.Single(aliasSearch.Items).Id);
 
         PagedResult<RecordSummary> numericSearch = await service.SearchRecordsAsync(new RecordSearch(
             FieldDefinitionId: score.Id,
@@ -70,9 +74,13 @@ public sealed class RecordWorkflowTests
         RecordDetails updated = await service.UpdateRecordAsync(created.Record.Id, "Augusta Ada King", [
             new(nickname.Id, "Ada"),
             new(tags.Id, Tags: ["mathematics"]),
-        ]);
+        ], ["Ada Lovelace"]);
         Assert.Equal("Augusta Ada King", updated.Record.DisplayName);
+        Assert.Equal(["Ada Lovelace"], updated.Aliases);
         Assert.DoesNotContain(updated.Values, item => item.FieldDefinitionId == score.Id);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.UpdateRecordAsync(created.Record.Id, "Augusta Ada King", [], ["augusta ada king"]));
 
         Assert.True(await service.DeleteRecordAsync(created.Record.Id));
         Assert.Null(await service.GetRecordAsync(created.Record.Id));

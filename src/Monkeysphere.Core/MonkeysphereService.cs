@@ -61,14 +61,17 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         Guid recordTypeId,
         string displayName,
         IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default)
     {
         RecordTypeDetails type = await RequireRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values);
+        string primaryName = FieldTypes.Required(displayName, "Display name", 300);
         return await store.CreateRecordAsync(
             Guid.CreateVersion7(),
             recordTypeId,
-            FieldTypes.Required(displayName, "Display name", 300),
+            primaryName,
+            NormalizeAliases(primaryName, aliases),
             normalized,
             timeProvider.GetUtcNow(),
             cancellationToken).ConfigureAwait(false);
@@ -81,6 +84,7 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         Guid id,
         string displayName,
         IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default)
     {
         RecordDetails current = await store.GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
@@ -95,9 +99,11 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             .Select(value => value.FieldDefinitionId)
             .ToHashSet();
         IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values, editableRetiredFields);
+        string primaryName = FieldTypes.Required(displayName, "Display name", 300);
         return await store.UpdateRecordAsync(
             id,
-            FieldTypes.Required(displayName, "Display name", 300),
+            primaryName,
+            NormalizeAliases(primaryName, aliases),
             normalized,
             timeProvider.GetUtcNow(),
             cancellationToken).ConfigureAwait(false);
@@ -146,6 +152,29 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
     private async Task<RecordTypeDetails> RequireRecordTypeAsync(Guid id, CancellationToken cancellationToken) =>
         await store.GetRecordTypeAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Record type was not found.");
+
+    private static string[] NormalizeAliases(string primaryName, IReadOnlyList<string>? aliases)
+    {
+        string[] normalized = (aliases ?? [])
+            .Select(alias => FieldTypes.Required(alias, "Alias", 300))
+            .ToArray();
+        if (normalized.Length > 100)
+        {
+            throw new DomainValidationException("A record cannot have more than 100 aliases.");
+        }
+
+        if (normalized.Distinct(StringComparer.OrdinalIgnoreCase).Count() != normalized.Length)
+        {
+            throw new DomainValidationException("Aliases cannot be duplicated.");
+        }
+
+        if (normalized.Contains(primaryName, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new DomainValidationException("An alias cannot duplicate the primary display name.");
+        }
+
+        return normalized;
+    }
 
     private static List<NormalizedFieldValue> NormalizeValues(
         RecordTypeDetails type,

@@ -62,7 +62,8 @@ public sealed record RecordValue(
 public sealed record RecordDetails(
     RecordSummary Record,
     IReadOnlyList<RecordValue> Values,
-    IReadOnlyList<RecordTypeField> AvailableFields);
+    IReadOnlyList<RecordTypeField> AvailableFields,
+    IReadOnlyList<string> Aliases);
 
 public sealed record FieldValueInput(
     Guid FieldDefinitionId,

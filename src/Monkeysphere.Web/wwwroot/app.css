@@ -488,6 +488,10 @@ input[type="checkbox"] {
     gap: 1rem;
 }
 
+.form-wide {
+    grid-column: 1 / -1;
+}
+
 .split-layout {
     display: grid;
     grid-template-columns: minmax(15rem, 1fr) minmax(0, 2fr);

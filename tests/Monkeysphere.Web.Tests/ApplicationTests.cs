@@ -49,11 +49,13 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     public async Task AuthenticatedSavedViewPagesRenderPersistedViews()
     {
         string suffix = Guid.NewGuid().ToString("N");
+        Guid typeId;
         using (IServiceScope scope = _factory.Services.CreateScope())
         {
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
             ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
             RecordType type = await records.CreateRecordTypeAsync("View type " + suffix);
+            typeId = type.Id;
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("View field " + suffix, FieldTypes.Text, false));
@@ -78,8 +80,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         string viewsHtml = await client.GetStringAsync("/saved-views");
         string recordsHtml = await client.GetStringAsync("/records");
+        string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
+        Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -373,7 +377,11 @@ public sealed class RemoteAccessApplicationTests
             FieldDefinition nickname = await service.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Nickname", FieldTypes.Text, true));
-            RecordDetails ada = await service.CreateRecordAsync(type.Id, "Ada Lovelace", [new(nickname.Id, "Ada")]);
+            RecordDetails ada = await service.CreateRecordAsync(
+                type.Id,
+                "Ada Lovelace",
+                [new(nickname.Id, "Ada")],
+                ["Enchantress of Numbers"]);
             RecordDetails charles = await service.CreateRecordAsync(type.Id, "Charles Babbage", [new(nickname.Id, "Charles")]);
             RelationshipType collaborator = await relationships.CreateTypeAsync(new(
                 "collaborated with",
@@ -401,6 +409,13 @@ public sealed class RemoteAccessApplicationTests
         string firstBody = await firstResponse.Content.ReadAsStringAsync();
         Assert.True(firstResponse.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)firstResponse.StatusCode}: {firstBody}");
         Assert.Contains("Ada Lovelace", firstBody, StringComparison.Ordinal);
+        HttpResponseMessage recordResponse = await SendAsync(
+            client,
+            firstRoute.EndpointPath + $"/records/{adaId}",
+            firstCredential.Secret);
+        string recordBody = await recordResponse.Content.ReadAsStringAsync();
+        Assert.True(recordResponse.IsSuccessStatusCode, recordBody);
+        Assert.Contains("Enchantress of Numbers", recordBody, StringComparison.Ordinal);
         HttpResponseMessage relationshipResponse = await SendAsync(
             client,
             firstRoute.EndpointPath + $"/records/{adaId}/relationships",
@@ -469,7 +484,7 @@ public sealed class RemoteAccessApplicationTests
         request.Headers.Add("Mcp-Method", "tools/call");
         request.Headers.Add("Mcp-Name", "search_records");
         request.Content = new StringContent(
-            """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_records","arguments":{"query":"Ada"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}""",
+            """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_records","arguments":{"query":"Enchantress"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}""",
             Encoding.UTF8,
             "application/json");
         return await client.SendAsync(request);

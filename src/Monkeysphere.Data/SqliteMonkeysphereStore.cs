@@ -228,6 +228,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         Guid id,
         Guid recordTypeId,
         string displayName,
+        IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
@@ -242,6 +243,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             new { Id = Key(id), RecordTypeId = Key(recordTypeId), DisplayName = displayName, Now = timestamp },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return await GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
@@ -267,12 +269,16 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         Guid recordTypeId = ParseGuid(row.RecordTypeId);
         IReadOnlyList<RecordTypeField> fields = await QueryFieldsAsync(connection, recordTypeId, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<RecordValue> values = await QueryValuesAsync(connection, id, cancellationToken).ConfigureAwait(false);
-        return new RecordDetails(MapSummary(row), values, fields);
+        string[] aliases = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT Value FROM RecordAliases WHERE RecordId = @RecordId ORDER BY Ordinal;",
+            new { RecordId = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        return new RecordDetails(MapSummary(row), values, fields, aliases);
     }
 
     public async Task<RecordDetails> UpdateRecordAsync(
         Guid id,
         string displayName,
+        IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
@@ -286,11 +292,14 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Record was not found.");
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM FieldValues WHERE RecordId = @RecordId;",
+        await connection.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM FieldValues WHERE RecordId = @RecordId;
+            DELETE FROM RecordAliases WHERE RecordId = @RecordId;
+            """,
             new { RecordId = Key(id) },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return await GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
@@ -322,6 +331,11 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             where.Append("""
                  AND (
                     r.DisplayName LIKE @Query ESCAPE '\' COLLATE NOCASE
+                    OR EXISTS (
+                        SELECT 1 FROM RecordAliases qa
+                        WHERE qa.RecordId = r.Id
+                          AND qa.Value LIKE @Query ESCAPE '\' COLLATE NOCASE
+                    )
                     OR EXISTS (
                         SELECT 1 FROM FieldValues qv
                         WHERE qv.RecordId = r.Id
@@ -500,6 +514,23 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                     transaction,
                     cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
+        }
+    }
+
+    private static async Task InsertAliasesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid recordId,
+        IReadOnlyList<string> aliases,
+        CancellationToken cancellationToken)
+    {
+        for (int ordinal = 0; ordinal < aliases.Count; ordinal++)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO RecordAliases (RecordId, Ordinal, Value) VALUES (@RecordId, @Ordinal, @Value);",
+                new { RecordId = Key(recordId), Ordinal = ordinal, Value = aliases[ordinal] },
+                transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
     }
 

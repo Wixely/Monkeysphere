@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 5,
+        currentVersion: 6,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -209,6 +209,19 @@ public static class MonkeysphereSchema
                 INSERT INTO SetupState (Singleton, StarterPackKey, CompletedAtUtc)
                 SELECT 1, 'existing', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE EXISTS (SELECT 1 FROM RecordTypes);
+                """),
+            DnaXMigration.Sql(6, "record-aliases", "Add searchable alternate names to records", """
+                CREATE TABLE RecordAliases (
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    Value TEXT NOT NULL COLLATE NOCASE,
+                    PRIMARY KEY (RecordId, Ordinal),
+                    UNIQUE (RecordId, Value),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_RecordAliases_Value
+                    ON RecordAliases(Value, RecordId);
                 """),
         ]);
 }

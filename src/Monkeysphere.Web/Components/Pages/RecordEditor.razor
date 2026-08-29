@@ -58,6 +58,11 @@ else
                     <InputText @bind-Value="_model.DisplayName" />
                     <ValidationMessage For="() => _model.DisplayName" />
                 </label>
+                <label class="form-wide">
+                    Aliases and nicknames
+                    <textarea @bind="_model.Aliases" rows="3" placeholder="One alternate name per line"></textarea>
+                    <span class="muted">Short names, nicknames, former names, local names, or anything else you may search for.</span>
+                </label>
             </div>
 
             @if (_selectedType is not null)
@@ -259,6 +264,7 @@ else
             if (_record is not null)
             {
                 _model.DisplayName = _record.Record.DisplayName;
+                _model.Aliases = string.Join(Environment.NewLine, _record.Aliases);
                 _selectedTypeValue = _record.Record.RecordTypeId.ToString();
                 _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
                 BuildEditors(_record);
@@ -311,8 +317,8 @@ else
                         : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
 
             RecordDetails saved = RecordId is Guid id
-                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values)
-                : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values);
+                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values, ParseAliases())
+                : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values, ParseAliases());
             Navigation.NavigateTo($"/records/{saved.Record.Id}");
         }
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
@@ -416,7 +422,12 @@ else
     {
         [Required, StringLength(300)]
         public string DisplayName { get; set; } = string.Empty;
+
+        public string Aliases { get; set; } = string.Empty;
     }
+
+    private string[] ParseAliases() => _model.Aliases
+        .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static void SetScalar(EditorField editor, ChangeEventArgs args) =>
         editor.Scalar = args.Value?.ToString() ?? string.Empty;

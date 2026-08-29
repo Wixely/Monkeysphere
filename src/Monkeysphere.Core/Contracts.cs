@@ -37,6 +37,7 @@ public interface IMonkeysphereStore
         Guid id,
         Guid recordTypeId,
         string displayName,
+        IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         CancellationToken cancellationToken = default);
@@ -46,6 +47,7 @@ public interface IMonkeysphereStore
     Task<RecordDetails> UpdateRecordAsync(
         Guid id,
         string displayName,
+        IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         CancellationToken cancellationToken = default);
@@ -79,6 +81,7 @@ public interface IMonkeysphereService
         Guid recordTypeId,
         string displayName,
         IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default);
 
     Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default);
@@ -87,6 +90,7 @@ public interface IMonkeysphereService
         Guid id,
         string displayName,
         IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
