@@ -27,6 +27,6 @@ Last verified: 2026-08-29
 - Dedicated screen-reader, Windows high-contrast, browser-zoom, and automated accessibility-scanner verification.
 - Windows Service installation, start, stop, upgrade, and recovery behavior.
 - Docker image build and persistent-volume smoke tests. Docker is not installed in the current environment.
-- Linux interactive and systemd operation. No Linux execution environment was available.
+- Linux interactive and systemd operation. A systemd-enabled WSL2 distribution is now visible, but it has no .NET runtime; installing one was not authorized, so application execution remains unverified.
 
 These are verification gaps, not support claims. Re-run the full suite and update this file when an appropriate environment is available.
