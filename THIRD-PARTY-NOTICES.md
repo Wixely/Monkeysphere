@@ -27,3 +27,13 @@ DnaX remote MCP support depends on the official Model Context Protocol C# SDK, l
 - xUnit.net and runner — Apache-2.0, <https://github.com/xunit/xunit>
 - Microsoft.NET.Test.Sdk — MIT, <https://github.com/microsoft/vstest>
 - coverlet.collector — MIT, <https://github.com/coverlet-coverage/coverlet>
+
+## Vendored browser assets
+
+OpenLayers 10.10.0 is vendored from the official release package at <https://github.com/openlayers/openlayers/releases/tag/v10.10.0> and is licensed under BSD-2-Clause. Its license is retained beside the assets in `src/Monkeysphere.Web/wwwroot/vendor/openlayers/10.10.0/LICENSE.md`. Monkeysphere uses the full hosted build without GeoTIFF or mapbox-style integrations and does not use an npm or Node.js build step.
+
+| File | SHA-256 |
+| --- | --- |
+| `ol.js` | `B89AF8EC3B76F564D515FD07FED3EC414AECF8F33F685B77B607451CB0C2029F` |
+| `ol.css` | `ABC8AFD72CC10BD29CC143F443BAE4A6804BD3CB3FB262E6B6A6BC6C924EA34F` |
+| `LICENSE.md` | `6C4347B83A8C9FEEF18D57B18E3B6C44CF901B3C344A4A1FBD837E421555AB8E` |

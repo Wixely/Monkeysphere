@@ -146,6 +146,9 @@ else
                                                     <input @bind="editor.LocationRadiusKilometres" aria-label="Approximation radius in kilometres" inputmode="decimal" placeholder="Optional" />
                                                 </div>
                                             </div>
+                                            <LocationMapEditor Latitude="@MapCoordinate(editor.Latitude, -90, 90)"
+                                                               Longitude="@MapCoordinate(editor.Longitude, -180, 180)"
+                                                               OnPinChanged="pin => SetMapPin(editor, pin)" />
                                             <span class="muted">Coordinates use WGS84 decimal degrees. Accuracy describes the coordinate source; radius describes the area you mean.</span>
                                         </div>
                                         break;
@@ -706,6 +709,18 @@ else
 
     private static string FormatLocationNumber(double? value) =>
         value?.ToString("0.#######", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private static double? MapCoordinate(string value, double minimum, double maximum) =>
+        double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double coordinate) &&
+        coordinate >= minimum && coordinate <= maximum
+            ? coordinate
+            : null;
+
+    private static void SetMapPin(EditorField editor, LocationPin pin)
+    {
+        editor.Latitude = FormatLocationNumber(pin.Latitude);
+        editor.Longitude = FormatLocationNumber(pin.Longitude);
+    }
 
     private sealed class EditorField
     {

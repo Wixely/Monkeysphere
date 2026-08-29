@@ -757,6 +757,27 @@ input[type="checkbox"] {
     gap: .35rem;
 }
 
+.location-map {
+    width: 100%;
+    min-height: 20rem;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: .65rem;
+    background:
+        linear-gradient(rgba(244, 221, 177, .35), rgba(244, 221, 177, .35)),
+        var(--panel-warm);
+}
+
+.location-map .ol-control button {
+    color: #fffaf0;
+    background: var(--accent-dark);
+}
+
+.location-map .ol-control button:hover,
+.location-map .ol-control button:focus {
+    background: var(--accent);
+}
+
 .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));

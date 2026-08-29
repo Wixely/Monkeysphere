@@ -27,9 +27,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         HttpResponseMessage live = await client.GetAsync("/health/live");
         HttpResponseMessage ready = await client.GetAsync("/health/ready");
+        HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, mapLibrary.StatusCode);
+        Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
     }
 
     [Fact]
@@ -164,6 +167,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Preview conversion", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Coordinate accuracy (metres)", editorHtml, StringComparison.Ordinal);
+        Assert.Contains("Click the map to set coordinates", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Images", recordHtml, StringComparison.Ordinal);
     }
 
