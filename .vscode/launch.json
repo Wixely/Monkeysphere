@@ -10,12 +10,24 @@
       "cwd": "${workspaceFolder}/src/Monkeysphere.Web",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5080"
+        "ASPNETCORE_URLS": "http://localhost:5080",
+        "MONKEYSPHERE_ADMIN_USERNAME": "admin",
+        "MONKEYSPHERE_ADMIN_PASSWORD": "${input:administratorPassword}",
+        "MONKEYSPHERE_DATA_ROOT": "${workspaceFolder}/.local/vscode-data",
+        "DnaX__RemoteAccess__Enabled": "false"
       },
       "serverReadyAction": {
         "action": "openExternally",
         "pattern": "Now listening on:\\s+(https?://\\S+)"
       }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "administratorPassword",
+      "type": "promptString",
+      "description": "Temporary Monkeysphere administrator password (14+ characters; not a common default)",
+      "password": true
     }
   ]
 }

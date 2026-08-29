@@ -20,6 +20,12 @@ No Node.js or Python toolchain is used.
 .\eng\Build.ps1
 ```
 
+### Test in VS Code
+
+Open the repository root in VS Code, install the recommended C# Dev Kit extension if prompted, and press `F5`. Select **Monkeysphere Web** if VS Code asks for a configuration. Enter a temporary administrator password of at least 14 characters when prompted; the browser opens at `http://localhost:5080`, and the username is `admin`.
+
+VS Code stores this test deployment beneath the ignored `.local/vscode-data` directory so records survive debugging restarts without entering source control. Use **Terminal → Run Task → verify** to run the locked restore, Release build, and complete test suite.
+
 For local development, store the password outside the repository and point `MONKEYSPHERE_ADMIN_PASSWORD_FILE` at that file, or set `MONKEYSPHERE_ADMIN_PASSWORD` only in the process environment. Then run:
 
 ```powershell
