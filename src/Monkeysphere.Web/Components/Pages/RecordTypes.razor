@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
+@inject IPresetService Presets
 
 <PageTitle>Record types · Monkeysphere</PageTitle>
 
@@ -9,7 +10,7 @@
     <div>
         <p class="eyebrow">Structure</p>
         <h1>Record types</h1>
-        <p>Define the kinds of things you want to remember and the fields each kind carries.</p>
+        <p>Start with a carefully designed preset or define something entirely your own.</p>
     </div>
 </div>
 
@@ -19,16 +20,52 @@
 }
 
 <section class="panel">
-    <h2>Create a record type</h2>
+    <h2>Create a blank type</h2>
+    <p class="muted">Use a blank type when none of the premade definitions fits.</p>
     <EditForm Model="_model" OnValidSubmit="CreateAsync">
         <DataAnnotationsValidator />
         <label>
             Name
-            <InputText @bind-Value="_model.Name" placeholder="Person, pet, organisation…" />
+            <InputText @bind-Value="_model.Name" placeholder="Organisation, recipe, project…" />
             <ValidationMessage For="() => _model.Name" />
         </label>
-        <button class="button primary" type="submit">Create type</button>
+        <button class="button primary" type="submit">Create blank type</button>
     </EditForm>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <h2>Premade catalogue</h2>
+            <p class="muted">Preset fields remain editable after installation.</p>
+        </div>
+        <span class="pill">@Presets.RecordTypes.Count presets</span>
+    </div>
+
+    @foreach (IGrouping<string, RecordTypePreset> category in Presets.RecordTypes.GroupBy(item => item.Category))
+    {
+        <h3 class="group-heading">@category.Key</h3>
+        <div class="preset-grid">
+            @foreach (RecordTypePreset preset in category)
+            {
+                bool installed = _installedPresetKeys.Contains(preset.Key);
+                <article class="preset-card">
+                    <div>
+                        <h3>@preset.Name</h3>
+                        <p>@preset.Description</p>
+                        <p class="preset-examples"><strong>Examples:</strong> @string.Join(", ", preset.Examples)</p>
+                        <p class="preset-fields"><strong>Fields:</strong> @string.Join(", ", preset.Fields.Select(field => field.Name))</p>
+                    </div>
+                    <div class="preset-card-footer">
+                        <span class="muted">@preset.Fields.Count fields · v@preset.Version</span>
+                        <button class="button @(installed ? "" : "primary")" type="button" disabled="@(installed || _busy)" @onclick="() => InstallPresetAsync(preset)">
+                            @(installed ? "Installed" : "Install preset")
+                        </button>
+                    </div>
+                </article>
+            }
+        </div>
+    }
 </section>
 
 <section class="panel">
@@ -44,6 +81,10 @@
             {
                 <li>
                     <a href="/record-types/@type.Id">@type.Name</a>
+                    @if (type.PresetKey is not null)
+                    {
+                        <span class="pill">preset v@type.PresetVersion</span>
+                    }
                     <span class="muted">Updated @type.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
                 </li>
             }
@@ -54,18 +95,35 @@
 @code {
     private readonly CreateTypeModel _model = new();
     private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlySet<string> _installedPresetKeys = new HashSet<string>();
     private string? _message;
     private bool _isError;
+    private bool _busy;
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 
     private async Task CreateAsync()
     {
-        try
+        await RunAsync(async () =>
         {
             RecordType created = await Service.CreateRecordTypeAsync(_model.Name);
             _model.Name = string.Empty;
             _message = $"Created {created.Name}.";
+        });
+    }
+
+    private Task InstallPresetAsync(RecordTypePreset preset) => RunAsync(async () =>
+    {
+        await Presets.InstallPresetAsync(preset.Key);
+        _message = $"Installed the {preset.Name} preset. You can edit its fields now.";
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
             _isError = false;
             await ReloadAsync();
         }
@@ -74,9 +132,17 @@
             _message = exception.Message;
             _isError = true;
         }
+        finally
+        {
+            _busy = false;
+        }
     }
 
-    private async Task ReloadAsync() => _types = await Service.ListRecordTypesAsync();
+    private async Task ReloadAsync()
+    {
+        _types = await Service.ListRecordTypesAsync();
+        _installedPresetKeys = await Presets.ListInstalledPresetKeysAsync();
+    }
 
     private sealed class CreateTypeModel
     {

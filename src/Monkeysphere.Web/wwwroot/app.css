@@ -289,6 +289,144 @@ h3 {
     color: var(--muted);
 }
 
+.setup-heading {
+    max-width: 52rem;
+    margin-bottom: 2rem;
+}
+
+.setup-tier-grid,
+.preset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.setup-tier {
+    min-height: 16rem;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: .7rem;
+    position: relative;
+    padding: 1.4rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .9rem;
+    color: var(--ink);
+    background: rgba(255, 250, 240, .88);
+    box-shadow: var(--shadow-small);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.setup-tier:hover,
+.setup-tier.selected {
+    border-color: var(--accent);
+    background: linear-gradient(145deg, #fffaf0, #f5deb4);
+    transform: translateY(-2px);
+}
+
+.setup-tier.selected {
+    box-shadow: 0 0 0 3px rgba(231, 149, 33, .24), var(--shadow);
+}
+
+.setup-tier strong {
+    padding-right: 1.8rem;
+    color: var(--accent-dark);
+    font-family: Georgia, "Times New Roman", ui-serif, serif;
+    font-size: 1.35rem;
+}
+
+.setup-tier small,
+.preset-examples,
+.preset-fields {
+    color: var(--muted);
+}
+
+.preset-fields {
+    font-size: .84rem;
+}
+
+.setup-tier-check {
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    color: white;
+    background: var(--panel);
+    font-weight: 900;
+}
+
+.setup-tier.selected .setup-tier-check {
+    border-color: var(--accent-dark);
+    background: var(--accent);
+}
+
+.setup-review {
+    border-top: 4px solid var(--accent);
+}
+
+.setup-preset-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: .7rem;
+    margin: 1.25rem 0;
+}
+
+.setup-preset-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    padding: .9rem;
+    border: 1px solid var(--line);
+    border-radius: .65rem;
+    background: var(--panel-warm);
+}
+
+.setup-preset-choice span,
+.setup-preset-choice small {
+    display: block;
+}
+
+.setup-preset-choice small {
+    margin-top: .2rem;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.preset-card {
+    min-height: 15rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.2rem;
+    border: 1px solid var(--line);
+    border-radius: .75rem;
+    background: var(--panel-warm);
+}
+
+.preset-card h3 {
+    margin: 0 0 .5rem;
+    color: var(--accent-dark);
+}
+
+.preset-card p {
+    margin: .45rem 0;
+}
+
+.preset-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
 form {
     display: grid;
     gap: 1rem;

@@ -24,6 +24,8 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IRelationshipService, RelationshipService>();
         services.AddSingleton<ISavedViewStore, SqliteSavedViewStore>();
         services.AddSingleton<ISavedViewService, SavedViewService>();
+        services.AddSingleton<IPresetStore, SqlitePresetStore>();
+        services.AddSingleton<IPresetService, PresetService>();
         services.AddDnaXDataMigrations(DatabaseName, options =>
         {
             options.ConnectionFactory = provider =>

@@ -19,7 +19,9 @@ public sealed record RelationshipType(
     string? InverseName,
     RelationshipLifecycle Lifecycle,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? PresetKey = null,
+    int? PresetVersion = null);
 
 public sealed record StoredRelationship(
     Guid Id,

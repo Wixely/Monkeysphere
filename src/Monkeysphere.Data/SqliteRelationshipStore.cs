@@ -11,7 +11,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RelationshipTypeRow> rows = await connection.QueryAsync<RelationshipTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion
             FROM RelationshipTypes
             ORDER BY Lifecycle, Name COLLATE NOCASE, Id;
             """, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -22,7 +22,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RelationshipTypeRow? row = await connection.QuerySingleOrDefaultAsync<RelationshipTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion
             FROM RelationshipTypes WHERE Id = @Id;
             """, new { Id = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return row is null ? null : MapType(row);
@@ -97,7 +97,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RelationshipTypeRow? typeRow = await connection.QuerySingleOrDefaultAsync<RelationshipTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion
             FROM RelationshipTypes WHERE Id = @Id AND Lifecycle = 0;
             """, new { Id = Key(typeId) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (typeRow is null)
@@ -172,6 +172,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     private const string RelationshipSelect = """
         SELECT r.Id, r.RelationshipTypeId, rt.Name AS TypeName, rt.Directionality, rt.InverseName,
                rt.Lifecycle AS TypeLifecycle, rt.CreatedAtUtc AS TypeCreatedAtUtc, rt.UpdatedAtUtc AS TypeUpdatedAtUtc,
+               rt.PresetKey AS TypePresetKey, rt.PresetVersion AS TypePresetVersion,
                r.SourceRecordId, source.DisplayName AS SourceDisplayName,
                r.TargetRecordId, target.DisplayName AS TargetDisplayName,
                r.Note, r.CreatedAtUtc, r.UpdatedAtUtc
@@ -183,13 +184,14 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
 
     private static RelationshipType MapType(RelationshipTypeRow row) => new(
         Guid.Parse(row.Id), row.Name, (RelationshipDirectionality)row.Directionality, row.InverseName,
-        (RelationshipLifecycle)row.Lifecycle, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc));
+        (RelationshipLifecycle)row.Lifecycle, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.PresetKey, row.PresetVersion);
 
     private static StoredRelationship MapRelationship(RelationshipRow row) => new(
         Guid.Parse(row.Id),
         new RelationshipType(
             Guid.Parse(row.RelationshipTypeId), row.TypeName, (RelationshipDirectionality)row.Directionality, row.InverseName,
-            (RelationshipLifecycle)row.TypeLifecycle, ParseTimestamp(row.TypeCreatedAtUtc), ParseTimestamp(row.TypeUpdatedAtUtc)),
+            (RelationshipLifecycle)row.TypeLifecycle, ParseTimestamp(row.TypeCreatedAtUtc), ParseTimestamp(row.TypeUpdatedAtUtc),
+            row.TypePresetKey, row.TypePresetVersion),
         Guid.Parse(row.SourceRecordId), row.SourceDisplayName,
         Guid.Parse(row.TargetRecordId), row.TargetDisplayName,
         row.Note, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc));
@@ -215,6 +217,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         public int Lifecycle { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public string? PresetKey { get; init; }
+        public int? PresetVersion { get; init; }
     }
 
     private sealed class RelationshipRow
@@ -227,6 +231,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         public int TypeLifecycle { get; init; }
         public required string TypeCreatedAtUtc { get; init; }
         public required string TypeUpdatedAtUtc { get; init; }
+        public string? TypePresetKey { get; init; }
+        public int? TypePresetVersion { get; init; }
         public required string SourceRecordId { get; init; }
         public required string SourceDisplayName { get; init; }
         public required string TargetRecordId { get; init; }

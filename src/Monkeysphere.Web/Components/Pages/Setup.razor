@@ -1,0 +1,149 @@
+@page "/setup"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IPresetService Presets
+@inject NavigationManager Navigation
+
+<PageTitle>First-run setup · Monkeysphere</PageTitle>
+
+<div class="setup-heading">
+    <p class="eyebrow">Welcome to Monkeysphere</p>
+    <h1>What would you like to remember?</h1>
+    <p class="lede">Choose a starting level. You can review the included types before installation and add anything else later.</p>
+</div>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else if (_status?.IsComplete == true)
+{
+    <section class="panel setup-complete">
+        <h2>Setup is complete</h2>
+        <p>This dataset has already been initialized. You can add more premade types from the catalogue at any time.</p>
+        <a class="button primary" href="/">Open Monkeysphere</a>
+    </section>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="notice error" role="alert">@_message</div>
+    }
+
+    <section class="setup-tier-grid" aria-label="Starter setup level">
+        @foreach (StarterPack pack in Presets.StarterPacks)
+        {
+            bool selected = string.Equals(_selectedPackKey, pack.Key, StringComparison.Ordinal);
+            <button class="setup-tier @(selected ? "selected" : "")" type="button" aria-pressed="@selected" @onclick="() => SelectPack(pack)">
+                <span class="setup-tier-check" aria-hidden="true">@(selected ? "✓" : "")</span>
+                <strong>@pack.Name</strong>
+                <span>@pack.Description</span>
+                <small><b>For example:</b> @string.Join(", ", pack.ExampleItems)</small>
+            </button>
+        }
+    </section>
+
+    @if (_selectedPack is not null)
+    {
+        <section class="panel setup-review">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Review your starter set</p>
+                    <h2>@_selectedPack.Name</h2>
+                </div>
+                <span class="pill">@_selectedPresetKeys.Count selected</span>
+            </div>
+
+            @if (_selectedPack.PresetKeys.Count == 0)
+            {
+                <p>No premade types will be installed. The wizard will remember that you deliberately chose a blank slate.</p>
+            }
+            else
+            {
+                <p>Untick anything you do not want. Each installed type remains fully editable.</p>
+                <div class="setup-preset-list">
+                    @foreach (RecordTypePreset preset in SelectedPackPresets)
+                    {
+                        <label class="setup-preset-choice">
+                            <input type="checkbox" checked="@_selectedPresetKeys.Contains(preset.Key)" @onchange="eventArgs => TogglePreset(preset.Key, eventArgs)" />
+                            <span>
+                                <strong>@preset.Name</strong>
+                                <small>@preset.Description</small>
+                                <small><b>Fields:</b> @string.Join(", ", preset.Fields.Select(field => field.Name))</small>
+                            </span>
+                        </label>
+                    }
+                </div>
+            }
+
+            <div class="action-row wrap">
+                <button class="button primary" type="button" disabled="@_busy" @onclick="CompleteAsync">
+                    @(_busy ? "Setting up…" : "Use this setup")
+                </button>
+                <span class="muted">Installation is transactional: either the whole selection is created or nothing is.</span>
+            </div>
+        </section>
+    }
+}
+
+@code {
+    private SetupStatus? _status;
+    private StarterPack? _selectedPack;
+    private string? _selectedPackKey;
+    private HashSet<string> _selectedPresetKeys = new(StringComparer.Ordinal);
+    private bool _loading = true;
+    private bool _busy;
+    private string? _message;
+
+    private IEnumerable<RecordTypePreset> SelectedPackPresets => _selectedPack is null
+        ? []
+        : _selectedPack.PresetKeys.Select(key => Presets.RecordTypes.Single(preset => preset.Key == key));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Presets.GetSetupStatusAsync();
+        _loading = false;
+    }
+
+    private void SelectPack(StarterPack pack)
+    {
+        _selectedPack = pack;
+        _selectedPackKey = pack.Key;
+        _selectedPresetKeys = pack.PresetKeys.ToHashSet(StringComparer.Ordinal);
+        _message = null;
+    }
+
+    private void TogglePreset(string key, ChangeEventArgs eventArgs)
+    {
+        if (eventArgs.Value is true)
+        {
+            _selectedPresetKeys.Add(key);
+        }
+        else
+        {
+            _selectedPresetKeys.Remove(key);
+        }
+    }
+
+    private async Task CompleteAsync()
+    {
+        if (_selectedPackKey is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            await Presets.CompleteSetupAsync(_selectedPackKey, _selectedPresetKeys);
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _busy = false;
+        }
+    }
+}

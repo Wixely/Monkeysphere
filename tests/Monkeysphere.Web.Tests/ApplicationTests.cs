@@ -101,7 +101,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
         Assert.Equal("/", login.Headers.Location?.OriginalString);
 
-        HttpResponseMessage home = await client.GetAsync("/");
+        HttpResponseMessage home = await client.GetAsync("/setup");
         Assert.Equal(HttpStatusCode.OK, home.StatusCode);
         string homeHtml = await home.Content.ReadAsStringAsync();
         using FormUrlEncodedContent logoutForm = new(new Dictionary<string, string>
@@ -155,7 +155,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             value.StartsWith("Monkeysphere.Session=", StringComparison.Ordinal));
 
         Assert.Equal(expectSecure, cookie.Contains("; secure", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/setup")).StatusCode);
     }
 
     [Fact]

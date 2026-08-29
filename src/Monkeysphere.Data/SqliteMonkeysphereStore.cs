@@ -13,7 +13,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RecordTypeRow> rows = await connection.QueryAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc FROM RecordTypes ORDER BY Name COLLATE NOCASE, Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion FROM RecordTypes ORDER BY Name COLLATE NOCASE, Id;",
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(MapRecordType).ToArray();
     }
@@ -23,7 +23,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RecordTypeRow? type = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc FROM RecordTypes WHERE Id = @Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion FROM RecordTypes WHERE Id = @Id;",
                 new { Id = Key(id) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (type is null)
@@ -40,6 +40,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<FieldRow> rows = await connection.QueryAsync<FieldRow>(new CommandDefinition("""
             SELECT Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc,
+                   CanonicalKey, PresetKey, PresetVersion,
                    0 AS SortOrder, 0 AS IsRequired
             FROM FieldDefinitions
             ORDER BY Lifecycle, Name COLLATE NOCASE, Id;
@@ -508,8 +509,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         CancellationToken cancellationToken)
     {
         IEnumerable<FieldRow> rows = await connection.QueryAsync<FieldRow>(new CommandDefinition("""
-            SELECT fd.Id, fd.Name, fd.TypeId, fd.ConfigurationJson, fd.Lifecycle,
-                   fd.CreatedAtUtc, fd.UpdatedAtUtc, rtf.SortOrder, rtf.IsRequired
+             SELECT fd.Id, fd.Name, fd.TypeId, fd.ConfigurationJson, fd.Lifecycle,
+                    fd.CreatedAtUtc, fd.UpdatedAtUtc, fd.CanonicalKey, fd.PresetKey, fd.PresetVersion,
+                    rtf.SortOrder, rtf.IsRequired
             FROM RecordTypeFields rtf
             JOIN FieldDefinitions fd ON fd.Id = rtf.FieldDefinitionId
             WHERE rtf.RecordTypeId = @RecordTypeId
@@ -575,7 +577,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     }
 
     private static RecordType MapRecordType(RecordTypeRow row) =>
-        new(ParseGuid(row.Id), row.Name, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc));
+        new(ParseGuid(row.Id), row.Name, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.PresetKey, row.PresetVersion);
 
     private static FieldDefinition MapField(FieldRow row) =>
         new(
@@ -585,7 +587,10 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             row.ConfigurationJson,
             (FieldLifecycle)row.Lifecycle,
             ParseTimestamp(row.CreatedAtUtc),
-            ParseTimestamp(row.UpdatedAtUtc));
+            ParseTimestamp(row.UpdatedAtUtc),
+            row.CanonicalKey,
+            row.PresetKey,
+            row.PresetVersion);
 
     private static RecordSummary MapSummary(RecordSummaryRow row) =>
         new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName, ParseTimestamp(row.UpdatedAtUtc));
@@ -617,6 +622,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public required string Name { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public string? PresetKey { get; init; }
+        public int? PresetVersion { get; init; }
     }
 
     private sealed class FieldRow
@@ -628,6 +635,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public int Lifecycle { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public string? CanonicalKey { get; init; }
+        public string? PresetKey { get; init; }
+        public int? PresetVersion { get; init; }
         public int SortOrder { get; init; }
         public int IsRequired { get; init; }
     }

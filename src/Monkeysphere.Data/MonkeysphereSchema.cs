@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 4,
+        currentVersion: 5,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -176,6 +176,39 @@ public static class MonkeysphereSchema
                     ON SavedViewColumns(FieldDefinitionId, SavedViewId);
                 CREATE INDEX IX_SavedViewFilters_Field
                     ON SavedViewFilters(FieldDefinitionId, SavedViewId);
+                """),
+            DnaXMigration.Sql(5, "preset-catalogue-and-setup", "Add preset provenance and first-run setup state", """
+                ALTER TABLE RecordTypes ADD COLUMN PresetKey TEXT NULL;
+                ALTER TABLE RecordTypes ADD COLUMN PresetVersion INTEGER NULL
+                    CHECK (PresetVersion IS NULL OR PresetVersion > 0);
+
+                ALTER TABLE FieldDefinitions ADD COLUMN CanonicalKey TEXT NULL;
+                ALTER TABLE FieldDefinitions ADD COLUMN PresetKey TEXT NULL;
+                ALTER TABLE FieldDefinitions ADD COLUMN PresetVersion INTEGER NULL
+                    CHECK (PresetVersion IS NULL OR PresetVersion > 0);
+
+                ALTER TABLE RelationshipTypes ADD COLUMN PresetKey TEXT NULL;
+                ALTER TABLE RelationshipTypes ADD COLUMN PresetVersion INTEGER NULL
+                    CHECK (PresetVersion IS NULL OR PresetVersion > 0);
+
+                CREATE UNIQUE INDEX UX_RecordTypes_PresetKey
+                    ON RecordTypes(PresetKey) WHERE PresetKey IS NOT NULL;
+                CREATE INDEX IX_FieldDefinitions_CanonicalKey
+                    ON FieldDefinitions(CanonicalKey) WHERE CanonicalKey IS NOT NULL;
+                CREATE INDEX IX_FieldDefinitions_PresetKey
+                    ON FieldDefinitions(PresetKey) WHERE PresetKey IS NOT NULL;
+                CREATE UNIQUE INDEX UX_RelationshipTypes_PresetKey
+                    ON RelationshipTypes(PresetKey) WHERE PresetKey IS NOT NULL;
+
+                CREATE TABLE SetupState (
+                    Singleton INTEGER NOT NULL PRIMARY KEY CHECK (Singleton = 1),
+                    StarterPackKey TEXT NOT NULL,
+                    CompletedAtUtc TEXT NOT NULL
+                );
+
+                INSERT INTO SetupState (Singleton, StarterPackKey, CompletedAtUtc)
+                SELECT 1, 'existing', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE EXISTS (SELECT 1 FROM RecordTypes);
                 """),
         ]);
 }

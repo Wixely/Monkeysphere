@@ -1,4 +1,7 @@
 @inherits LayoutComponentBase
+@inject IPresetService Presets
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <header class="site-header">
     <a class="brand" href="/">
@@ -31,3 +34,17 @@
     An unexpected error occurred.
     <a href=".">Reload</a>
 </div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authentication = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        string path = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];
+        if (authentication.User.Identity?.IsAuthenticated == true &&
+            !string.Equals(path, "setup", StringComparison.OrdinalIgnoreCase) &&
+            !(await Presets.GetSetupStatusAsync()).IsComplete)
+        {
+            Navigation.NavigateTo("/setup");
+        }
+    }
+}

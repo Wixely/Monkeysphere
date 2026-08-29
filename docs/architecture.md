@@ -19,3 +19,9 @@ Domain entities use UUIDv7 identifiers. Reusable field definitions carry an open
 Temporal values retain their explicit precision, a canonical sort key, an approximation flag, and an optional explanatory note. Relationship types use either directional forward/inverse labels or one symmetric label. Relationship rows reference two records relationally; symmetric endpoints are canonicalized to reject reverse-order duplicates.
 
 Saved views are relational definitions with stable UUIDv7 identities. A view selects one record type, ordered field columns, up to ten typed filters, an optional grouping field, and display-name or field sorting. Field references use stable definition identities, so renames do not break views; retired fields remain visible until the administrator edits the view. View rows are rendered through authenticated Core queries rather than direct browser or filesystem access.
+
+## Presets and first-run setup
+
+The project-owned catalogue defines concrete, versioned record-type presets in Core. Installed record types and fields receive fresh local UUIDv7 identities while retaining preset provenance and canonical field keys. They use the same editable tables and services as administrator-created definitions; presets are not hard-coded subclasses.
+
+Starter packs are curated selections over that catalogue. A new authenticated dataset can select one of four complexity levels, preview example items, and remove unwanted presets before confirming. The Data implementation installs all selected types, fields, applicable relationship types, and setup completion in one SQLite transaction. The explicit blank-slate choice writes completion without creating types. Migration 5 marks datasets that already contain record types as initialized so upgrades do not enter onboarding.

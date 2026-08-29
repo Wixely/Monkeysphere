@@ -10,7 +10,9 @@ public sealed record RecordType(
     Guid Id,
     string Name,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? PresetKey = null,
+    int? PresetVersion = null);
 
 public sealed record FieldDefinition(
     Guid Id,
@@ -19,7 +21,10 @@ public sealed record FieldDefinition(
     string ConfigurationJson,
     FieldLifecycle Lifecycle,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? CanonicalKey = null,
+    string? PresetKey = null,
+    int? PresetVersion = null);
 
 public sealed record RecordTypeField(
     FieldDefinition Definition,
