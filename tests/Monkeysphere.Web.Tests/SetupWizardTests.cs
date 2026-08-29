@@ -32,6 +32,7 @@ public sealed class SetupWizardTests
         Assert.Contains("the family car", setupHtml, StringComparison.Ordinal);
         Assert.Contains("a favourite video game", setupHtml, StringComparison.Ordinal);
         Assert.Contains("a memorable trip", setupHtml, StringComparison.Ordinal);
+        Assert.Equal(4, Regex.Count(setupHtml, "aria-pressed=\"false\"", RegexOptions.CultureInvariant));
     }
 
     private static string ExtractAntiforgeryToken(string html)

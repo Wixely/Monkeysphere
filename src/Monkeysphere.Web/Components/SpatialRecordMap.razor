@@ -1,8 +1,33 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<div class="spatial-map" @ref="_element" aria-label="Record location map"></div>
-<p class="muted">Pins are clustered when close together. Select a pin or cluster to see its records. No tile or geocoding service is contacted.</p>
+<div class="spatial-map"
+     @ref="_element"
+     role="img"
+     aria-label="Record location map visualization"
+     aria-describedby="record-map-description"></div>
+<p class="muted" id="record-map-description">Pins are clustered when close together. Select a pin or cluster to see its records, or browse the equivalent list below. No tile or geocoding service is contacted.</p>
+
+<details class="map-record-list">
+    <summary>Browse locations as a list (@Entries.Count)</summary>
+    <div class="map-selection" aria-label="Locations on this map page">
+        @foreach (SpatialMapEntry entry in Entries)
+        {
+            <article>
+                <a href="/records/@entry.RecordId">@entry.RecordDisplayName</a>
+                <span>@entry.RecordTypeName Â· @entry.FieldName</span>
+                @if (!string.IsNullOrWhiteSpace(entry.DisplayContext))
+                {
+                    <small>@entry.DisplayContext</small>
+                }
+                @if (entry.ApproximationRadiusKilometres is double radius)
+                {
+                    <small>Approximation radius: @radius.ToString("0.####", CultureInfo.CurrentCulture) km</small>
+                }
+            </article>
+        }
+    </div>
+</details>
 
 @if (_selected.Count > 0)
 {

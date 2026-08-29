@@ -65,7 +65,18 @@
     }
     else
     {
+        <p class="muted" id="relationship-graph-description">Lines show relationships between the displayed records. Use the accessible record selector below if you do not use the visual canvas.</p>
         <RelationshipGraphCanvas Graph="_graph" OnNodeSelected="SelectNode" />
+        <label class="graph-record-picker">
+            Select a displayed record
+            <select value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" @onchange="SelectNodeFromList">
+                <option value="">Choose a record</option>
+                @foreach (RelationshipGraphNode node in _graph.Nodes)
+                {
+                    <option value="@node.RecordId">@node.DisplayName â€” @node.RecordTypeName, distance @node.Distance</option>
+                }
+            </select>
+        </label>
     }
 </section>
 
@@ -114,6 +125,14 @@
     private Task SelectNode(Guid recordId)
     {
         _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
+        return Task.CompletedTask;
+    }
+
+    private Task SelectNodeFromList(ChangeEventArgs eventArgs)
+    {
+        _selected = Guid.TryParse(eventArgs.Value?.ToString(), out Guid recordId)
+            ? _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId)
+            : null;
         return Task.CompletedTask;
     }
 

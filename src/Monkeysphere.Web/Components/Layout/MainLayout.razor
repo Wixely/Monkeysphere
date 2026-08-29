@@ -3,6 +3,8 @@
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
 <header class="site-header">
     <a class="brand" href="/">
         <span class="brand-mark" aria-hidden="true">m</span>
@@ -31,7 +33,7 @@
     </AuthorizeView>
 </header>
 
-<main class="page-shell">
+<main class="page-shell" id="main-content">
     @Body
 </main>
 

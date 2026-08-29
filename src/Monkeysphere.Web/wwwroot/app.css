@@ -94,6 +94,24 @@ h3 {
     z-index: 10;
 }
 
+.skip-link {
+    position: fixed;
+    top: .5rem;
+    left: .5rem;
+    z-index: 100;
+    padding: .65rem .85rem;
+    border: 2px solid var(--accent-bright);
+    border-radius: .55rem;
+    color: var(--ink);
+    background: var(--panel);
+    box-shadow: var(--shadow-small);
+    transform: translateY(-160%);
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
 .brand {
     display: inline-flex;
     align-items: center;
@@ -839,6 +857,22 @@ input[type="checkbox"] {
     flex-wrap: wrap;
 }
 
+.graph-record-picker {
+    display: block;
+    max-width: 36rem;
+    margin-top: 1rem;
+}
+
+.map-record-list {
+    margin-top: 1rem;
+}
+
+.map-record-list summary {
+    color: var(--accent-dark);
+    font-weight: 700;
+    cursor: pointer;
+}
+
 .location-map .ol-control button {
     color: #fffaf0;
     background: var(--accent-dark);
@@ -1213,9 +1247,14 @@ dd {
 
     .site-header nav {
         width: 100%;
+        flex: 0 0 100%;
         order: 3;
         overflow-x: auto;
         padding-bottom: .2rem;
+    }
+
+    .logout-form {
+        margin-left: auto;
     }
 
     .page-shell {

@@ -31,6 +31,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage ready = await client.GetAsync("/health/ready");
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
+        HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
@@ -41,6 +42,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(
             "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
             Assert.Single(live.Headers.GetValues("Content-Security-Policy")));
+        Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
+        Assert.Equal("no-referrer", Assert.Single(missing.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal("DENY", Assert.Single(missing.Headers.GetValues("X-Frame-Options")));
+        Assert.Equal(
+            "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
+            Assert.Single(missing.Headers.GetValues("Content-Security-Policy")));
         Assert.Equal(HttpStatusCode.OK, mapLibrary.StatusCode);
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
         Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);
@@ -185,8 +192,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Private spatial view", mapHtml, StringComparison.Ordinal);
         Assert.Contains("1 location", mapHtml, StringComparison.Ordinal);
         Assert.Contains("Map location " + suffix, mapHtml, StringComparison.Ordinal);
+        Assert.Contains("Browse locations as a list", mapHtml, StringComparison.Ordinal);
         Assert.Contains("Bounded private view", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Graph connection " + suffix, graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Select a displayed record", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
         Assert.Equal("text/calendar", calendarExport.Content.Headers.ContentType?.MediaType);
         Assert.Equal("monkeysphere-calendar.ics", calendarExport.Content.Headers.ContentDisposition?.FileName);
         Assert.Contains("View record " + suffix, await calendarExport.Content.ReadAsStringAsync(), StringComparison.Ordinal);

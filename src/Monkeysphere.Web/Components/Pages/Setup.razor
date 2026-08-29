@@ -35,7 +35,7 @@ else
         @foreach (StarterPack pack in Presets.StarterPacks)
         {
             bool selected = string.Equals(_selectedPackKey, pack.Key, StringComparison.Ordinal);
-            <button class="setup-tier @(selected ? "selected" : "")" type="button" aria-pressed="@selected" @onclick="() => SelectPack(pack)">
+            <button class="setup-tier @(selected ? "selected" : "")" type="button" aria-pressed="@(selected ? "true" : "false")" @onclick="() => SelectPack(pack)">
                 <span class="setup-tier-check" aria-hidden="true">@(selected ? "✓" : "")</span>
                 <strong>@pack.Name</strong>
                 <span>@pack.Description</span>
