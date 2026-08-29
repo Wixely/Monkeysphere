@@ -152,6 +152,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
 
+app.UseMonkeysphereSecurityHeaders();
+
 if (trustedProxies.Length > 0)
 {
     app.UseForwardedHeaders();

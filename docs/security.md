@@ -2,6 +2,8 @@
 
 Monkeysphere stores sensitive personal information. The single administrator, host administrator, volume administrator, backup operator, and trusted reverse-proxy administrator are inside the deployment trust boundary.
 
+The concrete abuse cases, mitigations, accepted risks, and review triggers are maintained in the [initial-release threat model](threat-model.md).
+
 ## Initial controls
 
 - No public registration, tenant system, roles, or anonymous record access.
@@ -17,6 +19,7 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 - Restore is offline and requires filesystem/operator access rather than browser access. A data-root instance lock prevents restore through the supported command while Monkeysphere is running; staging validation happens before replacement, and the previous databases and media are retained for operator rollback.
 - DnaX remote access unavailable by default, with separate credentials, randomized routes, bounded requests, and redacted audit metadata when deliberately enabled.
 - Minimal unauthenticated liveness response.
+- Response headers deny framing and object embedding, suppress referrers and MIME sniffing, and disable camera, microphone, and geolocation browser features. A complete script/style CSP remains a documented residual risk while Blazor's generated import map and framework boot resources are assessed for nonce/hash support.
 
 ## Transport
 

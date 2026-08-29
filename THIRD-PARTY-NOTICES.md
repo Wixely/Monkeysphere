@@ -16,17 +16,20 @@ The repository-local packages in `eng/packages` were built without modification 
 | `DnaX.RemoteAccess.Mcp` | `79486D17D036A4B8BF7E5B7F53E78F39899175DEB78F00DED95848B904744732` |
 | `DnaX.RemoteAccess.Sqlite` | `C80245B991659C83B82DF22D6A7A211062A4D3DE8C952D6DBCE75BA5CCBBE553` |
 
-DnaX remote MCP support depends on the official Model Context Protocol C# SDK, licensed under Apache-2.0.
+DnaX remote MCP support depends on the official Model Context Protocol C# SDK, licensed under Apache-2.0, and Microsoft.Extensions.AI.Abstractions, licensed under MIT.
 
 ## Other direct dependencies
 
 - Dapper — Apache-2.0, <https://github.com/DapperLib/Dapper>
 - Microsoft ASP.NET Core, Microsoft.Data.Sqlite, and Microsoft.Extensions hosting packages — MIT, <https://github.com/dotnet/aspnetcore> and <https://github.com/dotnet/runtime>
 - SQLite — public domain, <https://www.sqlite.org/copyright.html>
+- SQLitePCLRaw managed and bundling packages — Apache-2.0; the bundled SQLite native library remains public domain, <https://github.com/ericsink/SQLitePCL.raw>
 - SkiaSharp — MIT, <https://github.com/mono/SkiaSharp>
 - xUnit.net and runner — Apache-2.0, <https://github.com/xunit/xunit>
 - Microsoft.NET.Test.Sdk — MIT, <https://github.com/microsoft/vstest>
 - coverlet.collector — MIT, <https://github.com/coverlet-coverage/coverlet>
+
+The transitive runtime package graph was reviewed from restored NuGet package metadata on 2026-08-29. It contains only the DnaX, Dapper, Microsoft .NET/ASP.NET Core, Model Context Protocol, SQLitePCLRaw/SQLite, and SkiaSharp families listed above. The transitive test graph adds Microsoft Test Platform (MIT) and xUnit.net components (Apache-2.0). See `docs/dependencies.md` for the repeatable hash and advisory checks.
 
 ## Vendored browser assets
 

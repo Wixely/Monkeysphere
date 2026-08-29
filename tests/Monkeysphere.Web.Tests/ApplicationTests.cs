@@ -34,6 +34,13 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        Assert.Equal("nosniff", Assert.Single(live.Headers.GetValues("X-Content-Type-Options")));
+        Assert.Equal("no-referrer", Assert.Single(live.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal("DENY", Assert.Single(live.Headers.GetValues("X-Frame-Options")));
+        Assert.Equal("camera=(), microphone=(), geolocation=()", Assert.Single(live.Headers.GetValues("Permissions-Policy")));
+        Assert.Equal(
+            "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
+            Assert.Single(live.Headers.GetValues("Content-Security-Policy")));
         Assert.Equal(HttpStatusCode.OK, mapLibrary.StatusCode);
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
         Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);
