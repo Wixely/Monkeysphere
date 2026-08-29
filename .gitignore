@@ -4,6 +4,7 @@ obj/
 .vscode/*.user
 TestResults/
 artifacts/
+.artifacts/
 data/
 secrets/*
 !secrets/.gitkeep

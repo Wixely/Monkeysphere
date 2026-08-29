@@ -1,0 +1,162 @@
+@page "/relationship-types"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IRelationshipService Service
+
+<PageTitle>Relationship types · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Connections</p>
+        <h1>Relationship types</h1>
+        <p>Define symmetric relationships or directional pairs with an inverse label.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice error" role="alert">@_message</div>
+}
+
+<section class="panel">
+    <h2>Add a relationship type</h2>
+    <div class="form-grid">
+        <label>
+            Forward label
+            <input @bind="_name" placeholder="parent of" />
+        </label>
+        <label>
+            Direction
+            <select @bind="_directionality">
+                <option value="@RelationshipDirectionality.Directional">Directional</option>
+                <option value="@RelationshipDirectionality.Symmetric">Symmetric</option>
+            </select>
+        </label>
+        @if (_directionality == RelationshipDirectionality.Directional)
+        {
+            <label>
+                Inverse label
+                <input @bind="_inverseName" placeholder="child of" />
+            </label>
+        }
+    </div>
+    <button class="button primary" type="button" @onclick="CreateAsync">Add relationship type</button>
+</section>
+
+<section class="panel">
+    <h2>Definitions</h2>
+    @if (_types.Count == 0)
+    {
+        <p class="empty-state">No relationship types have been defined.</p>
+    }
+    else
+    {
+        <ul class="item-list">
+            @foreach (RelationshipType type in _types)
+            {
+                <li>
+                    <div>
+                        @if (type.Lifecycle == RelationshipLifecycle.Active)
+                        {
+                            <input value="@_names[type.Id]" aria-label="Forward label" @onchange="args => SetName(type.Id, args)" />
+                        }
+                        else
+                        {
+                            <strong>@type.Name</strong>
+                        }
+                        @if (type.Directionality == RelationshipDirectionality.Directional)
+                        {
+                            @if (type.Lifecycle == RelationshipLifecycle.Active)
+                            {
+                                <input value="@_inverseNames[type.Id]" aria-label="Inverse label" @onchange="args => SetInverseName(type.Id, args)" />
+                            }
+                            else
+                            {
+                                <span class="muted"> / @type.InverseName</span>
+                            }
+                        }
+                        <span class="pill">@type.Directionality</span>
+                        @if (type.Lifecycle == RelationshipLifecycle.Retired)
+                        {
+                            <span class="pill">retired</span>
+                        }
+                    </div>
+                    @if (type.Lifecycle == RelationshipLifecycle.Active)
+                    {
+                        <button class="button" type="button" @onclick="() => RenameAsync(type)">Rename</button>
+                        <button class="button" type="button" @onclick="() => RetireAsync(type.Id)">Retire</button>
+                    }
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<RelationshipType> _types = [];
+    private string _name = string.Empty;
+    private string _inverseName = string.Empty;
+    private RelationshipDirectionality _directionality = RelationshipDirectionality.Directional;
+    private string? _message;
+    private readonly Dictionary<Guid, string> _names = [];
+    private readonly Dictionary<Guid, string> _inverseNames = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            await Service.CreateTypeAsync(new CreateRelationshipTypeRequest(_name, _directionality, _inverseName));
+            _name = string.Empty;
+            _inverseName = string.Empty;
+            _message = null;
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task RetireAsync(Guid id)
+    {
+        try
+        {
+            await Service.RetireTypeAsync(id);
+            _message = null;
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task RenameAsync(RelationshipType type)
+    {
+        try
+        {
+            await Service.RenameTypeAsync(type.Id, _names[type.Id], _inverseNames.GetValueOrDefault(type.Id));
+            _message = null;
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _types = await Service.ListTypesAsync();
+        foreach (RelationshipType type in _types)
+        {
+            _names[type.Id] = type.Name;
+            _inverseNames[type.Id] = type.InverseName ?? string.Empty;
+        }
+    }
+
+    private void SetName(Guid id, ChangeEventArgs args) => _names[id] = args.Value?.ToString() ?? string.Empty;
+    private void SetInverseName(Guid id, ChangeEventArgs args) => _inverseNames[id] = args.Value?.ToString() ?? string.Empty;
+}

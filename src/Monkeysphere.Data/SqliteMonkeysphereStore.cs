@@ -55,20 +55,37 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     {
         string timestamp = Timestamp(now);
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO RecordTypes (Id, Name, CreatedAtUtc, UpdatedAtUtc) VALUES (@Id, @Name, @Now, @Now);",
-            new { Id = Key(id), Name = name, Now = timestamp },
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO RecordTypes (Id, Name, CreatedAtUtc, UpdatedAtUtc) VALUES (@Id, @Name, @Now, @Now);",
+                new { Id = Key(id), Name = name, Now = timestamp },
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (SqliteException exception) when (IsUniqueConstraint(exception))
+        {
+            throw new DomainValidationException("A record type with that name already exists.", exception);
+        }
+
         return new RecordType(id, name, now, now);
     }
 
     public async Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        int changed = await connection.ExecuteAsync(new CommandDefinition(
-            "UPDATE RecordTypes SET Name = @Name, UpdatedAtUtc = @Now WHERE Id = @Id;",
-            new { Id = Key(id), Name = name, Now = Timestamp(now) },
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int changed;
+        try
+        {
+            changed = await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE RecordTypes SET Name = @Name, UpdatedAtUtc = @Now WHERE Id = @Id;",
+                new { Id = Key(id), Name = name, Now = Timestamp(now) },
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (SqliteException exception) when (IsUniqueConstraint(exception))
+        {
+            throw new DomainValidationException("A record type with that name already exists.", exception);
+        }
+
         RequireChanged(changed, "Record type was not found.");
     }
 
@@ -309,7 +326,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                         WHERE qv.RecordId = r.Id
                           AND (qv.TextValue LIKE @Query ESCAPE '\' COLLATE NOCASE
                                OR qv.NumberValue LIKE @Query ESCAPE '\' COLLATE NOCASE
-                               OR qv.DateValue LIKE @Query ESCAPE '\' COLLATE NOCASE)
+                               OR qv.DateValue LIKE @Query ESCAPE '\' COLLATE NOCASE
+                               OR qv.TemporalValue LIKE @Query ESCAPE '\' COLLATE NOCASE
+                               OR qv.ApproximationNote LIKE @Query ESCAPE '\' COLLATE NOCASE)
                     )
                     OR EXISTS (
                         SELECT 1 FROM FieldValues qv
@@ -354,13 +373,13 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         string predicate = operation switch
         {
             FieldFilterOperator.Equals =>
-                "(fv.TextValue = @Filter COLLATE NOCASE OR fv.NumberValue = @Filter OR fv.DateValue = @Filter OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @Filter COLLATE NOCASE))",
+                "(fv.TextValue = @Filter COLLATE NOCASE OR fv.NumberValue = @Filter OR fv.DateValue = @Filter OR fv.TemporalValue = @Filter OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @Filter COLLATE NOCASE))",
             FieldFilterOperator.Contains =>
                 "(fv.TextValue LIKE @FilterPattern ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @FilterPattern ESCAPE '\\' COLLATE NOCASE))",
             FieldFilterOperator.GreaterThan => "fv.NumberSortValue > @FilterNumber",
             FieldFilterOperator.LessThan => "fv.NumberSortValue < @FilterNumber",
-            FieldFilterOperator.Before => "fv.DateValue < @FilterDate",
-            FieldFilterOperator.After => "fv.DateValue > @FilterDate",
+            FieldFilterOperator.Before => "COALESCE(fv.TemporalSortKey, fv.DateValue) < @FilterDate",
+            FieldFilterOperator.After => "COALESCE(fv.TemporalSortKey, fv.DateValue) > @FilterDate",
             _ => throw new DomainValidationException("Unsupported field filter operator."),
         };
 
@@ -378,12 +397,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
 
         if (operation is FieldFilterOperator.Before or FieldFilterOperator.After)
         {
-            if (!DateOnly.TryParseExact(filter, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly date))
-            {
-                throw new DomainValidationException("Date filters require YYYY-MM-DD.");
-            }
-
-            parameters.Add("FilterDate", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            parameters.Add("FilterDate", TemporalValues.NormalizeFilterSortKey(filter));
         }
 
         where.Append(" AND EXISTS (SELECT 1 FROM FieldValues fv WHERE fv.RecordId = r.Id AND fv.FieldDefinitionId = @FilterFieldId AND ");
@@ -403,9 +417,11 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         {
             await connection.ExecuteAsync(new CommandDefinition("""
                 INSERT INTO FieldValues
-                    (Id, RecordId, FieldDefinitionId, Ordinal, TextValue, NumberValue, NumberSortValue, DateValue, CreatedAtUtc, UpdatedAtUtc)
+                    (Id, RecordId, FieldDefinitionId, Ordinal, TextValue, NumberValue, NumberSortValue, DateValue,
+                     TemporalValue, TemporalPrecision, TemporalSortKey, IsApproximate, ApproximationNote, CreatedAtUtc, UpdatedAtUtc)
                 VALUES
-                    (@Id, @RecordId, @FieldDefinitionId, @Ordinal, @TextValue, @NumberValue, @NumberSortValue, @DateValue, @Now, @Now);
+                    (@Id, @RecordId, @FieldDefinitionId, @Ordinal, @TextValue, @NumberValue, @NumberSortValue, @DateValue,
+                     @TemporalValue, @TemporalPrecision, @TemporalSortKey, @IsApproximate, @ApproximationNote, @Now, @Now);
                 """,
                 new
                 {
@@ -417,6 +433,11 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                     value.NumberValue,
                     value.NumberSortValue,
                     value.DateValue,
+                    TemporalValue = value.Temporal?.Value,
+                    TemporalPrecision = value.Temporal is null ? null : (int?)value.Temporal.Precision,
+                    TemporalSortKey = value.Temporal?.SortKey,
+                    IsApproximate = value.Temporal?.IsApproximate == true ? 1 : 0,
+                    ApproximationNote = value.Temporal?.ApproximationNote,
                     Now = timestamp,
                 },
                 transaction,
@@ -458,7 +479,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     {
         FieldValueRow[] rows = (await connection.QueryAsync<FieldValueRow>(new CommandDefinition("""
             SELECT fv.Id, fv.FieldDefinitionId, fd.Name AS FieldName, fd.TypeId, fv.Ordinal,
-                   fv.TextValue, fv.NumberValue, fv.NumberSortValue, fv.DateValue
+                   fv.TextValue, fv.NumberValue, fv.NumberSortValue, fv.DateValue,
+                   fv.TemporalValue, fv.TemporalPrecision, fv.TemporalSortKey,
+                   fv.IsApproximate, fv.ApproximationNote
             FROM FieldValues fv
             JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
             WHERE fv.RecordId = @RecordId
@@ -495,7 +518,12 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             row.NumberValue,
             row.NumberSortValue,
             row.DateValue,
-            tagLookup.GetValueOrDefault(row.Id, []))).ToArray();
+            tagLookup.GetValueOrDefault(row.Id, []),
+            row.TemporalValue,
+            row.TemporalPrecision is null ? null : (TemporalPrecision?)row.TemporalPrecision,
+            row.TemporalSortKey,
+            row.IsApproximate != 0,
+            row.ApproximationNote)).ToArray();
     }
 
     private static RecordType MapRecordType(RecordTypeRow row) =>
@@ -531,6 +559,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             throw new DomainValidationException(message);
         }
     }
+
+    private static bool IsUniqueConstraint(SqliteException exception) =>
+        exception.SqliteErrorCode == 19 && exception.SqliteExtendedErrorCode == 2067;
 
     private sealed class RecordTypeRow
     {
@@ -573,6 +604,11 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public string? NumberValue { get; init; }
         public double? NumberSortValue { get; init; }
         public string? DateValue { get; init; }
+        public string? TemporalValue { get; init; }
+        public int? TemporalPrecision { get; init; }
+        public string? TemporalSortKey { get; init; }
+        public int IsApproximate { get; init; }
+        public string? ApproximationNote { get; init; }
     }
 
     private sealed class TagRow

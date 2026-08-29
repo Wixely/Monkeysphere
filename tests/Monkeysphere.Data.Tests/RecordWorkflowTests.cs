@@ -176,6 +176,73 @@ public sealed class RecordWorkflowTests
         Assert.Equal(["Friend"], Assert.Single(deduplicated.Values).Tags);
     }
 
+    [Fact]
+    public async Task PrecisionAwareTemporalValueRoundTripsAndParticipatesInSearch()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType eventType = await service.CreateRecordTypeAsync("Event");
+        FieldDefinition when = await service.CreateAndAttachFieldAsync(
+            eventType.Id,
+            new CreateFieldRequest("When", FieldTypes.Temporal, true));
+
+        RecordDetails created = await service.CreateRecordAsync(eventType.Id, "An uncertain event", [
+            new(when.Id, Temporal: new TemporalValueInput("1810s", TemporalPrecision.Decade, true, "estimated from a letter")),
+        ]);
+
+        RecordValue value = Assert.Single(created.Values);
+        Assert.Equal("1810", value.TemporalValue);
+        Assert.Equal(TemporalPrecision.Decade, value.TemporalPrecision);
+        Assert.Equal("1810-01-01T00:00:00", value.TemporalSortKey);
+        Assert.True(value.IsApproximate);
+        Assert.Equal("estimated from a letter", value.ApproximationNote);
+
+        PagedResult<RecordSummary> textSearch = await service.SearchRecordsAsync(new RecordSearch(Query: "letter"));
+        Assert.Equal(created.Record.Id, Assert.Single(textSearch.Items).Id);
+
+        PagedResult<RecordSummary> dateSearch = await service.SearchRecordsAsync(new RecordSearch(
+            FieldDefinitionId: when.Id,
+            Operator: FieldFilterOperator.Before,
+            FilterValue: "1820-01-01"));
+        Assert.Equal(created.Record.Id, Assert.Single(dateSearch.Items).Id);
+    }
+
+    [Fact]
+    public async Task PhoneAndWebLinkFieldsValidateAndRoundTrip()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType person = await service.CreateRecordTypeAsync("Contact");
+        FieldDefinition phone = await service.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Phone", FieldTypes.PhoneNumber, false));
+        FieldDefinition website = await service.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Website", FieldTypes.WebLink, false));
+
+        RecordDetails record = await service.CreateRecordAsync(person.Id, "A contact", [
+            new(phone.Id, "+44 (0)20 1234 5678"),
+            new(website.Id, "https://example.test/profile"),
+        ]);
+        Assert.Equal("+44 (0)20 1234 5678", Assert.Single(record.Values, item => item.FieldDefinitionId == phone.Id).TextValue);
+        Assert.Equal("https://example.test/profile", Assert.Single(record.Values, item => item.FieldDefinitionId == website.Id).TextValue);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateRecordAsync(person.Id, "Bad phone", [new(phone.Id, "call me")]));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateRecordAsync(person.Id, "Bad link", [new(website.Id, "file:///private.txt")]));
+    }
+
+    [Fact]
+    public async Task DuplicateRecordTypeNameProducesDomainValidationError()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType person = await service.CreateRecordTypeAsync("Person");
+        RecordType pet = await service.CreateRecordTypeAsync("Pet");
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateRecordTypeAsync("person"));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.RenameRecordTypeAsync(pet.Id, person.Name));
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;

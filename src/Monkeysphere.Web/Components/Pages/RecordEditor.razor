@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
+@inject IRelationshipService RelationshipService
 @inject NavigationManager Navigation
 
 <PageTitle>@(RecordId.HasValue ? "Edit record" : "New record") · Monkeysphere</PageTitle>
@@ -98,6 +99,26 @@ else
                                     case FieldTypes.Tags:
                                         <input @bind="editor.Tags" placeholder="Comma-separated tags" />
                                         break;
+                                    case FieldTypes.Temporal:
+                                        <select @bind="editor.TemporalPrecision">
+                                            @foreach (TemporalPrecision precision in Enum.GetValues<TemporalPrecision>())
+                                            {
+                                                <option value="@precision">@precision</option>
+                                            }
+                                        </select>
+                                        <input @bind="editor.Scalar" placeholder="@TemporalValues.InputHint(editor.TemporalPrecision)" />
+                                        <span class="checkbox-label">
+                                            <input type="checkbox" @bind="editor.IsApproximate" />
+                                            Approximate
+                                        </span>
+                                        <input @bind="editor.ApproximationNote" placeholder="Optional explanation of the uncertainty" />
+                                        break;
+                                    case FieldTypes.PhoneNumber:
+                                        <input @bind="editor.Scalar" type="tel" autocomplete="tel" />
+                                        break;
+                                    case FieldTypes.WebLink:
+                                        <input @bind="editor.Scalar" type="url" inputmode="url" placeholder="https://example.test/" />
+                                        break;
                                     default:
                                         <input @bind="editor.Scalar" />
                                         break;
@@ -120,6 +141,78 @@ else
 
         @if (RecordId.HasValue)
         {
+            <section class="panel">
+                <div class="section-heading">
+                    <h2>Relationships</h2>
+                    <span class="muted">@_relationships.Count connected</span>
+                </div>
+                @if (_relationships.Count == 0)
+                {
+                    <p class="empty-state">No relationships recorded.</p>
+                }
+                else
+                {
+                    <ul class="item-list">
+                        @foreach (RelationshipView relationship in _relationships)
+                        {
+                            <li>
+                                <div>
+                                    <span>@relationship.Label</span>
+                                    <a href="/records/@relationship.RelatedRecordId">@relationship.RelatedDisplayName</a>
+                                    @if (!string.IsNullOrWhiteSpace(relationship.Note))
+                                    {
+                                        <span class="muted">@relationship.Note</span>
+                                    }
+                                </div>
+                                <button class="button danger" type="button" @onclick="() => RemoveRelationshipAsync(relationship.Id)">Remove</button>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                @if (_activeRelationshipTypes.Count == 0)
+                {
+                    <p><a href="/relationship-types">Define a relationship type</a> to connect this record.</p>
+                }
+                else
+                {
+                    <div class="form-grid">
+                        <label>
+                            Relationship
+                            <select @bind="_relationshipTypeValue">
+                                <option value="">Choose…</option>
+                                @foreach (RelationshipType type in _activeRelationshipTypes)
+                                {
+                                    <option value="@type.Id">@type.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            Find a record
+                            <input @bind="_relatedQuery" placeholder="Name" />
+                        </label>
+                        <label>
+                            Related record
+                            <select @bind="_relatedRecordValue">
+                                <option value="">Choose…</option>
+                                @foreach (RecordSummary candidate in _relatedCandidates)
+                                {
+                                    <option value="@candidate.Id">@candidate.DisplayName (@candidate.RecordTypeName)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            Note
+                            <input @bind="_relationshipNote" />
+                        </label>
+                    </div>
+                    <div class="action-row">
+                        <button class="button" type="button" @onclick="SearchRelatedAsync">Search records</button>
+                        <button class="button primary" type="button" @onclick="AddRelationshipAsync">Add relationship</button>
+                    </div>
+                }
+            </section>
+
             <section class="panel danger-zone">
                 <h2>Delete record</h2>
                 <p>This removes the record and all its field values. Backups may still retain older copies.</p>
@@ -149,6 +242,13 @@ else
     private string? _message;
     private bool _loading = true;
     private bool _confirmDelete;
+    private IReadOnlyList<RelationshipView> _relationships = [];
+    private IReadOnlyList<RelationshipType> _activeRelationshipTypes = [];
+    private IReadOnlyList<RecordSummary> _relatedCandidates = [];
+    private string _relationshipTypeValue = string.Empty;
+    private string _relatedRecordValue = string.Empty;
+    private string _relatedQuery = string.Empty;
+    private string _relationshipNote = string.Empty;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -162,6 +262,7 @@ else
                 _selectedTypeValue = _record.Record.RecordTypeId.ToString();
                 _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
                 BuildEditors(_record);
+                await LoadRelationshipsAsync(id);
             }
         }
         else if (InitialTypeId is Guid typeId)
@@ -199,7 +300,15 @@ else
                         Tags: string.IsNullOrWhiteSpace(editor.Tags)
                             ? []
                             : editor.Tags.Split(',', StringSplitOptions.TrimEntries))
-                    : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
+                    : string.Equals(editor.Field.Definition.TypeId, FieldTypes.Temporal, StringComparison.Ordinal)
+                        ? new FieldValueInput(
+                            editor.Field.Definition.Id,
+                            Temporal: new TemporalValueInput(
+                                editor.Scalar,
+                                editor.TemporalPrecision,
+                                editor.IsApproximate,
+                                editor.ApproximationNote))
+                        : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
 
             RecordDetails saved = RecordId is Guid id
                 ? await Service.UpdateRecordAsync(id, _model.DisplayName, values)
@@ -223,6 +332,59 @@ else
         Navigation.NavigateTo("/records");
     }
 
+    private async Task LoadRelationshipsAsync(Guid recordId)
+    {
+        _relationships = await RelationshipService.ListForRecordAsync(recordId);
+        _activeRelationshipTypes = (await RelationshipService.ListTypesAsync())
+            .Where(type => type.Lifecycle == RelationshipLifecycle.Active)
+            .ToArray();
+        await SearchRelatedAsync();
+    }
+
+    private async Task SearchRelatedAsync()
+    {
+        PagedResult<RecordSummary> result = await Service.SearchRecordsAsync(new RecordSearch(
+            Query: _relatedQuery,
+            PageSize: 100));
+        _relatedCandidates = result.Items.Where(item => item.Id != RecordId).ToArray();
+        if (!_relatedCandidates.Any(item => item.Id.ToString() == _relatedRecordValue))
+        {
+            _relatedRecordValue = string.Empty;
+        }
+    }
+
+    private async Task AddRelationshipAsync()
+    {
+        try
+        {
+            if (RecordId is not Guid sourceId ||
+                !Guid.TryParse(_relationshipTypeValue, out Guid typeId) ||
+                !Guid.TryParse(_relatedRecordValue, out Guid targetId))
+            {
+                throw new DomainValidationException("Choose a relationship type and related record.");
+            }
+
+            await RelationshipService.CreateAsync(typeId, sourceId, targetId, _relationshipNote);
+            _relationshipNote = string.Empty;
+            _relatedRecordValue = string.Empty;
+            _message = null;
+            await LoadRelationshipsAsync(sourceId);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task RemoveRelationshipAsync(Guid relationshipId)
+    {
+        await RelationshipService.DeleteAsync(relationshipId);
+        if (RecordId is Guid recordId)
+        {
+            await LoadRelationshipsAsync(recordId);
+        }
+    }
+
     private void BuildEditors(RecordDetails? record)
     {
         if (_selectedType is null)
@@ -241,8 +403,11 @@ else
                 return new EditorField
                 {
                     Field = field,
-                    Scalar = value?.TextValue ?? value?.NumberValue ?? value?.DateValue ?? string.Empty,
+                    Scalar = value?.TemporalValue ?? value?.TextValue ?? value?.NumberValue ?? value?.DateValue ?? string.Empty,
                     Tags = value is null ? string.Empty : string.Join(", ", value.Tags),
+                    TemporalPrecision = value?.TemporalPrecision ?? TemporalPrecision.Day,
+                    IsApproximate = value?.IsApproximate == true,
+                    ApproximationNote = value?.ApproximationNote ?? string.Empty,
                 };
             }).ToList();
     }
@@ -261,5 +426,8 @@ else
         public required RecordTypeField Field { get; init; }
         public string Scalar { get; set; } = string.Empty;
         public string Tags { get; set; } = string.Empty;
+        public TemporalPrecision TemporalPrecision { get; set; } = TemporalPrecision.Day;
+        public bool IsApproximate { get; set; }
+        public string ApproximationNote { get; set; } = string.Empty;
     }
 }

@@ -4,7 +4,7 @@ Monkeysphere is a private, self-hosted relationship-memory application for recor
 
 ## Current vertical slice
 
-The first slice provides one administrator account, configurable record types and reusable typed fields, record editing, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces.
+The current slice provides one administrator account, configurable record types and reusable typed fields, record editing, directional and symmetric relationships, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, and web links; unknown type identifiers retain a lossless text fallback.
 
 ## Requirements
 
@@ -28,9 +28,17 @@ For local development, store the password outside the repository and point `MONK
 
 The default development address is `http://localhost:5080`. Production deployments serve HTTP and must use a correctly configured trusted HTTPS reverse proxy when transport confidentiality is required.
 
+## Optional remote access
+
+HTTP API and MCP support are compiled in but unavailable by default. A deployment must explicitly enable the DnaX master gate and the desired surface, provide a stable deployment identifier, configure the trusted HTTPS/proxy boundary, and restart. The administrator can then create a one-time credential, rotate the randomized endpoint, and activate that surface from the Remote access page. API and MCP use separate credentials; anonymous MCP is not supported.
+
+The first remote scope is `records.read`. It permits bounded record-type listing, record search, and individual record retrieval only. See [security](docs/security.md) for excluded operations and the trust boundary.
+
 ## Data
 
 `MONKEYSPHERE_DATA_ROOT` selects the mutable data root and defaults to `data` beneath the content root. Application data and DnaX remote-access state use separate SQLite files and separate migration ledgers.
+
+Temporal values preserve century, decade, year, month, day, minute, or second precision plus optional approximation metadata. Before/after filters accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`.
 
 ## Deployment
 
@@ -39,7 +47,7 @@ The default development address is `http://localhost:5080`. Production deploymen
 - Linux/systemd: a unit template is under `deploy/systemd`; verification remains required.
 - Docker: use `docker compose up --build` after creating the administrator password file referenced by `compose.yaml`.
 
-See [architecture](docs/architecture.md), [security](docs/security.md), [dependencies](docs/dependencies.md), and [third-party notices](THIRD-PARTY-NOTICES.md).
+See [architecture](docs/architecture.md), [security](docs/security.md), [dependencies](docs/dependencies.md), [verification status](docs/verification.md), and [third-party notices](THIRD-PARTY-NOTICES.md).
 
 ## License
 

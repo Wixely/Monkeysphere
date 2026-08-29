@@ -27,7 +27,18 @@ public sealed record RemoteRecordSummary(
 
 public sealed record RemoteRecord(
     RemoteRecordSummary Record,
-    IReadOnlyList<RemoteRecordValue> Values);
+    IReadOnlyList<RemoteRecordValue> Values,
+    IReadOnlyList<RemoteRelationship> Relationships);
+
+public sealed record RemoteRelationship(
+    Guid Id,
+    Guid RelationshipTypeId,
+    string Label,
+    Guid RelatedRecordId,
+    string RelatedDisplayName,
+    bool IsOutgoing,
+    string? Note,
+    DateTimeOffset UpdatedAtUtc);
 
 public sealed record RemoteRecordValue(
     Guid FieldDefinitionId,
@@ -40,6 +51,7 @@ public sealed record RemotePage<T>(IReadOnlyList<T> Items, int Page, int PageSiz
 
 public sealed class MonkeysphereRemoteQueries(
     IMonkeysphereService service,
+    IRelationshipService relationshipService,
     IHttpContextAccessor httpContextAccessor)
 {
     public async Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
@@ -85,7 +97,21 @@ public sealed class MonkeysphereRemoteQueries(
     {
         DemandReadScope();
         RecordDetails? record = await service.GetRecordAsync(id, cancellationToken).ConfigureAwait(false);
-        return record is null ? null : MapRecord(record);
+        if (record is null)
+        {
+            return null;
+        }
+
+        IReadOnlyList<RemoteRelationship> relationships = await GetRecordRelationshipsCoreAsync(id, cancellationToken).ConfigureAwait(false);
+        return MapRecord(record, relationships);
+    }
+
+    public async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        DemandReadScope();
+        return await GetRecordRelationshipsCoreAsync(id, cancellationToken).ConfigureAwait(false);
     }
 
     private void DemandReadScope()
@@ -113,15 +139,35 @@ public sealed class MonkeysphereRemoteQueries(
     private static RemoteRecordSummary MapSummary(RecordSummary record) =>
         new(record.Id, record.RecordTypeId, record.RecordTypeName, record.DisplayName, record.UpdatedAtUtc);
 
-    private static RemoteRecord MapRecord(RecordDetails details) =>
+    private static RemoteRecord MapRecord(RecordDetails details, IReadOnlyList<RemoteRelationship> relationships) =>
         new(
             MapSummary(details.Record),
             details.Values.Select(value => new RemoteRecordValue(
                 value.FieldDefinitionId,
                 value.FieldName,
                 value.TypeId,
-                value.TextValue ?? value.NumberValue ?? value.DateValue,
-                value.Tags)).ToArray());
+                FormatValue(value),
+                value.Tags)).ToArray(),
+            relationships);
+
+    private async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsCoreAsync(
+        Guid id,
+        CancellationToken cancellationToken) =>
+        (await relationshipService.ListForRecordAsync(id, 100, cancellationToken).ConfigureAwait(false))
+            .Select(item => new RemoteRelationship(
+                item.Id,
+                item.RelationshipTypeId,
+                item.Label,
+                item.RelatedRecordId,
+                item.RelatedDisplayName,
+                item.IsOutgoing,
+                item.Note,
+                item.UpdatedAtUtc))
+            .ToArray();
+
+    private static string? FormatValue(RecordValue value) => value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision
+        ? TemporalValues.Format(value.TemporalValue, precision, value.IsApproximate, value.ApproximationNote)
+        : value.TextValue ?? value.NumberValue ?? value.DateValue;
 }
 
 [McpServerToolType]
@@ -165,4 +211,12 @@ public sealed class MonkeysphereRemoteTools
         Guid id,
         CancellationToken cancellationToken = default) =>
         queries.GetRecordAsync(id, cancellationToken);
+
+    [McpServerTool(Name = "get_record_relationships", UseStructuredContent = true)]
+    [Description("Gets the bounded relationships visible from one Monkeysphere record.")]
+    public static Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
+        MonkeysphereRemoteQueries queries,
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        queries.GetRecordRelationshipsAsync(id, cancellationToken);
 }

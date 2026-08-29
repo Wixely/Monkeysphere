@@ -24,7 +24,11 @@ public static class AuthenticationEndpoints
         AdministratorCredential credential,
         TimeProvider timeProvider)
     {
-        await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
+        if (!await ValidateAntiforgeryAsync(context, antiforgery).ConfigureAwait(false))
+        {
+            return;
+        }
+
         IFormCollection form = await context.Request.ReadFormAsync(context.RequestAborted).ConfigureAwait(false);
         string username = form["username"].ToString();
         string password = form["password"].ToString();
@@ -58,9 +62,27 @@ public static class AuthenticationEndpoints
 
     private static async Task LogoutAsync(HttpContext context, IAntiforgery antiforgery)
     {
-        await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
+        if (!await ValidateAntiforgeryAsync(context, antiforgery).ConfigureAwait(false))
+        {
+            return;
+        }
+
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme).ConfigureAwait(false);
         context.Response.Redirect("/login");
+    }
+
+    private static async Task<bool> ValidateAntiforgeryAsync(HttpContext context, IAntiforgery antiforgery)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
+            return true;
+        }
+        catch (AntiforgeryValidationException)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return false;
+        }
     }
 
     private static string LocalReturnUrl(string candidate) =>

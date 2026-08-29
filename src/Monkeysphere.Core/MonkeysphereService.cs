@@ -205,6 +205,22 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
                 : new(Guid.CreateVersion7(), definition.Id, 0, null, null, null, null, tags);
         }
 
+        if (string.Equals(definition.TypeId, FieldTypes.Temporal, StringComparison.Ordinal))
+        {
+            return input.Temporal is null || string.IsNullOrWhiteSpace(input.Temporal.Value)
+                ? null
+                : new(
+                    Guid.CreateVersion7(),
+                    definition.Id,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    [],
+                    TemporalValues.Normalize(input.Temporal, definition.Name));
+        }
+
         string raw = input.ScalarValue ?? string.Empty;
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -222,6 +238,8 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             FieldTypes.ExactDate => NormalizeDate(definition, raw.Trim()),
             FieldTypes.Choice => NormalizeChoice(definition, raw.Trim()),
             FieldTypes.Text => new(Guid.CreateVersion7(), definition.Id, 0, raw.Trim(), null, null, null, []),
+            FieldTypes.PhoneNumber => NormalizePhoneNumber(definition, raw.Trim()),
+            FieldTypes.WebLink => NormalizeWebLink(definition, raw.Trim()),
             _ => new(Guid.CreateVersion7(), definition.Id, 0, raw, null, null, null, []),
         };
     }
@@ -264,5 +282,31 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         }
 
         return new(Guid.CreateVersion7(), definition.Id, 0, choice, null, null, null, []);
+    }
+
+    private static NormalizedFieldValue NormalizePhoneNumber(FieldDefinition definition, string scalar)
+    {
+        if (scalar.Length > 200 || scalar.Count(char.IsDigit) < 3 || scalar.Any(character =>
+            !char.IsDigit(character) &&
+            !char.IsWhiteSpace(character) &&
+            character is not ('+' or '-' or '(' or ')' or '.' or '#' or 'x' or 'X')))
+        {
+            throw new DomainValidationException($"{definition.Name} must be a plausible phone number.");
+        }
+
+        return new(Guid.CreateVersion7(), definition.Id, 0, scalar, null, null, null, []);
+    }
+
+    private static NormalizedFieldValue NormalizeWebLink(FieldDefinition definition, string scalar)
+    {
+        if (scalar.Length > 2_048 ||
+            !Uri.TryCreate(scalar, UriKind.Absolute, out Uri? uri) ||
+            uri.Scheme is not ("http" or "https") ||
+            string.IsNullOrWhiteSpace(uri.Host))
+        {
+            throw new DomainValidationException($"{definition.Name} must be an absolute HTTP or HTTPS link.");
+        }
+
+        return new(Guid.CreateVersion7(), definition.Id, 0, uri.AbsoluteUri, null, null, null, []);
     }
 }

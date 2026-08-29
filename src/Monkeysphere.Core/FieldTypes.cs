@@ -11,9 +11,12 @@ public static partial class FieldTypes
     public const string ExactDate = "exact-date";
     public const string Choice = "choice";
     public const string Tags = "tags";
+    public const string Temporal = "temporal";
+    public const string PhoneNumber = "phone-number";
+    public const string WebLink = "web-link";
 
     public static IReadOnlyList<string> Recognized { get; } =
-        [Text, MultilineText, Number, ExactDate, Choice, Tags];
+        [Text, MultilineText, Number, ExactDate, Choice, Tags, Temporal, PhoneNumber, WebLink];
 
     public static string NormalizeTypeId(string value)
     {

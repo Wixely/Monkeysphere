@@ -76,6 +76,50 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     }
 
     [Fact]
+    public async Task LoginWithoutAntiforgeryTokenIsRejected()
+    {
+        using HttpClient client = CreateClient(allowRedirect: false);
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+        });
+
+        HttpResponseMessage response = await client.PostAsync("/auth/login", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("http://localhost", false)]
+    [InlineData("https://localhost", true)]
+    public async Task SessionCookieWorksOnSupportedTransportAndIsSecureOnHttps(string baseAddress, bool expectSecure)
+    {
+        using HttpClient client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri(baseAddress),
+            HandleCookies = true,
+        });
+        string loginHtml = await client.GetStringAsync("/login");
+        string token = ExtractAntiforgeryToken(loginHtml);
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token,
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = "/",
+        });
+
+        HttpResponseMessage login = await client.PostAsync("/auth/login", form);
+        string cookie = Assert.Single(login.Headers.GetValues("Set-Cookie"), value =>
+            value.StartsWith("Monkeysphere.Session=", StringComparison.Ordinal));
+
+        Assert.Equal(expectSecure, cookie.Contains("; secure", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/")).StatusCode);
+    }
+
+    [Fact]
     public async Task RemoteSurfacesAreUnavailableByDefault()
     {
         using HttpClient client = CreateClient(allowRedirect: false);
@@ -120,6 +164,23 @@ public sealed class AdministratorCredentialTests
             .Build();
 
         Assert.Throws<InvalidOperationException>(() => AdministratorCredential.Load(configuration));
+    }
+
+    [Fact]
+    public void ValidCredentialVerifiesOnlyTheConfiguredPair()
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["MONKEYSPHERE_ADMIN_USERNAME"] = "owner",
+                ["MONKEYSPHERE_ADMIN_PASSWORD"] = "test-only-LongPassword-4096!",
+            })
+            .Build();
+        AdministratorCredential credential = AdministratorCredential.Load(configuration);
+
+        Assert.True(credential.Verify("owner", "test-only-LongPassword-4096!"));
+        Assert.False(credential.Verify("owner", "incorrect-test-password"));
+        Assert.False(credential.Verify("someone-else", "test-only-LongPassword-4096!"));
     }
 }
 
@@ -243,14 +304,22 @@ public sealed class RemoteAccessApplicationTests
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost"),
         });
+        Guid adaId;
         using (IServiceScope scope = factory.Services.CreateScope())
         {
             IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
             RecordType type = await service.CreateRecordTypeAsync("Person " + Guid.NewGuid().ToString("N"));
             FieldDefinition nickname = await service.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Nickname", FieldTypes.Text, true));
-            await service.CreateRecordAsync(type.Id, "Ada Lovelace", [new(nickname.Id, "Ada")]);
+            RecordDetails ada = await service.CreateRecordAsync(type.Id, "Ada Lovelace", [new(nickname.Id, "Ada")]);
+            RecordDetails charles = await service.CreateRecordAsync(type.Id, "Charles Babbage", [new(nickname.Id, "Charles")]);
+            RelationshipType collaborator = await relationships.CreateTypeAsync(new(
+                "collaborated with",
+                RelationshipDirectionality.Symmetric));
+            await relationships.CreateAsync(collaborator.Id, ada.Record.Id, charles.Record.Id);
+            adaId = ada.Record.Id;
         }
 
         IDnaXRemoteAccessAdministration administration =
@@ -272,6 +341,13 @@ public sealed class RemoteAccessApplicationTests
         string firstBody = await firstResponse.Content.ReadAsStringAsync();
         Assert.True(firstResponse.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)firstResponse.StatusCode}: {firstBody}");
         Assert.Contains("Ada Lovelace", firstBody, StringComparison.Ordinal);
+        HttpResponseMessage relationshipResponse = await SendAsync(
+            client,
+            firstRoute.EndpointPath + $"/records/{adaId}/relationships",
+            firstCredential.Secret);
+        string relationshipBody = await relationshipResponse.Content.ReadAsStringAsync();
+        Assert.True(relationshipResponse.IsSuccessStatusCode, relationshipBody);
+        Assert.Contains("Charles Babbage", relationshipBody, StringComparison.Ordinal);
 
         DnaXRemoteEffectiveSurface secondRoute = await administration.RotateEndpointAsync(
             DnaXRemoteSurface.Api,
@@ -288,6 +364,13 @@ public sealed class RemoteAccessApplicationTests
             (await SendAsync(client, secondRoute.EndpointPath + "/records", firstCredential.Secret)).StatusCode);
         Assert.Equal(HttpStatusCode.OK,
             (await SendAsync(client, secondRoute.EndpointPath + "/records", secondCredential.Secret)).StatusCode);
+
+        DnaXGeneratedCredential wrongScope = await administration.RotateCredentialAsync(
+            DnaXRemoteSurface.Api,
+            secondCredential.Version,
+            ["record-types.read"]);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await SendAsync(client, secondRoute.EndpointPath + "/records", wrongScope.Secret)).StatusCode);
 
         DnaXGeneratedCredential mcpCredential = await administration.RotateCredentialAsync(
             DnaXRemoteSurface.Mcp,

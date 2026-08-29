@@ -38,6 +38,12 @@ public static class RemoteEndpoints
             RemoteRecord? result = await queries.GetRecordAsync(id, cancellationToken).ConfigureAwait(false);
             return result is null ? Results.NotFound() : Results.Ok(result);
         }).WithDnaXRemoteAction("records.get");
+        api.MapGet("/records/{id:guid}/relationships", async (
+            Guid id,
+            MonkeysphereRemoteQueries queries,
+            CancellationToken cancellationToken) =>
+                Results.Ok(await queries.GetRecordRelationshipsAsync(id, cancellationToken).ConfigureAwait(false)))
+            .WithDnaXRemoteAction("records.get_relationships");
         return endpoints;
     }
 }

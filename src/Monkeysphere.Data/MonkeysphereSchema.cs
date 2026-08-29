@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 1,
+        currentVersion: 3,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -87,6 +87,51 @@ public static class MonkeysphereSchema
                     ON FieldValues(FieldDefinitionId, DateValue);
                 CREATE INDEX IX_FieldValueTags_Value
                     ON FieldValueTags(Value, FieldValueId);
+                """),
+            DnaXMigration.Sql(2, "precision-aware-temporal-values", "Add temporal precision and approximation metadata", """
+                ALTER TABLE FieldValues ADD COLUMN TemporalValue TEXT NULL;
+                ALTER TABLE FieldValues ADD COLUMN TemporalPrecision INTEGER NULL
+                    CHECK (TemporalPrecision IS NULL OR TemporalPrecision BETWEEN 0 AND 6);
+                ALTER TABLE FieldValues ADD COLUMN TemporalSortKey TEXT NULL;
+                ALTER TABLE FieldValues ADD COLUMN IsApproximate INTEGER NOT NULL DEFAULT 0
+                    CHECK (IsApproximate IN (0, 1));
+                ALTER TABLE FieldValues ADD COLUMN ApproximationNote TEXT NULL;
+
+                CREATE INDEX IX_FieldValues_Field_Temporal
+                    ON FieldValues(FieldDefinitionId, TemporalSortKey, TemporalPrecision);
+                """),
+            DnaXMigration.Sql(3, "record-relationships", "Add directional and symmetric record relationships", """
+                CREATE TABLE RelationshipTypes (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    Directionality INTEGER NOT NULL CHECK (Directionality IN (0, 1)),
+                    InverseName TEXT NULL COLLATE NOCASE,
+                    Lifecycle INTEGER NOT NULL CHECK (Lifecycle IN (0, 1)),
+                    CreatedAtUtc TEXT NOT NULL,
+                    UpdatedAtUtc TEXT NOT NULL,
+                    CHECK ((Directionality = 0 AND InverseName IS NOT NULL) OR
+                           (Directionality = 1 AND InverseName IS NULL))
+                );
+
+                CREATE TABLE Relationships (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RelationshipTypeId TEXT NOT NULL,
+                    SourceRecordId TEXT NOT NULL,
+                    TargetRecordId TEXT NOT NULL,
+                    Note TEXT NULL,
+                    CreatedAtUtc TEXT NOT NULL,
+                    UpdatedAtUtc TEXT NOT NULL,
+                    CHECK (SourceRecordId <> TargetRecordId),
+                    UNIQUE (RelationshipTypeId, SourceRecordId, TargetRecordId),
+                    FOREIGN KEY (RelationshipTypeId) REFERENCES RelationshipTypes(Id) ON DELETE RESTRICT,
+                    FOREIGN KEY (SourceRecordId) REFERENCES Records(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (TargetRecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_Relationships_Source
+                    ON Relationships(SourceRecordId, RelationshipTypeId, TargetRecordId);
+                CREATE INDEX IX_Relationships_Target
+                    ON Relationships(TargetRecordId, RelationshipTypeId, SourceRecordId);
                 """),
         ]);
 }
