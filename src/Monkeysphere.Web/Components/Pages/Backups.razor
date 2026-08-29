@@ -1,7 +1,9 @@
 @page "/backups"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using Microsoft.Extensions.Options
 @inject IBackupService BackupService
+@inject IOptions<BackupScheduleOptions> ScheduleOptions
 
 <PageTitle>Backups · Monkeysphere</PageTitle>
 
@@ -17,6 +19,12 @@
 <div class="notice" role="note">
     Backups exclude deployment configuration, data-protection keys, administrator credentials, and regenerable image derivatives. Store downloaded packages as sensitive personal data.
 </div>
+
+<section class="panel">
+    <p class="eyebrow">Automatic schedule</p>
+    <h2>@ScheduleSummary()</h2>
+    <p>Configure the schedule through deployment settings. Completed scheduled backups retain the newest @ScheduleOptions.Value.RetentionCount package@((ScheduleOptions.Value.RetentionCount == 1) ? string.Empty : "s").</p>
+</section>
 
 @if (!string.IsNullOrWhiteSpace(_message))
 {
@@ -93,4 +101,15 @@
         >= 1_024 => $"{bytes / 1_024d:0.##} KB",
         _ => $"{bytes} B",
     };
+
+    private string ScheduleSummary()
+    {
+        BackupScheduleOptions schedule = ScheduleOptions.Value;
+        if (string.Equals(schedule.Frequency, "Off", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Scheduled backups are off";
+        }
+
+        return $"{schedule.Frequency} at {schedule.Time:HH:mm} ({schedule.TimeZone})";
+    }
 }

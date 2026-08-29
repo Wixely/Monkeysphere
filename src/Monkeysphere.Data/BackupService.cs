@@ -209,6 +209,25 @@ public sealed class BackupService(
         return Task.FromResult(stream);
     }
 
+    public async Task PruneAsync(int retentionCount, CancellationToken cancellationToken = default)
+    {
+        if (retentionCount is < 1 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retentionCount), "Backup retention must be between 1 and 1,000 packages.");
+        }
+
+        IReadOnlyList<BackupInfo> backups = await ListAsync(cancellationToken).ConfigureAwait(false);
+        foreach (BackupInfo backup in backups.Skip(retentionCount))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? path = FindPath(backup.Id);
+            if (path is not null)
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
     private async Task BackupApplicationDatabaseAsync(string destination, CancellationToken cancellationToken)
     {
         await using SqliteConnection source = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

@@ -46,6 +46,8 @@ Backup creation is application-owned, following DnaX's documented boundary: DnaX
 
 Restore runs as an offline executable mode before dependency injection, database migration, or HTTP startup. A data-root lock excludes a running Monkeysphere instance. Restore extracts into a same-root staging directory, repeats path, checksum, SQLite, DnaX-ledger-version, and media-reference validation, then swaps only the databases and authoritative media while retaining the former live set as a rollback directory. Configuration, keys, backup history, and other operator-owned files are untouched. Missing display derivatives are rebuilt lazily from the restored originals and persisted correction metadata.
 
+An optional hosted scheduler uses the same verified creation operation. Daily, weekly, and monthly schedules resolve their configured local execution time through an explicit time-zone identifier; invalid daylight-saving times advance to the first valid minute. Retention is bounded from 1 to 1,000 packages and is applied only after successful creation, preserving the newest packages first. Scheduling defaults to off and is deployment-configured, including through Docker Compose variables.
+
 ## Presets and first-run setup
 
 The project-owned catalogue defines concrete, versioned record-type presets in Core. Installed record types and fields receive fresh local UUIDv7 identities while retaining preset provenance and canonical field keys. They use the same editable tables and services as administrator-created definitions; presets are not hard-coded subclasses.

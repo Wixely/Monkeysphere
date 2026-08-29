@@ -50,6 +50,8 @@ The authenticated Backups page creates a versioned `.monkeysphere-backup` packag
 
 Restore is deliberately offline. Stop Monkeysphere, then run the same executable with `--restore-backup <package-path>` and the normal `MONKEYSPHERE_DATA_ROOT` setting. The process acquires the data-root instance lock, stages and revalidates the archive, checks both SQLite databases, verifies the DnaX application-ledger version and original-media references, replaces only the two databases and record-media tree, and retains the previous live data beneath `backups/rollback-*`. Display derivatives are regenerated from originals on first access after restore. Start Monkeysphere normally only after the restore command succeeds.
 
+Scheduled backups default to `Off`. Configure `Monkeysphere__Backups__Frequency` as `Daily`, `Weekly`, or `Monthly`, with `Time`, `TimeZone`, `DayOfWeek`, `DayOfMonth`, and `RetentionCount` in the same configuration section. Docker Compose exposes matching `MONKEYSPHERE_BACKUP_*` variables and defaults to 02:00 UTC, Sunday/day 1, and 12 retained packages. Retention cleanup runs only after a new package has been completely created and verified.
+
 Temporal values preserve century, decade, year, month, day, minute, or second precision plus optional approximation metadata. Before/after filters accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`.
 
 Aliases are ordered, case-insensitively unique within a record, and cannot duplicate its primary display name. Record search matches aliases as well as primary names and field values.

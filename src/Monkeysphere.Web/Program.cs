@@ -52,6 +52,9 @@ builder.Services.AddOptions<KeyManagementOptions>()
         options.XmlRepository = new FileSystemXmlRepository(keyDirectory, loggerFactory);
     });
 builder.Services.AddMonkeysphereData();
+builder.Services.AddOptions<BackupScheduleOptions>()
+    .Bind(builder.Configuration.GetSection("Monkeysphere:Backups"));
+builder.Services.AddHostedService<BackupScheduleWorker>();
 
 builder.Services.AddSingleton(provider => AdministratorCredential.Load(provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddScoped<AbsoluteSessionCookieEvents>();

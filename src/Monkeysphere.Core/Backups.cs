@@ -22,4 +22,6 @@ public interface IBackupService
     Task<BackupValidation> ValidateAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<Stream?> OpenAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task PruneAsync(int retentionCount, CancellationToken cancellationToken = default);
 }
