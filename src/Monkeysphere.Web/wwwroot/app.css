@@ -866,6 +866,99 @@ dd {
     border-color: #d7a29d;
 }
 
+.calendar-filters {
+    margin-bottom: 1.25rem;
+}
+
+.calendar-heading {
+    align-items: center;
+}
+
+.calendar-heading h2 {
+    margin: 0;
+    text-align: center;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+}
+
+.calendar-weekday,
+.calendar-day {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+}
+
+.calendar-weekday {
+    padding: .5rem;
+    color: var(--muted);
+    background: var(--panel-warm);
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .07em;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.calendar-day {
+    min-height: 8rem;
+    padding: .45rem;
+    background: rgba(255, 253, 248, .6);
+}
+
+.calendar-day > time {
+    display: inline-grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    place-items: center;
+    color: var(--ink-soft);
+    font-size: .85rem;
+    font-weight: 750;
+}
+
+.calendar-day.outside-month {
+    background: rgba(234, 220, 194, .3);
+}
+
+.calendar-day.outside-month > time {
+    color: #a4947c;
+}
+
+.calendar-day.today > time {
+    border-radius: 50%;
+    color: #fffaf0;
+    background: var(--accent);
+}
+
+.calendar-event {
+    display: block;
+    margin-top: .3rem;
+    padding: .35rem .4rem;
+    overflow: hidden;
+    border-left: 3px solid var(--accent);
+    border-radius: .25rem;
+    color: var(--ink);
+    background: var(--accent-soft);
+    font-size: .78rem;
+    line-height: 1.25;
+    text-decoration: none;
+}
+
+.calendar-event span,
+.calendar-event small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.calendar-event small {
+    color: var(--muted);
+}
+
 .danger-zone::before {
     background: linear-gradient(90deg, var(--danger), rgba(163, 61, 47, 0));
 }
@@ -924,6 +1017,10 @@ dd {
         padding-top: 2rem;
     }
 
+    .panel:has(.calendar-grid) {
+        overflow-x: auto;
+    }
+
     .page-heading,
     .split-layout {
         display: grid;
@@ -942,4 +1039,9 @@ dd {
     .location-coordinate-grid {
         grid-template-columns: 1fr;
     }
+
+    .calendar-grid {
+        min-width: 48rem;
+    }
+
 }

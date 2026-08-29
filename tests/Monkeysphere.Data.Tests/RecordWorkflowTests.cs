@@ -648,6 +648,48 @@ public sealed class RecordWorkflowTests
         Assert.False(await views.DeleteAsync(duplicate.View.Id));
     }
 
+    [Fact]
+    public async Task CalendarIncludesOnlyExactAndNonApproximateDayValuesAndSupportsFilters()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ICalendarService calendar = application.Services.GetRequiredService<ICalendarService>();
+
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        RecordType eventType = await records.CreateRecordTypeAsync("Event");
+        FieldDefinition birthday = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Birthday", FieldTypes.ExactDate, false));
+        FieldDefinition when = await records.CreateAndAttachFieldAsync(
+            eventType.Id,
+            new CreateFieldRequest("When", FieldTypes.Temporal, false));
+
+        RecordDetails exact = await records.CreateRecordAsync(person.Id, "Ada", [new(birthday.Id, "2026-09-01")]);
+        RecordDetails day = await records.CreateRecordAsync(eventType.Id, "Conference", [
+            new(when.Id, Temporal: new TemporalValueInput("2026-09-03", TemporalPrecision.Day))]);
+        _ = await records.CreateRecordAsync(eventType.Id, "Estimated meeting", [
+            new(when.Id, Temporal: new TemporalValueInput("2026-09-04", TemporalPrecision.Day, true, "Diary estimate"))]);
+        _ = await records.CreateRecordAsync(eventType.Id, "Month only", [
+            new(when.Id, Temporal: new TemporalValueInput("2026-09", TemporalPrecision.Month))]);
+
+        IReadOnlyList<CalendarEntry> all = await calendar.QueryAsync(new(
+            new DateOnly(2026, 9, 1),
+            new DateOnly(2026, 9, 30)));
+        Assert.Equal([exact.Record.Id, day.Record.Id], all.Select(entry => entry.RecordId));
+
+        CalendarEntry filtered = Assert.Single(await calendar.QueryAsync(new(
+            new DateOnly(2026, 9, 1),
+            new DateOnly(2026, 9, 30),
+            person.Id,
+            birthday.Id)));
+        Assert.Equal("Birthday", filtered.FieldName);
+        Assert.Equal(new DateOnly(2026, 9, 1), filtered.Date);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => calendar.QueryAsync(new(
+            new DateOnly(2026, 9, 2),
+            new DateOnly(2026, 9, 1))));
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;

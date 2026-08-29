@@ -1,0 +1,196 @@
+@page "/calendar"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ICalendarService CalendarService
+@inject IMonkeysphereService Records
+@inject TimeProvider TimeProvider
+
+<PageTitle>Calendar · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Dates without guesswork</p>
+        <h1>Calendar</h1>
+        <p>See exact dates and day-precision values. Approximate and coarser dates stay off the grid.</p>
+    </div>
+</div>
+
+<section class="panel calendar-filters" aria-label="Calendar filters">
+    <div class="form-grid">
+        <label>
+            Record type
+            <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
+                <option value="">All record types</option>
+                @foreach (RecordType type in _types)
+                {
+                    <option value="@type.Id">@type.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Date field
+            <select value="@_fieldValue" @onchange="FieldChangedAsync">
+                <option value="">All date fields</option>
+                @foreach (FieldDefinition field in _dateFields)
+                {
+                    <option value="@field.Id">@field.Name</option>
+                }
+            </select>
+        </label>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading calendar-heading">
+        <button class="button" type="button" @onclick="PreviousMonthAsync" aria-label="Previous month">← Previous</button>
+        <h2>@_month.ToString("MMMM yyyy", CultureInfo.CurrentCulture)</h2>
+        <button class="button" type="button" @onclick="NextMonthAsync" aria-label="Next month">Next →</button>
+    </div>
+
+    <div class="calendar-grid" role="grid" aria-label="@_month.ToString("MMMM yyyy", CultureInfo.CurrentCulture)">
+        @foreach (string weekday in _weekdays)
+        {
+            <div class="calendar-weekday" role="columnheader">@weekday</div>
+        }
+        @foreach (CalendarDay day in CalendarDays())
+        {
+            <div class="calendar-day @(day.IsCurrentMonth ? null : "outside-month") @(day.Date == _today ? "today" : null)" role="gridcell">
+                <time datetime="@day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">@day.Date.Day</time>
+                @foreach (CalendarEntry entry in EntriesFor(day.Date))
+                {
+                    <a class="calendar-event" href="/records/@entry.RecordId" title="@($"{entry.RecordDisplayName} · {entry.FieldName}")">
+                        <span>@entry.RecordDisplayName</span>
+                        <small>@entry.FieldName</small>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Next 90 days</p>
+            <h2>Upcoming exact dates</h2>
+        </div>
+    </div>
+    @if (_upcoming.Count == 0)
+    {
+        <p class="empty-state">No exact upcoming dates match these filters.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Date</th><th>Record</th><th>Field</th><th>Type</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (CalendarEntry entry in _upcoming)
+                    {
+                        <tr>
+                            <td><time datetime="@entry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">@entry.Date.ToString("d MMM yyyy", CultureInfo.CurrentCulture)</time></td>
+                            <td><a href="/records/@entry.RecordId">@entry.RecordDisplayName</a></td>
+                            <td>@entry.FieldName</td>
+                            <td>@entry.RecordTypeName</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly string[] _weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<FieldDefinition> _dateFields = [];
+    private IReadOnlyList<CalendarEntry> _monthEntries = [];
+    private IReadOnlyList<CalendarEntry> _upcoming = [];
+    private DateOnly _today;
+    private DateOnly _month;
+    private string _recordTypeValue = string.Empty;
+    private string _fieldValue = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = DateOnly.FromDateTime(TimeProvider.GetLocalNow().DateTime);
+        _month = new DateOnly(_today.Year, _today.Month, 1);
+        _types = await Records.ListRecordTypesAsync();
+        await LoadDateFieldsAsync();
+        await ReloadAsync();
+    }
+
+    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    {
+        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _fieldValue = string.Empty;
+        await LoadDateFieldsAsync();
+        await ReloadAsync();
+    }
+
+    private async Task FieldChangedAsync(ChangeEventArgs eventArgs)
+    {
+        _fieldValue = eventArgs.Value?.ToString() ?? string.Empty;
+        await ReloadAsync();
+    }
+
+    private async Task LoadDateFieldsAsync()
+    {
+        IEnumerable<FieldDefinition> fields;
+        if (SelectedRecordTypeId() is Guid typeId)
+        {
+            fields = (await Records.GetRecordTypeAsync(typeId))?.Fields.Select(item => item.Definition) ?? [];
+        }
+        else
+        {
+            fields = await Records.ListFieldDefinitionsAsync();
+        }
+
+        _dateFields = fields
+            .Where(field => field.TypeId is FieldTypes.ExactDate or FieldTypes.Temporal)
+            .DistinctBy(field => field.Id)
+            .OrderBy(field => field.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task ReloadAsync()
+    {
+        Guid? recordTypeId = SelectedRecordTypeId();
+        Guid? fieldId = Guid.TryParse(_fieldValue, out Guid parsedFieldId) ? parsedFieldId : null;
+        DateOnly monthEnd = _month.AddMonths(1).AddDays(-1);
+        _monthEntries = await CalendarService.QueryAsync(new(_month, monthEnd, recordTypeId, fieldId));
+        _upcoming = await CalendarService.QueryAsync(new(_today, _today.AddDays(89), recordTypeId, fieldId));
+    }
+
+    private async Task PreviousMonthAsync()
+    {
+        _month = _month.AddMonths(-1);
+        await ReloadAsync();
+    }
+
+    private async Task NextMonthAsync()
+    {
+        _month = _month.AddMonths(1);
+        await ReloadAsync();
+    }
+
+    private Guid? SelectedRecordTypeId() =>
+        Guid.TryParse(_recordTypeValue, out Guid recordTypeId) ? recordTypeId : null;
+
+    private IEnumerable<CalendarEntry> EntriesFor(DateOnly date) => _monthEntries.Where(entry => entry.Date == date);
+
+    private IEnumerable<CalendarDay> CalendarDays()
+    {
+        int preceding = ((int)_month.DayOfWeek + 6) % 7;
+        DateOnly start = _month.AddDays(-preceding);
+        for (int index = 0; index < 42; index++)
+        {
+            DateOnly date = start.AddDays(index);
+            yield return new(date, date.Month == _month.Month && date.Year == _month.Year);
+        }
+    }
+
+    private sealed record CalendarDay(DateOnly Date, bool IsCurrentMonth);
+}
