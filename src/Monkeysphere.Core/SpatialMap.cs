@@ -8,7 +8,8 @@ public sealed record SpatialMapQuery(
     Guid? RecordTypeId = null,
     Guid? FieldDefinitionId = null,
     int Page = 1,
-    int PageSize = 100);
+    int PageSize = 100,
+    IReadOnlyList<Guid>? FieldDefinitionIds = null);
 
 public sealed record SpatialMapEntry(
     Guid FieldValueId,
@@ -65,6 +66,11 @@ public sealed class SpatialMapService(ISpatialMapStore store) : ISpatialMapServi
         if (query.PageSize is < 1 or > 500)
         {
             throw new DomainValidationException("Map page size must be between 1 and 500.");
+        }
+
+        if (query.FieldDefinitionIds is { Count: > 20 })
+        {
+            throw new DomainValidationException("Map queries cannot select more than 20 location fields.");
         }
 
         return store.QueryAsync(query, cancellationToken);

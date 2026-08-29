@@ -239,6 +239,9 @@ public sealed class RecordWorkflowTests
         Assert.Equal(51.5074, entry.Latitude);
         SpatialMapEntry approximate = Assert.Single(london.Items, item => item.RecordDisplayName == "Near London");
         Assert.Equal(150, approximate.ApproximationRadiusKilometres);
+        PagedResult<SpatialMapEntry> noMatchingLayer = await maps.QueryAsync(new(
+            FieldDefinitionIds: [Guid.NewGuid()]));
+        Assert.Empty(noMatchingLayer.Items);
     }
 
     [Fact]

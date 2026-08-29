@@ -11,6 +11,10 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         int offset = checked((query.Page - 1) * query.PageSize);
+        string[] fieldDefinitionIds = query.FieldDefinitionIds?
+            .Distinct()
+            .Select(id => id.ToString("D"))
+            .ToArray() ?? [];
         object parameters = new
         {
             query.South,
@@ -19,6 +23,8 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
             query.East,
             RecordTypeId = query.RecordTypeId?.ToString("D"),
             FieldDefinitionId = query.FieldDefinitionId?.ToString("D"),
+            FieldDefinitionIds = fieldDefinitionIds.Length == 0 ? [Guid.Empty.ToString("D")] : fieldDefinitionIds,
+            FieldDefinitionCount = fieldDefinitionIds.Length,
             query.PageSize,
             Offset = offset,
         };
@@ -29,6 +35,7 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
                  OR (@West > @East AND (spatial.MaxLongitude >= @West OR spatial.MinLongitude <= @East)))
             AND (@RecordTypeId IS NULL OR r.RecordTypeId = @RecordTypeId)
             AND (@FieldDefinitionId IS NULL OR fv.FieldDefinitionId = @FieldDefinitionId)
+            AND (@FieldDefinitionCount = 0 OR fv.FieldDefinitionId IN @FieldDefinitionIds)
             """;
 
         string sql = $"""

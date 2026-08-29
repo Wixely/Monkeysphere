@@ -26,16 +26,18 @@
                 }
             </select>
         </label>
-        <label>
-            Location field
-            <select value="@_fieldValue" @onchange="FieldChangedAsync">
-                <option value="">All location fields</option>
-                @foreach (FieldDefinition field in _locationFields)
-                {
-                    <option value="@field.Id">@field.Name</option>
-                }
-            </select>
-        </label>
+        <fieldset class="map-layer-picker">
+            <legend>Location layers <span class="muted">(none selected shows all)</span></legend>
+            @foreach (FieldDefinition field in _locationFields)
+            {
+                <label>
+                    <input type="checkbox"
+                           checked="@_selectedFields.Contains(field.Id)"
+                           @onchange="eventArgs => FieldChangedAsync(field.Id, eventArgs)" />
+                    @field.Name
+                </label>
+            }
+        </fieldset>
     </div>
 </section>
 
@@ -69,7 +71,7 @@
     private IReadOnlyList<FieldDefinition> _locationFields = [];
     private PagedResult<SpatialMapEntry> _results = new([], 1, PageSize, 0);
     private string _recordTypeValue = string.Empty;
-    private string _fieldValue = string.Empty;
+    private readonly HashSet<Guid> _selectedFields = [];
     private int _page = 1;
 
     protected override async Task OnInitializedAsync()
@@ -82,15 +84,23 @@
     private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
     {
         _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
-        _fieldValue = string.Empty;
+        _selectedFields.Clear();
         _page = 1;
         await LoadLocationFieldsAsync();
         await ReloadAsync();
     }
 
-    private async Task FieldChangedAsync(ChangeEventArgs eventArgs)
+    private async Task FieldChangedAsync(Guid fieldId, ChangeEventArgs eventArgs)
     {
-        _fieldValue = eventArgs.Value?.ToString() ?? string.Empty;
+        if (eventArgs.Value is true)
+        {
+            _selectedFields.Add(fieldId);
+        }
+        else
+        {
+            _selectedFields.Remove(fieldId);
+        }
+
         _page = 1;
         await ReloadAsync();
     }
@@ -109,8 +119,11 @@
 
     private async Task ReloadAsync()
     {
-        Guid? fieldId = Guid.TryParse(_fieldValue, out Guid parsedFieldId) ? parsedFieldId : null;
-        _results = await Maps.QueryAsync(new(RecordTypeId: SelectedRecordTypeId(), FieldDefinitionId: fieldId, Page: _page, PageSize: PageSize));
+        _results = await Maps.QueryAsync(new(
+            RecordTypeId: SelectedRecordTypeId(),
+            Page: _page,
+            PageSize: PageSize,
+            FieldDefinitionIds: _selectedFields.Order().ToArray()));
     }
 
     private async Task PreviousPageAsync()

@@ -798,6 +798,28 @@ input[type="checkbox"] {
     color: var(--muted);
 }
 
+.map-layer-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .55rem 1rem;
+    min-width: 0;
+    margin: 0;
+    padding: .6rem .8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.map-layer-picker legend {
+    padding: 0 .25rem;
+    font-weight: 700;
+}
+
+.map-layer-picker label {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+}
+
 .location-map .ol-control button {
     color: #fffaf0;
     background: var(--accent-dark);

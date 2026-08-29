@@ -18,6 +18,8 @@ public sealed class SpatialMapTests
         await Assert.ThrowsAsync<DomainValidationException>(() => service.QueryAsync(new(South: 20, North: 10)));
         await Assert.ThrowsAsync<DomainValidationException>(() => service.QueryAsync(new(West: -181)));
         await Assert.ThrowsAsync<DomainValidationException>(() => service.QueryAsync(new(PageSize: 501)));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.QueryAsync(new(
+            FieldDefinitionIds: Enumerable.Range(0, 21).Select(_ => Guid.NewGuid()).ToArray())));
     }
 
     private sealed class CapturingStore : ISpatialMapStore
