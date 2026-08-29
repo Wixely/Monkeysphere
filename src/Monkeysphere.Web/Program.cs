@@ -18,6 +18,7 @@ using Monkeysphere.Data;
 using Monkeysphere.Web.Components;
 using Monkeysphere.Web.Remote;
 using Monkeysphere.Web.Security;
+using Monkeysphere.Web;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -152,6 +153,7 @@ app.MapStaticAssets().AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "alive" })).AllowAnonymous();
 app.MapGet("/health/ready", () => Results.Ok(new { status = "ready" })).AllowAnonymous();
 app.MapAdministratorAuthentication();
+app.MapRecordImages();
 app.MapMonkeysphereRemoteApi();
 app.MapDnaXRemoteMcp();
 app.MapRazorComponents<App>()

@@ -55,6 +55,16 @@ public interface IMonkeysphereStore
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(Guid recordId, CancellationToken cancellationToken = default);
+
+    Task<RecordImage> AddRecordImageAsync(RecordImage image, CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteRecordImageAsync(
+        Guid recordId,
+        Guid imageId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IMonkeysphereService
@@ -96,4 +106,24 @@ public interface IMonkeysphereService
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default);
+}
+
+public interface IRecordImageService
+{
+    const int MaximumImagesPerRecord = 50;
+    const long MaximumUploadBytes = 10 * 1024 * 1024;
+
+    Task<RecordImage> AddAsync(
+        Guid recordId,
+        Stream content,
+        string originalFileName,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteAsync(Guid recordId, Guid imageId, CancellationToken cancellationToken = default);
+
+    Task<RecordImageFile?> OpenAsync(
+        Guid recordId,
+        Guid imageId,
+        RecordImageVariant variant,
+        CancellationToken cancellationToken = default);
 }

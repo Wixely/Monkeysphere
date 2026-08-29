@@ -23,6 +23,7 @@ DnaX remote MCP support depends on the official Model Context Protocol C# SDK, l
 - Dapper — Apache-2.0, <https://github.com/DapperLib/Dapper>
 - Microsoft ASP.NET Core, Microsoft.Data.Sqlite, and Microsoft.Extensions hosting packages — MIT, <https://github.com/dotnet/aspnetcore> and <https://github.com/dotnet/runtime>
 - SQLite — public domain, <https://www.sqlite.org/copyright.html>
+- SkiaSharp — MIT, <https://github.com/mono/SkiaSharp>
 - xUnit.net and runner — Apache-2.0, <https://github.com/xunit/xunit>
 - Microsoft.NET.Test.Sdk — MIT, <https://github.com/microsoft/vstest>
 - coverlet.collector — MIT, <https://github.com/coverlet-coverage/coverlet>

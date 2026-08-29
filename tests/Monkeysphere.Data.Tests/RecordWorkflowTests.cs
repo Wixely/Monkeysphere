@@ -88,6 +88,46 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task RecordImagesValidatePersistRenderAndDeleteWithTheirRecord()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordImageService images = application.Services.GetRequiredService<IRecordImageService>();
+        IDnaXPaths paths = application.Services.GetRequiredService<IDnaXPaths>();
+        RecordType type = await records.CreateRecordTypeAsync("Person with photos");
+        RecordDetails record = await records.CreateRecordAsync(type.Id, "Ada", []);
+        byte[] png = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
+        RecordImage first = await images.AddAsync(record.Record.Id, new MemoryStream(png), "../portrait.png");
+        RecordImage second = await images.AddAsync(record.Record.Id, new MemoryStream(png), "another.png");
+
+        Assert.Equal("portrait.png", first.OriginalFileName);
+        Assert.Equal("image/png", first.OriginalContentType);
+        Assert.Equal(0, first.Ordinal);
+        Assert.Equal(1, second.Ordinal);
+        Assert.Equal([first.Id, second.Id], (await records.GetRecordAsync(record.Record.Id))!.Images.Select(image => image.Id));
+        RecordImageFile thumbnail = Assert.IsType<RecordImageFile>(
+            await images.OpenAsync(record.Record.Id, first.Id, RecordImageVariant.Thumbnail));
+        await using (thumbnail.Content)
+        {
+            Assert.Equal("image/webp", thumbnail.ContentType);
+            Assert.True(thumbnail.Content.Length > 0);
+        }
+
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            images.AddAsync(record.Record.Id, new MemoryStream("not an image"u8.ToArray()), "fake.jpg"));
+        Assert.True(await images.DeleteAsync(record.Record.Id, first.Id));
+        Assert.False(await images.DeleteAsync(record.Record.Id, first.Id));
+
+        string mediaDirectory = paths.ResolveWritable(Path.Combine("media", "records", record.Record.Id.ToString("N")));
+        Assert.True(Directory.Exists(mediaDirectory));
+        Assert.True(await records.DeleteRecordAsync(record.Record.Id));
+        Assert.False(Directory.Exists(mediaDirectory));
+        Assert.Null(await images.OpenAsync(record.Record.Id, second.Id, RecordImageVariant.Preview));
+    }
+
+    [Fact]
     public async Task RequiredAndChoiceValidationHappensBeforeStorage()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

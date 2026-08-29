@@ -4,7 +4,7 @@ Monkeysphere is a private, self-hosted relationship-memory application for recor
 
 ## Current vertical slice
 
-The current slice provides one administrator account, configurable record types and reusable typed fields, record editing, searchable alternate names, directional and symmetric relationships, reusable saved grid views, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Every record has one primary display name and can have multiple aliases, nicknames, short names, or former names. New datasets open a four-level setup wizard with concrete examples, customizable preset selection, and a persistent blank-slate option. The catalogue currently ships 15 editable, versioned record-type presets with canonical field keys and applicable packaged relationships. Saved views package one record type, selected columns, up to ten filters, optional grouping, and display-name or field sorting. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, and web links; unknown type identifiers retain a lossless text fallback.
+The current slice provides one administrator account, configurable record types and reusable typed fields, record editing, searchable alternate names, multiple images per record, directional and symmetric relationships, reusable saved grid views, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Every record has one primary display name and can have multiple aliases, nicknames, short names, former names, and images. New datasets open a four-level setup wizard with concrete examples, customizable preset selection, and a persistent blank-slate option. The catalogue currently ships 15 editable, versioned record-type presets with canonical field keys and applicable packaged relationships. Saved views package one record type, selected columns, up to ten filters, optional grouping, and display-name or field sorting. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, and web links; unknown type identifiers retain a lossless text fallback.
 
 ## Requirements
 
@@ -49,6 +49,8 @@ The first remote scope is `records.read`. It permits bounded record-type listing
 Temporal values preserve century, decade, year, month, day, minute, or second precision plus optional approximation metadata. Before/after filters accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`.
 
 Aliases are ordered, case-insensitively unique within a record, and cannot duplicate its primary display name. Record search matches aliases as well as primary names and field values.
+
+Each record can hold up to 50 JPEG, PNG, or WebP images. Uploads are limited to 10 MB and 24 megapixels each. Validated originals use opaque names beneath the private data root; authenticated browser delivery uses metadata-stripped WebP previews and thumbnails rather than serving source files directly.
 
 Preset-derived record types and fields retain their preset key and version while remaining locally editable. The current place presets use descriptive location text plus an optional approximation radius in kilometres; structured coordinates and map-pin editing remain a later map slice.
 

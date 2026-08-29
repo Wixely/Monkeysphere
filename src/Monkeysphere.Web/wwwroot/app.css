@@ -673,6 +673,46 @@ input[type="checkbox"] {
     font-style: italic;
 }
 
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 1rem;
+}
+
+.record-image {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: .7rem;
+    background: var(--panel-warm);
+}
+
+.record-image img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    background: #2a1a0e;
+}
+
+.record-image figcaption {
+    display: grid;
+    gap: .45rem;
+    padding: .7rem;
+}
+
+.record-image figcaption span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.record-image figcaption small {
+    color: var(--muted);
+}
+
 .item-list {
     list-style: none;
     padding: 0;

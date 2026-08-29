@@ -16,6 +16,8 @@
     <PackageReference Include="DnaX.Data.Migrations.Sqlite" />
     <PackageReference Include="DnaX.Hosting" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
   </ItemGroup>
 
 </Project>

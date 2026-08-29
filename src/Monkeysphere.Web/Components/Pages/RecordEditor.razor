@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
+@inject IRecordImageService ImageService
 @inject IRelationshipService RelationshipService
 @inject NavigationManager Navigation
 
@@ -148,6 +149,44 @@ else
         {
             <section class="panel">
                 <div class="section-heading">
+                    <div>
+                        <h2>Images</h2>
+                        <span class="muted">@_images.Count of @IRecordImageService.MaximumImagesPerRecord</span>
+                    </div>
+                    <InputFile OnChange="UploadImagesAsync"
+                               multiple
+                               accept="image/jpeg,image/png,image/webp"
+                               disabled="@(_uploading || _images.Count >= IRecordImageService.MaximumImagesPerRecord)" />
+                </div>
+                <p class="muted">JPEG, PNG, or WebP; up to 10 MB and 24 megapixels each. Source files stay private and display copies have embedded metadata removed.</p>
+                @if (_images.Count == 0)
+                {
+                    <p class="empty-state">No images attached.</p>
+                }
+                else
+                {
+                    <div class="image-grid">
+                        @foreach (RecordImage image in _images)
+                        {
+                            <figure class="record-image">
+                                <a href="/records/@image.RecordId/images/@image.Id/preview" target="_blank" rel="noopener">
+                                    <img src="/records/@image.RecordId/images/@image.Id/thumbnail"
+                                         alt="@image.OriginalFileName"
+                                         loading="lazy" />
+                                </a>
+                                <figcaption>
+                                    <span title="@image.OriginalFileName">@image.OriginalFileName</span>
+                                    <small>@image.Width Ã— @image.Height</small>
+                                    <button class="button danger" type="button" @onclick="() => DeleteImageAsync(image.Id)">Remove</button>
+                                </figcaption>
+                            </figure>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="panel">
+                <div class="section-heading">
                     <h2>Relationships</h2>
                     <span class="muted">@_relationships.Count connected</span>
                 </div>
@@ -220,7 +259,7 @@ else
 
             <section class="panel danger-zone">
                 <h2>Delete record</h2>
-                <p>This removes the record and all its field values. Backups may still retain older copies.</p>
+                <p>This removes the record, its field values, relationships, aliases, and attached images. Backups may still retain older copies.</p>
                 <label class="checkbox-label">
                     <input type="checkbox" @bind="_confirmDelete" />
                     I understand this record will be deleted.
@@ -254,6 +293,8 @@ else
     private string _relatedRecordValue = string.Empty;
     private string _relatedQuery = string.Empty;
     private string _relationshipNote = string.Empty;
+    private IReadOnlyList<RecordImage> _images = [];
+    private bool _uploading;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -265,6 +306,7 @@ else
             {
                 _model.DisplayName = _record.Record.DisplayName;
                 _model.Aliases = string.Join(Environment.NewLine, _record.Aliases);
+                _images = _record.Images;
                 _selectedTypeValue = _record.Record.RecordTypeId.ToString();
                 _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
                 BuildEditors(_record);
@@ -336,6 +378,49 @@ else
 
         await Service.DeleteRecordAsync(id);
         Navigation.NavigateTo("/records");
+    }
+
+    private async Task UploadImagesAsync(InputFileChangeEventArgs args)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        try
+        {
+            _uploading = true;
+            int remaining = IRecordImageService.MaximumImagesPerRecord - _images.Count;
+            foreach (IBrowserFile file in args.GetMultipleFiles(Math.Max(remaining, 1)))
+            {
+                await using Stream content = file.OpenReadStream(IRecordImageService.MaximumUploadBytes);
+                await ImageService.AddAsync(recordId, content, file.Name);
+            }
+
+            _record = await Service.GetRecordAsync(recordId);
+            _images = _record?.Images ?? [];
+            _message = null;
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException or IOException)
+        {
+            _message = exception.Message;
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    private async Task DeleteImageAsync(Guid imageId)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        await ImageService.DeleteAsync(recordId, imageId);
+        _record = await Service.GetRecordAsync(recordId);
+        _images = _record?.Images ?? [];
     }
 
     private async Task LoadRelationshipsAsync(Guid recordId)

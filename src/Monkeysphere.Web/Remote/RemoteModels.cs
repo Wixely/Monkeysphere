@@ -28,8 +28,19 @@ public sealed record RemoteRecordSummary(
 public sealed record RemoteRecord(
     RemoteRecordSummary Record,
     IReadOnlyList<string> Aliases,
+    IReadOnlyList<RemoteRecordImage> Images,
     IReadOnlyList<RemoteRecordValue> Values,
     IReadOnlyList<RemoteRelationship> Relationships);
+
+public sealed record RemoteRecordImage(
+    Guid Id,
+    int Ordinal,
+    string OriginalFileName,
+    string OriginalContentType,
+    long OriginalByteLength,
+    int Width,
+    int Height,
+    DateTimeOffset CreatedAtUtc);
 
 public sealed record RemoteRelationship(
     Guid Id,
@@ -144,6 +155,15 @@ public sealed class MonkeysphereRemoteQueries(
         new(
             MapSummary(details.Record),
             details.Aliases,
+            details.Images.Select(image => new RemoteRecordImage(
+                image.Id,
+                image.Ordinal,
+                image.OriginalFileName,
+                image.OriginalContentType,
+                image.OriginalByteLength,
+                image.Width,
+                image.Height,
+                image.CreatedAtUtc)).ToArray(),
             details.Values.Select(value => new RemoteRecordValue(
                 value.FieldDefinitionId,
                 value.FieldName,

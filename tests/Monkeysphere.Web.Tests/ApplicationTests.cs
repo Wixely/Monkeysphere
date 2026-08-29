@@ -32,6 +32,50 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
     }
 
+    [Fact]
+    public async Task RecordImagesRequireAuthenticationAndServeOnlyNormalizedContent()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        Guid recordId;
+        Guid imageId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
+            RecordType type = await records.CreateRecordTypeAsync("Image type " + Guid.NewGuid().ToString("N"));
+            RecordDetails record = await records.CreateRecordAsync(type.Id, "Image record", []);
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            RecordImage image = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
+            recordId = record.Record.Id;
+            imageId = image.Id;
+        }
+
+        using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true,
+        });
+        string path = $"/records/{recordId}/images/{imageId}/thumbnail";
+        Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync(path)).StatusCode);
+        string loginHtml = await client.GetStringAsync("/login");
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = path,
+        });
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
+
+        HttpResponseMessage response = await client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/webp", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
+        Assert.True((await response.Content.ReadAsByteArrayAsync()).Length > 0);
+    }
+
     [Theory]
     [InlineData("/")]
     [InlineData("/saved-views")]
@@ -50,6 +94,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     {
         string suffix = Guid.NewGuid().ToString("N");
         Guid typeId;
+        Guid recordId;
         using (IServiceScope scope = _factory.Services.CreateScope())
         {
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
@@ -59,6 +104,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("View field " + suffix, FieldTypes.Text, false));
+            recordId = (await records.CreateRecordAsync(type.Id, "View record " + suffix, [])).Record.Id;
             _ = await views.CreateAsync(new SaveViewRequest(
                 "Grid view " + suffix,
                 type.Id,
@@ -81,9 +127,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string viewsHtml = await client.GetStringAsync("/saved-views");
         string recordsHtml = await client.GetStringAsync("/records");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
+        string recordHtml = await client.GetStringAsync($"/records/{recordId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
+        Assert.Contains("Images", recordHtml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -300,6 +348,7 @@ public sealed class RestartPersistenceTests
     {
         string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
         Guid recordId;
+        Guid imageId;
         Guid savedViewId;
         try
         {
@@ -309,6 +358,7 @@ public sealed class RestartPersistenceTests
                 _ = await client.GetAsync("/health/ready");
                 using IServiceScope scope = first.Services.CreateScope();
                 IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
                 ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
                 RecordType type = await service.CreateRecordTypeAsync("Restart person");
                 FieldDefinition name = await service.CreateAndAttachFieldAsync(
@@ -316,6 +366,9 @@ public sealed class RestartPersistenceTests
                     new CreateFieldRequest("Name", FieldTypes.Text, true));
                 RecordDetails record = await service.CreateRecordAsync(type.Id, "Grace Hopper", [new(name.Id, "Grace")]);
                 recordId = record.Record.Id;
+                byte[] png = Convert.FromBase64String(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+                imageId = (await images.AddAsync(recordId, new MemoryStream(png), "grace.png")).Id;
                 SavedViewDetails view = await views.CreateAsync(new SaveViewRequest(
                     "Restart view",
                     type.Id,
@@ -331,10 +384,15 @@ public sealed class RestartPersistenceTests
                 _ = await client.GetAsync("/health/ready");
                 using IServiceScope scope = second.Services.CreateScope();
                 IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
                 ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
                 RecordDetails persisted = Assert.IsType<RecordDetails>(await service.GetRecordAsync(recordId));
                 Assert.Equal("Grace Hopper", persisted.Record.DisplayName);
                 Assert.Equal("Grace", Assert.Single(persisted.Values).TextValue);
+                Assert.Equal(imageId, Assert.Single(persisted.Images).Id);
+                RecordImageFile persistedImage = Assert.IsType<RecordImageFile>(
+                    await images.OpenAsync(recordId, imageId, RecordImageVariant.Thumbnail));
+                await persistedImage.Content.DisposeAsync();
                 SavedViewDetails persistedView = Assert.IsType<SavedViewDetails>(await views.GetAsync(savedViewId));
                 Assert.Equal("Restart view", persistedView.View.Name);
                 Assert.Equal(recordId, Assert.Single((await service.SearchRecordsAsync(views.ToSearch(persistedView))).Items).Id);
@@ -372,6 +430,7 @@ public sealed class RemoteAccessApplicationTests
         using (IServiceScope scope = factory.Services.CreateScope())
         {
             IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
             IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
             RecordType type = await service.CreateRecordTypeAsync("Person " + Guid.NewGuid().ToString("N"));
             FieldDefinition nickname = await service.CreateAndAttachFieldAsync(
@@ -382,6 +441,9 @@ public sealed class RemoteAccessApplicationTests
                 "Ada Lovelace",
                 [new(nickname.Id, "Ada")],
                 ["Enchantress of Numbers"]);
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            _ = await images.AddAsync(ada.Record.Id, new MemoryStream(png), "ada-portrait.png");
             RecordDetails charles = await service.CreateRecordAsync(type.Id, "Charles Babbage", [new(nickname.Id, "Charles")]);
             RelationshipType collaborator = await relationships.CreateTypeAsync(new(
                 "collaborated with",
@@ -416,6 +478,7 @@ public sealed class RemoteAccessApplicationTests
         string recordBody = await recordResponse.Content.ReadAsStringAsync();
         Assert.True(recordResponse.IsSuccessStatusCode, recordBody);
         Assert.Contains("Enchantress of Numbers", recordBody, StringComparison.Ordinal);
+        Assert.Contains("ada-portrait.png", recordBody, StringComparison.Ordinal);
         HttpResponseMessage relationshipResponse = await SendAsync(
             client,
             firstRoute.EndpointPath + $"/records/{adaId}/relationships",

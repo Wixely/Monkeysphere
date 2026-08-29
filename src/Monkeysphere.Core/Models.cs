@@ -63,7 +63,27 @@ public sealed record RecordDetails(
     RecordSummary Record,
     IReadOnlyList<RecordValue> Values,
     IReadOnlyList<RecordTypeField> AvailableFields,
-    IReadOnlyList<string> Aliases);
+    IReadOnlyList<string> Aliases,
+    IReadOnlyList<RecordImage> Images);
+
+public sealed record RecordImage(
+    Guid Id,
+    Guid RecordId,
+    int Ordinal,
+    string OriginalFileName,
+    string OriginalContentType,
+    long OriginalByteLength,
+    int Width,
+    int Height,
+    DateTimeOffset CreatedAtUtc);
+
+public enum RecordImageVariant
+{
+    Preview,
+    Thumbnail,
+}
+
+public sealed record RecordImageFile(Stream Content, string ContentType);
 
 public sealed record FieldValueInput(
     Guid FieldDefinitionId,

@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 6,
+        currentVersion: 7,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -222,6 +222,24 @@ public static class MonkeysphereSchema
 
                 CREATE INDEX IX_RecordAliases_Value
                     ON RecordAliases(Value, RecordId);
+                """),
+            DnaXMigration.Sql(7, "record-images", "Add ordered image metadata to records", """
+                CREATE TABLE RecordImages (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    OriginalFileName TEXT NOT NULL,
+                    OriginalContentType TEXT NOT NULL,
+                    OriginalByteLength INTEGER NOT NULL CHECK (OriginalByteLength > 0),
+                    Width INTEGER NOT NULL CHECK (Width > 0),
+                    Height INTEGER NOT NULL CHECK (Height > 0),
+                    CreatedAtUtc TEXT NOT NULL,
+                    UNIQUE (RecordId, Ordinal),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_RecordImages_Record
+                    ON RecordImages(RecordId, Ordinal, Id);
                 """),
         ]);
 }

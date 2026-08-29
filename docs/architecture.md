@@ -20,6 +20,10 @@ Temporal values retain their explicit precision, a canonical sort key, an approx
 
 Saved views are relational definitions with stable UUIDv7 identities. A view selects one record type, ordered field columns, up to ten typed filters, an optional grouping field, and display-name or field sorting. Field references use stable definition identities, so renames do not break views; retired fields remain visible until the administrator edits the view. View rows are rendered through authenticated Core queries rather than direct browser or filesystem access.
 
+## Record images
+
+Images are a record-level capability rather than configurable preset fields. SQLite stores ordered metadata and cascades it with the owning record. Validated originals and generated display derivatives live under opaque UUID-based paths within `media/records` beneath the configured writable data root. The application decodes JPEG, PNG, and WebP uploads with bounded byte, dimension, and pixel limits, then creates metadata-stripped WebP previews and thumbnails with SkiaSharp. Only those derivatives are served, through authenticated endpoints with private no-store caching and MIME-sniffing disabled; original filenames never determine filesystem paths.
+
 ## Presets and first-run setup
 
 The project-owned catalogue defines concrete, versioned record-type presets in Core. Installed record types and fields receive fresh local UUIDv7 identities while retaining preset provenance and canonical field keys. They use the same editable tables and services as administrator-created definitions; presets are not hard-coded subclasses.

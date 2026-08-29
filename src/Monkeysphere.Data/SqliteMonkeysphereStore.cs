@@ -1,12 +1,13 @@
 using System.Globalization;
 using System.Text;
 using Dapper;
+using DnaX.Hosting;
 using Microsoft.Data.Sqlite;
 using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connections) : IMonkeysphereStore
+public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connections, IDnaXPaths paths) : IMonkeysphereStore
 {
     public async Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
     {
@@ -272,7 +273,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         string[] aliases = (await connection.QueryAsync<string>(new CommandDefinition(
             "SELECT Value FROM RecordAliases WHERE RecordId = @RecordId ORDER BY Ordinal;",
             new { RecordId = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
-        return new RecordDetails(MapSummary(row), values, fields, aliases);
+        IReadOnlyList<RecordImage> images = await ListRecordImagesAsync(connection, id, cancellationToken).ConfigureAwait(false);
+        return new RecordDetails(MapSummary(row), values, fields, aliases, images);
     }
 
     public async Task<RecordDetails> UpdateRecordAsync(
@@ -313,6 +315,83 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             "DELETE FROM Records WHERE Id = @Id;",
             new { Id = Key(id) },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (changed == 1)
+        {
+            RecordImageStoragePaths.DeleteRecordDirectory(paths, id);
+        }
+
+        return changed == 1;
+    }
+
+    public async Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(
+        Guid recordId,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await ListRecordImagesAsync(connection, recordId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<RecordImage> AddRecordImageAsync(
+        RecordImage image,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        int changed = await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO RecordImages (
+                Id, RecordId, Ordinal, OriginalFileName, OriginalContentType,
+                OriginalByteLength, Width, Height, CreatedAtUtc)
+            VALUES (
+                @Id, @RecordId, @Ordinal, @OriginalFileName, @OriginalContentType,
+                @OriginalByteLength, @Width, @Height, @CreatedAtUtc);
+            """,
+            new
+            {
+                Id = Key(image.Id),
+                RecordId = Key(image.RecordId),
+                image.Ordinal,
+                image.OriginalFileName,
+                image.OriginalContentType,
+                image.OriginalByteLength,
+                image.Width,
+                image.Height,
+                CreatedAtUtc = Timestamp(image.CreatedAtUtc),
+            },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        RequireChanged(changed, "Image metadata could not be stored.");
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;",
+            new { Now = Timestamp(image.CreatedAtUtc), RecordId = Key(image.RecordId) },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return image;
+    }
+
+    public async Task<bool> DeleteRecordImageAsync(
+        Guid recordId,
+        Guid imageId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        int changed = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM RecordImages WHERE Id = @Id AND RecordId = @RecordId;",
+            new { Id = Key(imageId), RecordId = Key(recordId) },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (changed == 1)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;",
+                new { Now = Timestamp(now), RecordId = Key(recordId) },
+                transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return changed == 1;
     }
 
@@ -534,6 +613,32 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         }
     }
 
+    private static async Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(
+        SqliteConnection connection,
+        Guid recordId,
+        CancellationToken cancellationToken)
+    {
+        IEnumerable<RecordImageRow> rows = await connection.QueryAsync<RecordImageRow>(new CommandDefinition("""
+            SELECT Id, RecordId, Ordinal, OriginalFileName, OriginalContentType,
+                   OriginalByteLength, Width, Height, CreatedAtUtc
+            FROM RecordImages
+            WHERE RecordId = @RecordId
+            ORDER BY Ordinal, Id;
+            """,
+            new { RecordId = Key(recordId) },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.Select(row => new RecordImage(
+            ParseGuid(row.Id),
+            ParseGuid(row.RecordId),
+            row.Ordinal,
+            row.OriginalFileName,
+            row.OriginalContentType,
+            row.OriginalByteLength,
+            row.Width,
+            row.Height,
+            ParseTimestamp(row.CreatedAtUtc))).ToArray();
+    }
+
     private static async Task<IReadOnlyList<RecordTypeField>> QueryFieldsAsync(
         SqliteConnection connection,
         Guid recordTypeId,
@@ -698,6 +803,19 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public string? TemporalSortKey { get; init; }
         public int IsApproximate { get; init; }
         public string? ApproximationNote { get; init; }
+    }
+
+    private sealed class RecordImageRow
+    {
+        public required string Id { get; init; }
+        public required string RecordId { get; init; }
+        public int Ordinal { get; init; }
+        public required string OriginalFileName { get; init; }
+        public required string OriginalContentType { get; init; }
+        public long OriginalByteLength { get; init; }
+        public int Width { get; init; }
+        public int Height { get; init; }
+        public required string CreatedAtUtc { get; init; }
     }
 
     private sealed class TagRow
