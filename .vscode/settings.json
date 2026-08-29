@@ -1,0 +1,4 @@
+{
+  "dotnet.defaultSolution": "Monkeysphere.slnx",
+  "debug.toolBarLocation": "floating"
+}
