@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject ICalendarService CalendarService
 @inject IMonkeysphereService Records
+@inject IReminderService Reminders
 @inject TimeProvider TimeProvider
 
 <PageTitle>Calendar · Monkeysphere</PageTitle>
@@ -13,7 +14,13 @@
         <h1>Calendar</h1>
         <p>See exact dates and day-precision values. Approximate and coarser dates stay off the grid.</p>
     </div>
+    <a class="button" href="@ExportHref()">Download this month (.ics)</a>
 </div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
 
 <section class="panel calendar-filters" aria-label="Calendar filters">
     <div class="form-grid">
@@ -38,6 +45,37 @@
             </select>
         </label>
     </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Private and local</p>
+            <h2>In-app reminders</h2>
+        </div>
+    </div>
+    <p>Reminders appear only after sign-in. No record details are sent to a notification service.</p>
+    @if (_reminders.Count == 0)
+    {
+        <p class="empty-state">No active reminders.</p>
+    }
+    else
+    {
+        <div class="reminder-list">
+            @foreach (ReminderItem item in _reminders.OrderBy(item => item.DueDate))
+            {
+                bool isDue = item.DueDate <= _today;
+                <article class="reminder-item @(isDue ? "due" : null)">
+                    <div>
+                        <span class="pill">@(isDue ? "Due" : $"Due {item.DueDate.ToString("d MMM", CultureInfo.CurrentCulture)}")</span>
+                        <a href="/records/@item.Entry.RecordId">@item.Entry.RecordDisplayName</a>
+                        <small>@item.Entry.FieldName · @LeadLabel(item.Reminder.LeadDays)</small>
+                    </div>
+                    <button class="button subtle" type="button" @onclick="() => DismissAsync(item.Reminder.Id)">Dismiss</button>
+                </article>
+            }
+        </div>
+    }
 </section>
 
 <section class="panel">
@@ -84,7 +122,7 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                    <tr><th>Date</th><th>Record</th><th>Field</th><th>Type</th></tr>
+                    <tr><th>Date</th><th>Record</th><th>Field</th><th>Type</th><th>Reminder</th></tr>
                 </thead>
                 <tbody>
                     @foreach (CalendarEntry entry in _upcoming)
@@ -94,6 +132,15 @@
                             <td><a href="/records/@entry.RecordId">@entry.RecordDisplayName</a></td>
                             <td>@entry.FieldName</td>
                             <td>@entry.RecordTypeName</td>
+                            <td class="reminder-action">
+                                <select @bind="_leadDays[entry.FieldValueId]" aria-label="Reminder lead time">
+                                    <option value="0">On the day</option>
+                                    <option value="1">1 day before</option>
+                                    <option value="7">1 week before</option>
+                                    <option value="30">30 days before</option>
+                                </select>
+                                <button class="button" type="button" @onclick="() => AddReminderAsync(entry)">Remind me</button>
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -108,10 +155,14 @@
     private IReadOnlyList<FieldDefinition> _dateFields = [];
     private IReadOnlyList<CalendarEntry> _monthEntries = [];
     private IReadOnlyList<CalendarEntry> _upcoming = [];
+    private IReadOnlyList<ReminderItem> _reminders = [];
+    private readonly Dictionary<Guid, int> _leadDays = [];
     private DateOnly _today;
     private DateOnly _month;
     private string _recordTypeValue = string.Empty;
     private string _fieldValue = string.Empty;
+    private string? _message;
+    private bool _isError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -162,7 +213,64 @@
         DateOnly monthEnd = _month.AddMonths(1).AddDays(-1);
         _monthEntries = await CalendarService.QueryAsync(new(_month, monthEnd, recordTypeId, fieldId));
         _upcoming = await CalendarService.QueryAsync(new(_today, _today.AddDays(89), recordTypeId, fieldId));
+        foreach (CalendarEntry entry in _upcoming)
+        {
+            _leadDays.TryAdd(entry.FieldValueId, 7);
+        }
+
+        _reminders = await Reminders.ListActiveAsync();
     }
+
+    private async Task AddReminderAsync(CalendarEntry entry)
+    {
+        try
+        {
+            int leadDays = _leadDays.GetValueOrDefault(entry.FieldValueId, 7);
+            await Reminders.CreateAsync(entry.FieldValueId, leadDays);
+            _message = $"Reminder scheduled {LeadLabel(leadDays)} for {entry.RecordDisplayName}.";
+            _isError = false;
+            _reminders = await Reminders.ListActiveAsync();
+        }
+        catch (DomainValidationException exception)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task DismissAsync(Guid reminderId)
+    {
+        await Reminders.DismissAsync(reminderId);
+        _reminders = await Reminders.ListActiveAsync();
+        _message = "Reminder dismissed.";
+        _isError = false;
+    }
+
+    private string ExportHref()
+    {
+        DateOnly monthEnd = _month.AddMonths(1).AddDays(-1);
+        string query = $"from={_month:yyyy-MM-dd}&to={monthEnd:yyyy-MM-dd}";
+        if (SelectedRecordTypeId() is Guid recordTypeId)
+        {
+            query += $"&recordTypeId={recordTypeId:D}";
+        }
+
+        if (Guid.TryParse(_fieldValue, out Guid fieldId))
+        {
+            query += $"&fieldDefinitionId={fieldId:D}";
+        }
+
+        return "/calendar/export.ics?" + query;
+    }
+
+    private static string LeadLabel(int leadDays) => leadDays switch
+    {
+        0 => "on the day",
+        1 => "1 day before",
+        7 => "1 week before",
+        30 => "30 days before",
+        _ => $"{leadDays} days before",
+    };
 
     private async Task PreviousMonthAsync()
     {

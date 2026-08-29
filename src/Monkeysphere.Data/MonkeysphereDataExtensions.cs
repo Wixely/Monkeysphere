@@ -22,6 +22,8 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IMonkeysphereService, MonkeysphereService>();
         services.AddSingleton<ICalendarStore, SqliteCalendarStore>();
         services.AddSingleton<ICalendarService, CalendarService>();
+        services.AddSingleton<IReminderStore, SqliteReminderStore>();
+        services.AddSingleton<IReminderService, ReminderService>();
         services.AddSingleton<IRecordImageService, RecordImageService>();
         services.AddSingleton<IRelationshipStore, SqliteRelationshipStore>();
         services.AddSingleton<IRelationshipService, RelationshipService>();

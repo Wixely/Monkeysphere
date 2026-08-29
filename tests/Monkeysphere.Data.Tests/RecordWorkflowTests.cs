@@ -667,7 +667,7 @@ public sealed class RecordWorkflowTests
         RecordDetails exact = await records.CreateRecordAsync(person.Id, "Ada", [new(birthday.Id, "2026-09-01")]);
         RecordDetails day = await records.CreateRecordAsync(eventType.Id, "Conference", [
             new(when.Id, Temporal: new TemporalValueInput("2026-09-03", TemporalPrecision.Day))]);
-        _ = await records.CreateRecordAsync(eventType.Id, "Estimated meeting", [
+        RecordDetails approximate = await records.CreateRecordAsync(eventType.Id, "Estimated meeting", [
             new(when.Id, Temporal: new TemporalValueInput("2026-09-04", TemporalPrecision.Day, true, "Diary estimate"))]);
         _ = await records.CreateRecordAsync(eventType.Id, "Month only", [
             new(when.Id, Temporal: new TemporalValueInput("2026-09", TemporalPrecision.Month))]);
@@ -684,6 +684,30 @@ public sealed class RecordWorkflowTests
             birthday.Id)));
         Assert.Equal("Birthday", filtered.FieldName);
         Assert.Equal(new DateOnly(2026, 9, 1), filtered.Date);
+
+        IReminderService reminders = application.Services.GetRequiredService<IReminderService>();
+        Reminder reminder = await reminders.CreateAsync(filtered.FieldValueId, 7);
+        ReminderItem scheduled = Assert.Single(await reminders.ListActiveAsync());
+        Assert.Equal(reminder.Id, scheduled.Reminder.Id);
+        Assert.Equal(new DateOnly(2026, 8, 25), scheduled.DueDate);
+        await Assert.ThrowsAsync<DomainValidationException>(() => reminders.CreateAsync(filtered.FieldValueId, 7));
+        await Assert.ThrowsAsync<DomainValidationException>(() => reminders.CreateAsync(
+            Assert.Single(approximate.Values).Id,
+            7));
+
+        RecordDetails updatedExact = await records.UpdateRecordAsync(
+            exact.Record.Id,
+            "Ada",
+            [new(birthday.Id, "2026-09-02")]);
+        scheduled = Assert.Single(await reminders.ListActiveAsync());
+        Assert.Equal(new DateOnly(2026, 9, 2), scheduled.Entry.Date);
+        Assert.Equal(new DateOnly(2026, 8, 26), scheduled.DueDate);
+        Assert.True(await reminders.DismissAsync(reminder.Id));
+        Assert.Empty(await reminders.ListActiveAsync());
+
+        _ = await reminders.CreateAsync(Assert.Single(updatedExact.Values).Id, 1);
+        await records.UpdateRecordAsync(exact.Record.Id, "Ada", []);
+        Assert.Empty(await reminders.ListActiveAsync());
 
         await Assert.ThrowsAsync<DomainValidationException>(() => calendar.QueryAsync(new(
             new DateOnly(2026, 9, 2),

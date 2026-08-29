@@ -13,7 +13,8 @@ public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connection
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<CalendarRow> rows = await connection.QueryAsync<CalendarRow>(new CommandDefinition("""
-            SELECT r.Id AS RecordId,
+            SELECT fv.Id AS FieldValueId,
+                   r.Id AS RecordId,
                    r.RecordTypeId,
                    rt.Name AS RecordTypeName,
                    r.DisplayName AS RecordDisplayName,
@@ -50,6 +51,7 @@ public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connection
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         return rows.Select(row => new CalendarEntry(
+            Guid.ParseExact(row.FieldValueId, "D"),
             Guid.ParseExact(row.RecordId, "D"),
             Guid.ParseExact(row.RecordTypeId, "D"),
             row.RecordTypeName,
@@ -61,6 +63,7 @@ public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connection
 
     private sealed class CalendarRow
     {
+        public required string FieldValueId { get; init; }
         public required string RecordId { get; init; }
         public required string RecordTypeId { get; init; }
         public required string RecordTypeName { get; init; }

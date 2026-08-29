@@ -959,6 +959,45 @@ dd {
     color: var(--muted);
 }
 
+.reminder-list {
+    display: grid;
+    gap: .65rem;
+}
+
+.reminder-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .8rem;
+    border: 1px solid var(--line);
+    border-radius: .55rem;
+    background: rgba(255, 253, 248, .65);
+}
+
+.reminder-item.due {
+    border-color: #d3ad67;
+    background: #fff1ce;
+}
+
+.reminder-item a,
+.reminder-item small {
+    display: block;
+    margin-top: .25rem;
+}
+
+.reminder-item small {
+    color: var(--muted);
+}
+
+.reminder-action {
+    min-width: 12rem;
+}
+
+.reminder-action select {
+    margin-bottom: .4rem;
+}
+
 .danger-zone::before {
     background: linear-gradient(90deg, var(--danger), rgba(163, 61, 47, 0));
 }

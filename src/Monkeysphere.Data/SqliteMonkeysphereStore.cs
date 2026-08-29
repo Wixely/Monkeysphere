@@ -583,6 +583,37 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                OR EXISTS (SELECT 1 FROM SavedViewFilters f WHERE f.SavedViewId = SavedViews.Id AND f.FieldDefinitionId = @SourceId);
             """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
+        string reminderConflictDelete = conflictResolution == FieldMergeConflictResolution.KeepSource
+            ? """
+                DELETE FROM Reminders AS target
+                WHERE target.FieldDefinitionId = @TargetId
+                  AND EXISTS (
+                      SELECT 1 FROM Reminders source
+                      WHERE source.RecordId = target.RecordId
+                        AND source.FieldDefinitionId = @SourceId
+                        AND source.ValueOrdinal = target.ValueOrdinal
+                        AND source.LeadDays = target.LeadDays
+                        AND source.DismissedAtUtc IS NULL
+                        AND target.DismissedAtUtc IS NULL);
+                """
+            : """
+                DELETE FROM Reminders AS source
+                WHERE source.FieldDefinitionId = @SourceId
+                  AND EXISTS (
+                      SELECT 1 FROM Reminders target
+                      WHERE target.RecordId = source.RecordId
+                        AND target.FieldDefinitionId = @TargetId
+                        AND target.ValueOrdinal = source.ValueOrdinal
+                        AND target.LeadDays = source.LeadDays
+                        AND target.DismissedAtUtc IS NULL
+                        AND source.DismissedAtUtc IS NULL);
+                """;
+        await connection.ExecuteAsync(new CommandDefinition(
+            reminderConflictDelete,
+            parameters,
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
         string conflictDelete = conflictResolution == FieldMergeConflictResolution.KeepSource
             ? """
                 DELETE FROM FieldValues AS target
@@ -609,6 +640,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE FieldValues SET FieldDefinitionId = @TargetId, UpdatedAtUtc = @Now
+            WHERE FieldDefinitionId = @SourceId;
+
+            UPDATE Reminders SET FieldDefinitionId = @TargetId
             WHERE FieldDefinitionId = @SourceId;
 
             UPDATE RecordTypeFields AS target
@@ -812,6 +846,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
 
         await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE RecordTypeFields SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE Reminders SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewColumns SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewFilters SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViews SET GroupByFieldDefinitionId = @TargetId WHERE GroupByFieldDefinitionId = @SourceId;
@@ -862,6 +897,25 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
+        await connection.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM Reminders
+            WHERE RecordId = @RecordId
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM FieldValues fv
+                  INNER JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
+                  WHERE fv.RecordId = Reminders.RecordId
+                    AND fv.FieldDefinitionId = Reminders.FieldDefinitionId
+                    AND fv.Ordinal = Reminders.ValueOrdinal
+                    AND ((fd.TypeId = 'exact-date' AND fv.DateValue IS NOT NULL)
+                         OR (fd.TypeId = 'temporal'
+                             AND fv.TemporalPrecision = @DayPrecision
+                             AND fv.IsApproximate = 0
+                             AND fv.TemporalValue IS NOT NULL)));
+            """,
+            new { RecordId = Key(id), DayPrecision = (int)TemporalPrecision.Day },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return await GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Created record could not be read back.");

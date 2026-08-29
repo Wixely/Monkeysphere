@@ -154,6 +154,7 @@ app.MapGet("/health/live", () => Results.Ok(new { status = "alive" })).AllowAnon
 app.MapGet("/health/ready", () => Results.Ok(new { status = "ready" })).AllowAnonymous();
 app.MapAdministratorAuthentication();
 app.MapRecordImages();
+app.MapCalendarExport();
 app.MapMonkeysphereRemoteApi();
 app.MapDnaXRemoteMcp();
 app.MapRazorComponents<App>()

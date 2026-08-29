@@ -80,6 +80,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/")]
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
+    [InlineData("/calendar/export.ics?from=2026-09-01&to=2026-09-30")]
     public async Task SensitivePagesRequireAdministratorAuthentication(string path)
     {
         using HttpClient client = CreateClient(allowRedirect: false);
@@ -108,7 +109,13 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             _ = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Map location " + suffix, FieldTypes.Location, false));
-            recordId = (await records.CreateRecordAsync(type.Id, "View record " + suffix, [])).Record.Id;
+            FieldDefinition occasion = await records.CreateAndAttachFieldAsync(
+                type.Id,
+                new CreateFieldRequest("Occasion " + suffix, FieldTypes.ExactDate, false));
+            recordId = (await records.CreateRecordAsync(
+                type.Id,
+                "View record " + suffix,
+                [new(occasion.Id, "2026-09-15")])).Record.Id;
             _ = await views.CreateAsync(new SaveViewRequest(
                 "Grid view " + suffix,
                 type.Id,
@@ -131,6 +138,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string viewsHtml = await client.GetStringAsync("/saved-views");
         string recordsHtml = await client.GetStringAsync("/records");
         string calendarHtml = await client.GetStringAsync("/calendar");
+        HttpResponseMessage calendarExport = await client.GetAsync("/calendar/export.ics?from=2026-09-01&to=2026-09-30");
         string typeHtml = await client.GetStringAsync($"/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
@@ -138,6 +146,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("Upcoming exact dates", calendarHtml, StringComparison.Ordinal);
         Assert.Contains("View type " + suffix, calendarHtml, StringComparison.Ordinal);
+        Assert.Contains("Remind me", calendarHtml, StringComparison.Ordinal);
+        Assert.Equal("text/calendar", calendarExport.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("monkeysphere-calendar.ics", calendarExport.Content.Headers.ContentDisposition?.FileName);
+        Assert.Contains("View record " + suffix, await calendarExport.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains("Evolve field definitions", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Type lifecycle", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Preview retirement", typeHtml, StringComparison.Ordinal);

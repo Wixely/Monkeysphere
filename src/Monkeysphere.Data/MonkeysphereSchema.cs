@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 9,
+        currentVersion: 10,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -269,6 +269,25 @@ public static class MonkeysphereSchema
 
                 CREATE INDEX IX_RecordTypes_Lifecycle_Name
                     ON RecordTypes(Lifecycle, Name, Id);
+                """),
+            DnaXMigration.Sql(10, "in-app-reminders", "Add private reminders for eligible date values", """
+                CREATE TABLE Reminders (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RecordId TEXT NOT NULL,
+                    FieldDefinitionId TEXT NOT NULL,
+                    ValueOrdinal INTEGER NOT NULL CHECK (ValueOrdinal >= 0),
+                    LeadDays INTEGER NOT NULL CHECK (LeadDays BETWEEN 0 AND 3650),
+                    CreatedAtUtc TEXT NOT NULL,
+                    DismissedAtUtc TEXT NULL,
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id)
+                );
+
+                CREATE UNIQUE INDEX UX_Reminders_ActiveValueLead
+                    ON Reminders(RecordId, FieldDefinitionId, ValueOrdinal, LeadDays)
+                    WHERE DismissedAtUtc IS NULL;
+                CREATE INDEX IX_Reminders_Active
+                    ON Reminders(DismissedAtUtc, RecordId, FieldDefinitionId, ValueOrdinal, LeadDays);
                 """),
         ]);
 }

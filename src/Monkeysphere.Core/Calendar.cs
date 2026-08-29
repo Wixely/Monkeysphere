@@ -8,6 +8,7 @@ public sealed record CalendarQuery(
     int Limit = 500);
 
 public sealed record CalendarEntry(
+    Guid FieldValueId,
     Guid RecordId,
     Guid RecordTypeId,
     string RecordTypeName,
