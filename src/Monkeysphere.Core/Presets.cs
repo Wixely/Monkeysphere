@@ -193,19 +193,19 @@ public static class PresetCatalog
         Type(Plant, "Plant", "Living things", "Houseplants, garden plants, and their care history.", ["a houseplant", "a fruit tree", "a favourite garden plant"],
             Text(Plant, "species", "Species"), Temporal(Plant, "acquired", "Acquired"), Text(Plant, "location", "Location"),
             Temporal(Plant, "last-repotted", "Last repotted"), Field(Plant, "care", "Care notes", FieldTypes.MultilineText), Notes(Plant)),
-        Type(Home, "Home", "Places", "Current and former homes with location at the appropriate accuracy.", ["your current home", "a childhood home", "a holiday home"],
-            Location(Home), Radius(Home), Temporal(Home, "since", "Since"), Temporal(Home, "until", "Until"), Notes(Home)),
-        Type(Workplace, "Workplace", "Places", "Offices, studios, workshops, and other places of work.", ["an office", "a studio", "a former workplace"],
-            Text(Workplace, "organisation", "Organisation"), Location(Workplace), Radius(Workplace), Field(Workplace, "website", "Website", FieldTypes.WebLink), Notes(Workplace)),
-        Type(FavouritePlace, "Favourite Place", "Places", "Places you return to or want to recommend.", ["a favourite café", "a quiet park", "a much-loved venue"],
+        TypeV2(Home, "Home", "Places", "Current and former homes with location at the appropriate accuracy.", ["your current home", "a childhood home", "a holiday home"],
+            Location(Home), Temporal(Home, "since", "Since"), Temporal(Home, "until", "Until"), Notes(Home)),
+        TypeV2(Workplace, "Workplace", "Places", "Offices, studios, workshops, and other places of work.", ["an office", "a studio", "a former workplace"],
+            Text(Workplace, "organisation", "Organisation"), Location(Workplace), Field(Workplace, "website", "Website", FieldTypes.WebLink), Notes(Workplace)),
+        TypeV2(FavouritePlace, "Favourite Place", "Places", "Places you return to or want to recommend.", ["a favourite café", "a quiet park", "a much-loved venue"],
             Choice(FavouritePlace, "kind", "Place type", ["Restaurant or café", "Park", "Venue", "Shop", "Viewpoint", "Other"]),
-            Location(FavouritePlace), Radius(FavouritePlace), Field(FavouritePlace, "website", "Website", FieldTypes.WebLink), Tags(FavouritePlace, "likes", "What you like"), Notes(FavouritePlace)),
+            Location(FavouritePlace), Field(FavouritePlace, "website", "Website", FieldTypes.WebLink), Tags(FavouritePlace, "likes", "What you like"), Notes(FavouritePlace)),
         Type(Trip, "Trip or Journey", "Experiences", "Journeys, holidays, and visits that connect people and places.", ["a weekend away", "a family holiday", "a memorable road trip"],
             Temporal(Trip, "start", "Start"), Temporal(Trip, "end", "End"), Tags(Trip, "destinations", "Destinations"),
             Tags(Trip, "highlights", "Highlights"), Notes(Trip)),
-        Type(Event, "Event", "Experiences", "Appointments, celebrations, performances, and memorable occasions.", ["a birthday party", "a concert", "an annual gathering"],
+        TypeV2(Event, "Event", "Experiences", "Appointments, celebrations, performances, and memorable occasions.", ["a birthday party", "a concert", "an annual gathering"],
             Choice(Event, "kind", "Event type", ["Celebration", "Performance", "Appointment", "Gathering", "Milestone", "Other"]),
-            Temporal(Event, "start", "Start"), Temporal(Event, "end", "End"), Location(Event), Radius(Event), Field(Event, "website", "Website", FieldTypes.WebLink), Notes(Event)),
+            Temporal(Event, "start", "Start"), Temporal(Event, "end", "End"), Location(Event), Field(Event, "website", "Website", FieldTypes.WebLink), Notes(Event)),
     ];
 
     public static IReadOnlyList<RelationshipTypePreset> RelationshipTypes { get; } =
@@ -238,6 +238,8 @@ public static class PresetCatalog
 
     private static RecordTypePreset Type(string key, string name, string category, string description, IReadOnlyList<string> examples, params PresetField[] fields) =>
         new(key, 1, name, category, description, examples, fields);
+    private static RecordTypePreset TypeV2(string key, string name, string category, string description, IReadOnlyList<string> examples, params PresetField[] fields) =>
+        new(key, 2, name, category, description, examples, fields);
     private static PresetField Field(string preset, string key, string name, string type, bool required = false, IReadOnlyList<string>? options = null) =>
         new($"{preset}.{key}", name, type, required, options);
     private static PresetField Text(string preset, string key, string name, bool required = false) => Field(preset, key, name, FieldTypes.Text, required);
@@ -246,8 +248,7 @@ public static class PresetCatalog
     private static PresetField Tags(string preset, string key, string name) => Field(preset, key, name, FieldTypes.Tags);
     private static PresetField Choice(string preset, string key, string name, IReadOnlyList<string> options) => Field(preset, key, name, FieldTypes.Choice, options: options);
     private static PresetField Notes(string preset) => Field(preset, "notes", "Notes", FieldTypes.MultilineText);
-    private static PresetField Location(string preset) => Field(preset, "location", "Location", FieldTypes.MultilineText);
-    private static PresetField Radius(string preset) => Field(preset, "approximation-radius-km", "Approximation radius (km)", FieldTypes.Number);
+    private static PresetField Location(string preset) => Field(preset, "location", "Location", FieldTypes.Location);
     private static RelationshipTypePreset Relation(string key, string name, string inverse, IReadOnlyList<string> required, IReadOnlyList<string> any) =>
         new(key, 1, name, inverse, required, any);
 }

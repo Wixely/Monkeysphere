@@ -14,9 +14,10 @@ public static partial class FieldTypes
     public const string Temporal = "temporal";
     public const string PhoneNumber = "phone-number";
     public const string WebLink = "web-link";
+    public const string Location = "location";
 
     public static IReadOnlyList<string> Recognized { get; } =
-        [Text, MultilineText, Number, ExactDate, Choice, Tags, Temporal, PhoneNumber, WebLink];
+        [Text, MultilineText, Number, ExactDate, Choice, Tags, Temporal, PhoneNumber, WebLink, Location];
 
     public static string NormalizeTypeId(string value)
     {

@@ -128,6 +128,49 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task StructuredLocationRoundTripsSearchesFiltersAndUpdates()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType type = await service.CreateRecordTypeAsync("Place");
+        FieldDefinition location = await service.CreateAndAttachFieldAsync(
+            type.Id,
+            new CreateFieldRequest("Location", FieldTypes.Location, true));
+
+        RecordDetails created = await service.CreateRecordAsync(type.Id, "Favourite viewpoint", [
+            new(location.Id, Location: new LocationValueInput(
+                "Central London",
+                "51.50740004",
+                "-0.12780006",
+                "12.5",
+                "5")),
+        ]);
+        LocationValue stored = Assert.IsType<LocationValue>(Assert.Single(created.Values).Location);
+        Assert.Equal(51.5074, stored.Latitude);
+        Assert.Equal(-0.1278001, stored.Longitude);
+        Assert.Equal(5, stored.ApproximationRadiusKilometres);
+        Assert.Equal(created.Record.Id, Assert.Single((await service.SearchRecordsAsync(
+            new RecordSearch(Query: "Central London"))).Items).Id);
+        Assert.Equal(created.Record.Id, Assert.Single((await service.SearchRecordsAsync(new RecordSearch(
+            FieldDefinitionId: location.Id,
+            Operator: FieldFilterOperator.Contains,
+            FilterValue: "london"))).Items).Id);
+
+        RecordDetails updated = await service.UpdateRecordAsync(created.Record.Id, created.Record.DisplayName, [
+            new(location.Id, Location: new LocationValueInput(
+                "Somewhere near London",
+                ApproximationRadiusKilometres: "20")),
+        ]);
+        LocationValue approximate = Assert.IsType<LocationValue>(Assert.Single(updated.Values).Location);
+        Assert.Null(approximate.Latitude);
+        Assert.Equal(20, approximate.ApproximationRadiusKilometres);
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.UpdateRecordAsync(
+            created.Record.Id,
+            created.Record.DisplayName,
+            [new(location.Id, Location: new LocationValueInput())]));
+    }
+
+    [Fact]
     public async Task RequiredAndChoiceValidationHappensBeforeStorage()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

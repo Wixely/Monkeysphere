@@ -104,6 +104,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("View field " + suffix, FieldTypes.Text, false));
+            _ = await records.CreateAndAttachFieldAsync(
+                type.Id,
+                new CreateFieldRequest("Map location " + suffix, FieldTypes.Location, false));
             recordId = (await records.CreateRecordAsync(type.Id, "View record " + suffix, [])).Record.Id;
             _ = await views.CreateAsync(new SaveViewRequest(
                 "Grid view " + suffix,
@@ -131,6 +134,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
+        Assert.Contains("Coordinate accuracy (metres)", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Images", recordHtml, StringComparison.Ordinal);
     }
 
@@ -436,10 +440,20 @@ public sealed class RemoteAccessApplicationTests
             FieldDefinition nickname = await service.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Nickname", FieldTypes.Text, true));
+            FieldDefinition location = await service.CreateAndAttachFieldAsync(
+                type.Id,
+                new CreateFieldRequest("Location", FieldTypes.Location, false));
             RecordDetails ada = await service.CreateRecordAsync(
                 type.Id,
                 "Ada Lovelace",
-                [new(nickname.Id, "Ada")],
+                [
+                    new(nickname.Id, "Ada"),
+                    new(location.Id, Location: new LocationValueInput(
+                        "Analytical Engine room",
+                        "51.501",
+                        "-0.141",
+                        ApproximationRadiusKilometres: "1")),
+                ],
                 ["Enchantress of Numbers"]);
             byte[] png = Convert.FromBase64String(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
@@ -478,6 +492,9 @@ public sealed class RemoteAccessApplicationTests
         string recordBody = await recordResponse.Content.ReadAsStringAsync();
         Assert.True(recordResponse.IsSuccessStatusCode, recordBody);
         Assert.Contains("Enchantress of Numbers", recordBody, StringComparison.Ordinal);
+        Assert.Contains("Analytical Engine room", recordBody, StringComparison.Ordinal);
+        Assert.Contains("\"latitude\":51.501", recordBody, StringComparison.Ordinal);
+        Assert.Contains("\"approximationRadiusKilometres\":1", recordBody, StringComparison.Ordinal);
         Assert.Contains("ada-portrait.png", recordBody, StringComparison.Ordinal);
         HttpResponseMessage relationshipResponse = await SendAsync(
             client,

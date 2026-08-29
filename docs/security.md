@@ -8,6 +8,7 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 - The unconfigured login is deliberately `admin` / `admin`. Deployment configuration can override the username and can override the password directly or through a password file; Docker Compose exposes interpolated credential settings for deployment overrides. The effective password is hashed in memory with the ASP.NET Core password hasher and is never persisted or logged in plaintext.
 - Cookie authentication, explicit sign-out, CSRF validation, bounded session lifetime, and login rate limiting.
 - Authentication before record, field, search, remote administration, API, MCP, or detailed diagnostic operations.
+- Authentication before location queries or retrieval. Coordinates, accuracy, and approximation radii are treated as sensitive record data and are returned only through the existing authenticated application and scoped remote-record boundaries.
 - Authentication before image delivery. Uploaded images are byte-, dimension-, pixel-, and format-bounded, decoded before acceptance, stored under opaque paths, and rendered through regenerated WebP derivatives with source metadata removed.
 - DnaX remote access unavailable by default, with separate credentials, randomized routes, bounded requests, and redacted audit metadata when deliberately enabled.
 - Minimal unauthenticated liveness response.

@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 7,
+        currentVersion: 8,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -240,6 +240,28 @@ public static class MonkeysphereSchema
 
                 CREATE INDEX IX_RecordImages_Record
                     ON RecordImages(RecordId, Ordinal, Id);
+                """),
+            DnaXMigration.Sql(8, "structured-locations", "Add structured location field values", """
+                CREATE TABLE FieldValueLocations (
+                    FieldValueId TEXT NOT NULL PRIMARY KEY,
+                    DisplayContext TEXT NULL COLLATE NOCASE,
+                    Latitude REAL NULL CHECK (Latitude IS NULL OR Latitude BETWEEN -90 AND 90),
+                    Longitude REAL NULL CHECK (Longitude IS NULL OR Longitude BETWEEN -180 AND 180),
+                    AccuracyMetres REAL NULL CHECK (AccuracyMetres IS NULL OR AccuracyMetres > 0),
+                    ApproximationRadiusKilometres REAL NULL
+                        CHECK (ApproximationRadiusKilometres IS NULL OR ApproximationRadiusKilometres > 0),
+                    FOREIGN KEY (FieldValueId) REFERENCES FieldValues(Id) ON DELETE CASCADE,
+                    CHECK ((Latitude IS NULL AND Longitude IS NULL) OR
+                           (Latitude IS NOT NULL AND Longitude IS NOT NULL)),
+                    CHECK (DisplayContext IS NOT NULL OR Latitude IS NOT NULL),
+                    CHECK (AccuracyMetres IS NULL OR Latitude IS NOT NULL)
+                );
+
+                CREATE INDEX IX_FieldValueLocations_Context
+                    ON FieldValueLocations(DisplayContext, FieldValueId);
+                CREATE INDEX IX_FieldValueLocations_Coordinates
+                    ON FieldValueLocations(Latitude, Longitude, FieldValueId)
+                    WHERE Latitude IS NOT NULL;
                 """),
         ]);
 }

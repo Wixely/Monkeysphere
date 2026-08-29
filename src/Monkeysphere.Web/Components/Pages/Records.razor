@@ -312,6 +312,11 @@
             return (value.IsApproximate ? "≈ " : string.Empty) + value.TemporalValue;
         }
 
+        if (value.Location is not null)
+        {
+            return LocationValues.Format(value.Location);
+        }
+
         return value.TextValue ?? value.NumberValue ?? value.DateValue ?? string.Empty;
     }
 

@@ -266,6 +266,20 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
                     TemporalValues.Normalize(input.Temporal, definition.Name));
         }
 
+        if (string.Equals(definition.TypeId, FieldTypes.Location, StringComparison.Ordinal))
+        {
+            LocationValueInput? locationInput = input.Location;
+            if (locationInput is null && !string.IsNullOrWhiteSpace(input.ScalarValue))
+            {
+                locationInput = new LocationValueInput(input.ScalarValue);
+            }
+
+            LocationValue? location = LocationValues.Normalize(locationInput, definition.Name);
+            return location is null
+                ? null
+                : new(Guid.CreateVersion7(), definition.Id, 0, null, null, null, null, [], Location: location);
+        }
+
         string raw = input.ScalarValue ?? string.Empty;
         if (string.IsNullOrWhiteSpace(raw))
         {

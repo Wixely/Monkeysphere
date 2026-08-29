@@ -713,6 +713,23 @@ input[type="checkbox"] {
     color: var(--muted);
 }
 
+.location-editor {
+    display: grid;
+    gap: .75rem;
+    margin-top: .35rem;
+}
+
+.location-coordinate-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+}
+
+.location-coordinate-grid > div {
+    display: grid;
+    gap: .35rem;
+}
+
 .item-list {
     list-style: none;
     padding: 0;
@@ -883,6 +900,10 @@ dd {
     }
 
     .filter-row {
+        grid-template-columns: 1fr;
+    }
+
+    .location-coordinate-grid {
         grid-template-columns: 1fr;
     }
 }

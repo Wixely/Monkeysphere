@@ -57,7 +57,15 @@ public sealed record RemoteRecordValue(
     string FieldName,
     string TypeId,
     string? Value,
-    IReadOnlyList<string> Tags);
+    IReadOnlyList<string> Tags,
+    RemoteLocationValue? Location);
+
+public sealed record RemoteLocationValue(
+    string? DisplayContext,
+    double? Latitude,
+    double? Longitude,
+    double? AccuracyMetres,
+    double? ApproximationRadiusKilometres);
 
 public sealed record RemotePage<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
@@ -169,7 +177,15 @@ public sealed class MonkeysphereRemoteQueries(
                 value.FieldName,
                 value.TypeId,
                 FormatValue(value),
-                value.Tags)).ToArray(),
+                value.Tags,
+                value.Location is null
+                    ? null
+                    : new RemoteLocationValue(
+                        value.Location.DisplayContext,
+                        value.Location.Latitude,
+                        value.Location.Longitude,
+                        value.Location.AccuracyMetres,
+                        value.Location.ApproximationRadiusKilometres))).ToArray(),
             relationships);
 
     private async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsCoreAsync(
@@ -187,9 +203,13 @@ public sealed class MonkeysphereRemoteQueries(
                 item.UpdatedAtUtc))
             .ToArray();
 
-    private static string? FormatValue(RecordValue value) => value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision
-        ? TemporalValues.Format(value.TemporalValue, precision, value.IsApproximate, value.ApproximationNote)
-        : value.TextValue ?? value.NumberValue ?? value.DateValue;
+    private static string? FormatValue(RecordValue value) => value switch
+    {
+        { TemporalValue: not null, TemporalPrecision: TemporalPrecision precision } =>
+            TemporalValues.Format(value.TemporalValue, precision, value.IsApproximate, value.ApproximationNote),
+        { Location: not null } => LocationValues.Format(value.Location),
+        _ => value.TextValue ?? value.NumberValue ?? value.DateValue,
+    };
 }
 
 [McpServerToolType]

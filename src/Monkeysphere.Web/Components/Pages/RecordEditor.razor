@@ -125,6 +125,30 @@ else
                                     case FieldTypes.WebLink:
                                         <input @bind="editor.Scalar" type="url" inputmode="url" placeholder="https://example.test/" />
                                         break;
+                                    case FieldTypes.Location:
+                                        <div class="location-editor">
+                                            <textarea @bind="editor.LocationContext" rows="3" placeholder="Place name, address, area, or other useful context"></textarea>
+                                            <div class="location-coordinate-grid">
+                                                <div>
+                                                    <span>Latitude</span>
+                                                    <input @bind="editor.Latitude" aria-label="Latitude" inputmode="decimal" placeholder="51.5074" />
+                                                </div>
+                                                <div>
+                                                    <span>Longitude</span>
+                                                    <input @bind="editor.Longitude" aria-label="Longitude" inputmode="decimal" placeholder="-0.1278" />
+                                                </div>
+                                                <div>
+                                                    <span>Coordinate accuracy (metres)</span>
+                                                    <input @bind="editor.LocationAccuracyMetres" aria-label="Coordinate accuracy in metres" inputmode="decimal" placeholder="Optional" />
+                                                </div>
+                                                <div>
+                                                    <span>Approximation radius (km)</span>
+                                                    <input @bind="editor.LocationRadiusKilometres" aria-label="Approximation radius in kilometres" inputmode="decimal" placeholder="Optional" />
+                                                </div>
+                                            </div>
+                                            <span class="muted">Coordinates use WGS84 decimal degrees. Accuracy describes the coordinate source; radius describes the area you mean.</span>
+                                        </div>
+                                        break;
                                     default:
                                         <input @bind="editor.Scalar" />
                                         break;
@@ -356,6 +380,15 @@ else
                                 editor.TemporalPrecision,
                                 editor.IsApproximate,
                                 editor.ApproximationNote))
+                        : string.Equals(editor.Field.Definition.TypeId, FieldTypes.Location, StringComparison.Ordinal)
+                            ? new FieldValueInput(
+                                editor.Field.Definition.Id,
+                                Location: new LocationValueInput(
+                                    editor.LocationContext,
+                                    editor.Latitude,
+                                    editor.Longitude,
+                                    editor.LocationAccuracyMetres,
+                                    editor.LocationRadiusKilometres))
                         : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
 
             RecordDetails saved = RecordId is Guid id
@@ -499,6 +532,11 @@ else
                     TemporalPrecision = value?.TemporalPrecision ?? TemporalPrecision.Day,
                     IsApproximate = value?.IsApproximate == true,
                     ApproximationNote = value?.ApproximationNote ?? string.Empty,
+                    LocationContext = value?.Location?.DisplayContext ?? value?.TextValue ?? string.Empty,
+                    Latitude = FormatLocationNumber(value?.Location?.Latitude),
+                    Longitude = FormatLocationNumber(value?.Location?.Longitude),
+                    LocationAccuracyMetres = FormatLocationNumber(value?.Location?.AccuracyMetres),
+                    LocationRadiusKilometres = FormatLocationNumber(value?.Location?.ApproximationRadiusKilometres),
                 };
             }).ToList();
     }
@@ -517,6 +555,9 @@ else
     private static void SetScalar(EditorField editor, ChangeEventArgs args) =>
         editor.Scalar = args.Value?.ToString() ?? string.Empty;
 
+    private static string FormatLocationNumber(double? value) =>
+        value?.ToString("0.#######", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
     private sealed class EditorField
     {
         public required RecordTypeField Field { get; init; }
@@ -525,5 +566,10 @@ else
         public TemporalPrecision TemporalPrecision { get; set; } = TemporalPrecision.Day;
         public bool IsApproximate { get; set; }
         public string ApproximationNote { get; set; } = string.Empty;
+        public string LocationContext { get; set; } = string.Empty;
+        public string Latitude { get; set; } = string.Empty;
+        public string Longitude { get; set; } = string.Empty;
+        public string LocationAccuracyMetres { get; set; } = string.Empty;
+        public string LocationRadiusKilometres { get; set; } = string.Empty;
     }
 }

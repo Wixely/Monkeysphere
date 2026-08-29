@@ -16,6 +16,10 @@ public sealed class PresetWorkflowTests
         Assert.False((await presets.GetSetupStatusAsync()).IsComplete);
         Assert.Equal(15, presets.RecordTypes.Count);
         Assert.DoesNotContain(presets.RecordTypes, item => item.Name == "Thing");
+        RecordTypePreset homePreset = Assert.Single(presets.RecordTypes, item => item.Key == "monkeysphere.home");
+        Assert.Equal(2, homePreset.Version);
+        Assert.Equal(FieldTypes.Location, Assert.Single(homePreset.Fields, field => field.CanonicalKey == "monkeysphere.home.location").TypeId);
+        Assert.DoesNotContain(homePreset.Fields, field => field.CanonicalKey == "monkeysphere.home.approximation-radius-km");
         StarterPack everyday = Assert.Single(presets.StarterPacks, item => item.Key == "everyday");
         Assert.Contains("the family car", everyday.ExampleItems);
         Assert.Contains("a favourite video game", everyday.ExampleItems);
@@ -78,5 +82,26 @@ public sealed class PresetWorkflowTests
         await records.RenameRecordTypeAsync(book.Id, "My Library");
         Assert.Equal("My Library", (await records.GetRecordTypeAsync(book.Id))?.RecordType.Name);
         await Assert.ThrowsAsync<DomainValidationException>(() => presets.InstallPresetAsync("monkeysphere.book"));
+    }
+
+    [Fact]
+    public async Task StructuredPlacePresetInstallsAsVersionTwoWithoutChangingItsIdentity()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IPresetService presets = application.Services.GetRequiredService<IPresetService>();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+
+        await presets.InstallPresetAsync("monkeysphere.home");
+
+        RecordType home = Assert.Single(await records.ListRecordTypesAsync());
+        Assert.Equal("monkeysphere.home", home.PresetKey);
+        Assert.Equal(2, home.PresetVersion);
+        RecordTypeDetails details = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(home.Id));
+        RecordTypeField location = Assert.Single(details.Fields, field =>
+            field.Definition.CanonicalKey == "monkeysphere.home.location");
+        Assert.Equal(FieldTypes.Location, location.Definition.TypeId);
+        Assert.Equal(2, location.Definition.PresetVersion);
+        Assert.DoesNotContain(details.Fields, field =>
+            field.Definition.CanonicalKey == "monkeysphere.home.approximation-radius-km");
     }
 }

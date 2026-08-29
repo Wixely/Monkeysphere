@@ -430,6 +430,12 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                         WHERE qv.RecordId = r.Id
                           AND qt.Value LIKE @Query ESCAPE '\' COLLATE NOCASE
                     )
+                    OR EXISTS (
+                        SELECT 1 FROM FieldValues qv
+                        JOIN FieldValueLocations ql ON ql.FieldValueId = qv.Id
+                        WHERE qv.RecordId = r.Id
+                          AND ql.DisplayContext LIKE @Query ESCAPE '\' COLLATE NOCASE
+                    )
                 )
                 """);
             parameters.Add("Query", $"%{EscapeLike(search.Query)}%");
@@ -485,9 +491,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         string predicate = operation switch
         {
             FieldFilterOperator.Equals =>
-                $"(fv.TextValue = @{valueParameter} COLLATE NOCASE OR fv.NumberValue = @{valueParameter} OR fv.DateValue = @{valueParameter} OR fv.TemporalValue = @{valueParameter} OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @{valueParameter} COLLATE NOCASE))",
+                $"(fv.TextValue = @{valueParameter} COLLATE NOCASE OR fv.NumberValue = @{valueParameter} OR fv.DateValue = @{valueParameter} OR fv.TemporalValue = @{valueParameter} OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @{valueParameter} COLLATE NOCASE) OR EXISTS (SELECT 1 FROM FieldValueLocations fl WHERE fl.FieldValueId = fv.Id AND fl.DisplayContext = @{valueParameter} COLLATE NOCASE))",
             FieldFilterOperator.Contains =>
-                $"(fv.TextValue LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE))",
+                $"(fv.TextValue LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE) OR EXISTS (SELECT 1 FROM FieldValueLocations fl WHERE fl.FieldValueId = fv.Id AND fl.DisplayContext LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE))",
             FieldFilterOperator.GreaterThan => $"fv.NumberSortValue > @{numberParameter}",
             FieldFilterOperator.LessThan => $"fv.NumberSortValue < @{numberParameter}",
             FieldFilterOperator.Before => $"COALESCE(fv.TemporalSortKey, fv.DateValue) < @{dateParameter}",
@@ -539,7 +545,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                  WHERE sv.RecordId = r.Id AND sv.FieldDefinitionId = @SortFieldDefinitionId
                  ORDER BY sv.Ordinal LIMIT 1) {direction},
                 (SELECT COALESCE(sv.TemporalSortKey, sv.DateValue, sv.TextValue,
-                                 (SELECT st.Value FROM FieldValueTags st WHERE st.FieldValueId = sv.Id ORDER BY st.Ordinal LIMIT 1))
+                                 (SELECT st.Value FROM FieldValueTags st WHERE st.FieldValueId = sv.Id ORDER BY st.Ordinal LIMIT 1),
+                                 (SELECT sl.DisplayContext FROM FieldValueLocations sl WHERE sl.FieldValueId = sv.Id))
                  FROM FieldValues sv
                  WHERE sv.RecordId = r.Id AND sv.FieldDefinitionId = @SortFieldDefinitionId
                  ORDER BY sv.Ordinal LIMIT 1) COLLATE NOCASE {direction},
@@ -590,6 +597,29 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                 await connection.ExecuteAsync(new CommandDefinition(
                     "INSERT INTO FieldValueTags (FieldValueId, Ordinal, Value) VALUES (@FieldValueId, @Ordinal, @Value);",
                     new { FieldValueId = Key(value.Id), Ordinal = ordinal, Value = value.Tags[ordinal] },
+                    transaction,
+                    cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+
+            if (value.Location is LocationValue location)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO FieldValueLocations (
+                        FieldValueId, DisplayContext, Latitude, Longitude,
+                        AccuracyMetres, ApproximationRadiusKilometres)
+                    VALUES (
+                        @FieldValueId, @DisplayContext, @Latitude, @Longitude,
+                        @AccuracyMetres, @ApproximationRadiusKilometres);
+                    """,
+                    new
+                    {
+                        FieldValueId = Key(value.Id),
+                        location.DisplayContext,
+                        location.Latitude,
+                        location.Longitude,
+                        location.AccuracyMetres,
+                        location.ApproximationRadiusKilometres,
+                    },
                     transaction,
                     cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
@@ -694,6 +724,25 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             .GroupBy(item => item.FieldValueId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Select(item => item.Value).ToArray(), StringComparer.OrdinalIgnoreCase);
 
+        IEnumerable<LocationRow> locations = await connection.QueryAsync<LocationRow>(new CommandDefinition("""
+            SELECT fl.FieldValueId, fl.DisplayContext, fl.Latitude, fl.Longitude,
+                   fl.AccuracyMetres, fl.ApproximationRadiusKilometres
+            FROM FieldValueLocations fl
+            JOIN FieldValues fv ON fv.Id = fl.FieldValueId
+            WHERE fv.RecordId = @RecordId;
+            """,
+            new { RecordId = Key(recordId) },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        Dictionary<string, LocationValue> locationLookup = locations.ToDictionary(
+            row => row.FieldValueId,
+            row => new LocationValue(
+                row.DisplayContext,
+                row.Latitude,
+                row.Longitude,
+                row.AccuracyMetres,
+                row.ApproximationRadiusKilometres),
+            StringComparer.OrdinalIgnoreCase);
+
         return rows.Select(row => new RecordValue(
             ParseGuid(row.Id),
             ParseGuid(row.FieldDefinitionId),
@@ -709,7 +758,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             row.TemporalPrecision is null ? null : (TemporalPrecision?)row.TemporalPrecision,
             row.TemporalSortKey,
             row.IsApproximate != 0,
-            row.ApproximationNote)).ToArray();
+            row.ApproximationNote,
+            locationLookup.GetValueOrDefault(row.Id))).ToArray();
     }
 
     private static RecordType MapRecordType(RecordTypeRow row) =>
@@ -823,5 +873,15 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public required string FieldValueId { get; init; }
         public int Ordinal { get; init; }
         public required string Value { get; init; }
+    }
+
+    private sealed class LocationRow
+    {
+        public required string FieldValueId { get; init; }
+        public string? DisplayContext { get; init; }
+        public double? Latitude { get; init; }
+        public double? Longitude { get; init; }
+        public double? AccuracyMetres { get; init; }
+        public double? ApproximationRadiusKilometres { get; init; }
     }
 }

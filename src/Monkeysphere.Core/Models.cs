@@ -57,7 +57,8 @@ public sealed record RecordValue(
     TemporalPrecision? TemporalPrecision = null,
     string? TemporalSortKey = null,
     bool IsApproximate = false,
-    string? ApproximationNote = null);
+    string? ApproximationNote = null,
+    LocationValue? Location = null);
 
 public sealed record RecordDetails(
     RecordSummary Record,
@@ -89,7 +90,8 @@ public sealed record FieldValueInput(
     Guid FieldDefinitionId,
     string? ScalarValue = null,
     IReadOnlyList<string>? Tags = null,
-    TemporalValueInput? Temporal = null);
+    TemporalValueInput? Temporal = null,
+    LocationValueInput? Location = null);
 
 public sealed record NormalizedFieldValue(
     Guid Id,
@@ -100,7 +102,8 @@ public sealed record NormalizedFieldValue(
     double? NumberSortValue,
     string? DateValue,
     IReadOnlyList<string> Tags,
-    NormalizedTemporalValue? Temporal = null);
+    NormalizedTemporalValue? Temporal = null,
+    LocationValue? Location = null);
 
 public sealed record CreateFieldRequest(
     string Name,
