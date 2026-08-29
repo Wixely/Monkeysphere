@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
+@inject ISavedViewService SavedViews
 
 <PageTitle>Records · Monkeysphere</PageTitle>
 
@@ -9,15 +10,38 @@
     <div>
         <p class="eyebrow">Memory</p>
         <h1>Records</h1>
-        <p>Search display names, text, dates, numbers, and tags.</p>
+        <p>Search records directly or apply a reusable saved grid view.</p>
     </div>
-    <a class="button primary" href="/records/new">Add record</a>
+    <div class="action-row wrap">
+        <a class="button" href="/saved-views">Manage views</a>
+        <a class="button primary" href="/records/new">Add record</a>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(_message))
 {
     <div class="notice error" role="alert">@_message</div>
 }
+
+<section class="panel saved-view-picker">
+    <label>
+        Saved view
+        <select @bind="_savedViewValue">
+            <option value="">Ad hoc search</option>
+            @foreach (SavedView view in _savedViews)
+            {
+                <option value="@view.Id">@view.Name</option>
+            }
+        </select>
+    </label>
+    <button class="button" type="button" @onclick="ApplySavedViewAsync">Apply view</button>
+    @if (_activeView is not null)
+    {
+        <span class="muted">
+            @_activeView.View.Name · @_activeView.Filters.Count saved filter(s) · @_activeView.ColumnFieldDefinitionIds.Count column(s)
+        </span>
+    }
+</section>
 
 <section class="panel search-panel">
     <div class="form-grid">
@@ -27,7 +51,7 @@
         </label>
         <label>
             Record type
-            <select @bind="_recordTypeValue">
+            <select @bind="_recordTypeValue" disabled="@(_activeView is not null)">
                 <option value="">All types</option>
                 @foreach (RecordType type in _types)
                 {
@@ -36,9 +60,9 @@
             </select>
         </label>
         <label>
-            Field filter
+            Additional field filter
             <select @bind="_fieldValue">
-                <option value="">No typed filter</option>
+                <option value="">No additional filter</option>
                 @foreach (RecordTypeField field in _filterFields)
                 {
                     <option value="@field.Definition.Id">@field.Definition.Name</option>
@@ -64,12 +88,49 @@
 
 <section class="panel">
     <div class="section-heading">
-        <h2>Results</h2>
+        <h2>@(_activeView?.View.Name ?? "Results")</h2>
         <span class="muted">@_results.TotalCount total</span>
     </div>
     @if (_results.Items.Count == 0)
     {
         <p class="empty-state">No records match.</p>
+    }
+    else if (_activeView is not null)
+    {
+        @foreach (GridGroup group in BuildGroups())
+        {
+            @if (_activeView.View.GroupByFieldDefinitionId.HasValue)
+            {
+                <h3 class="group-heading">@group.Name</h3>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            @foreach (RecordTypeField column in _columns)
+                            {
+                                <th>@column.Definition.Name</th>
+                            }
+                            <th>Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (GridRow row in group.Rows)
+                        {
+                            <tr>
+                                <td><a href="/records/@row.Record.Id">@row.Record.DisplayName</a></td>
+                                @foreach (RecordTypeField column in _columns)
+                                {
+                                    <td>@row.Values.GetValueOrDefault(column.Definition.Id, "—")</td>
+                                }
+                                <td class="muted">@row.Record.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
     }
     else
     {
@@ -83,18 +144,23 @@
                 </li>
             }
         </ul>
-        <div class="pagination">
-            <button class="button" disabled="@(_results.Page <= 1)" @onclick="PreviousAsync">Previous</button>
-            <span>Page @_results.Page</span>
-            <button class="button" disabled="@(_results.Page * _results.PageSize >= _results.TotalCount)" @onclick="NextAsync">Next</button>
-        </div>
     }
+    <div class="pagination">
+        <button class="button" disabled="@(_results.Page <= 1)" @onclick="PreviousAsync">Previous</button>
+        <span>Page @_results.Page</span>
+        <button class="button" disabled="@(_results.Page * _results.PageSize >= _results.TotalCount)" @onclick="NextAsync">Next</button>
+    </div>
 </section>
 
 @code {
     private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<SavedView> _savedViews = [];
     private IReadOnlyList<RecordTypeField> _filterFields = [];
+    private IReadOnlyList<RecordTypeField> _columns = [];
+    private readonly List<GridRow> _gridRows = [];
+    private SavedViewDetails? _activeView;
     private PagedResult<RecordSummary> _results = new([], 1, 25, 0);
+    private string _savedViewValue = string.Empty;
     private string _query = string.Empty;
     private string _recordTypeValue = string.Empty;
     private string _fieldValue = string.Empty;
@@ -105,6 +171,41 @@
     protected override async Task OnInitializedAsync()
     {
         _types = await Service.ListRecordTypesAsync();
+        _savedViews = await SavedViews.ListAsync();
+        await SearchAsync();
+    }
+
+    private async Task ApplySavedViewAsync()
+    {
+        if (!Guid.TryParse(_savedViewValue, out Guid id))
+        {
+            _activeView = null;
+            _columns = [];
+            _query = string.Empty;
+            _recordTypeValue = string.Empty;
+            _fieldValue = string.Empty;
+            _filterValue = string.Empty;
+            await SearchAsync();
+            return;
+        }
+
+        _activeView = await SavedViews.GetAsync(id);
+        if (_activeView is null)
+        {
+            _message = "Saved view was not found.";
+            return;
+        }
+
+        _query = _activeView.View.Query ?? string.Empty;
+        _recordTypeValue = _activeView.View.RecordTypeId.ToString();
+        _fieldValue = string.Empty;
+        _filterValue = string.Empty;
+        await LoadTypeFieldsAsync(_activeView.View.RecordTypeId);
+        Dictionary<Guid, RecordTypeField> fields = _filterFields.ToDictionary(field => field.Definition.Id);
+        _columns = _activeView.ColumnFieldDefinitionIds
+            .Where(fields.ContainsKey)
+            .Select(fieldId => fields[fieldId])
+            .ToArray();
         await SearchAsync();
     }
 
@@ -119,7 +220,7 @@
             Guid? typeId = Guid.TryParse(_recordTypeValue, out Guid parsedType) ? parsedType : null;
             if (typeId is Guid selectedType)
             {
-                _filterFields = (await Service.GetRecordTypeAsync(selectedType))?.Fields ?? [];
+                await LoadTypeFieldsAsync(selectedType);
             }
             else
             {
@@ -131,14 +232,24 @@
             FieldFilterOperator? operation = fieldId.HasValue && Enum.TryParse(_operatorValue, out FieldFilterOperator parsedOperation)
                 ? parsedOperation
                 : null;
-            _results = await Service.SearchRecordsAsync(new RecordSearch(
-                _query,
-                typeId,
-                fieldId,
-                operation,
-                fieldId.HasValue ? _filterValue : null,
-                page,
-                25));
+            RecordSearch search = _activeView is null
+                ? new RecordSearch(
+                    _query,
+                    typeId,
+                    fieldId,
+                    operation,
+                    fieldId.HasValue ? _filterValue : null,
+                    page,
+                    25)
+                : SavedViews.ToSearch(_activeView, page, 25) with
+                {
+                    Query = _query,
+                    FieldDefinitionId = fieldId,
+                    Operator = operation,
+                    FilterValue = fieldId.HasValue ? _filterValue : null,
+                };
+            _results = await Service.SearchRecordsAsync(search);
+            await LoadGridRowsAsync();
             _message = null;
         }
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
@@ -146,4 +257,64 @@
             _message = exception.Message;
         }
     }
+
+    private async Task LoadTypeFieldsAsync(Guid typeId) =>
+        _filterFields = (await Service.GetRecordTypeAsync(typeId))?.Fields ?? [];
+
+    private async Task LoadGridRowsAsync()
+    {
+        _gridRows.Clear();
+        if (_activeView is null)
+        {
+            return;
+        }
+
+        HashSet<Guid> includedFields = _columns.Select(column => column.Definition.Id).ToHashSet();
+        if (_activeView.View.GroupByFieldDefinitionId is Guid groupFieldId)
+        {
+            includedFields.Add(groupFieldId);
+        }
+
+        foreach (RecordSummary summary in _results.Items)
+        {
+            RecordDetails? details = await Service.GetRecordAsync(summary.Id);
+            Dictionary<Guid, string> values = details?.Values
+                .Where(value => includedFields.Contains(value.FieldDefinitionId))
+                .GroupBy(value => value.FieldDefinitionId)
+                .ToDictionary(group => group.Key, group => string.Join(", ", group.Select(FormatValue))) ?? [];
+            _gridRows.Add(new GridRow(summary, values));
+        }
+    }
+
+    private IReadOnlyList<GridGroup> BuildGroups()
+    {
+        if (_activeView?.View.GroupByFieldDefinitionId is not Guid groupFieldId)
+        {
+            return [new GridGroup(string.Empty, _gridRows)];
+        }
+
+        return _gridRows
+            .GroupBy(row => row.Values.GetValueOrDefault(groupFieldId, "Unspecified"), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new GridGroup(group.Key, group.ToArray()))
+            .ToArray();
+    }
+
+    private static string FormatValue(RecordValue value)
+    {
+        if (value.Tags.Count > 0)
+        {
+            return string.Join(", ", value.Tags);
+        }
+
+        if (value.TemporalValue is not null)
+        {
+            return (value.IsApproximate ? "≈ " : string.Empty) + value.TemporalValue;
+        }
+
+        return value.TextValue ?? value.NumberValue ?? value.DateValue ?? string.Empty;
+    }
+
+    private sealed record GridRow(RecordSummary Record, IReadOnlyDictionary<Guid, string> Values);
+    private sealed record GridGroup(string Name, IReadOnlyList<GridRow> Rows);
 }

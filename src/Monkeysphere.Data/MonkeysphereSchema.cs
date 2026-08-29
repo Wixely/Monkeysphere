@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 3,
+        currentVersion: 4,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -132,6 +132,50 @@ public static class MonkeysphereSchema
                     ON Relationships(SourceRecordId, RelationshipTypeId, TargetRecordId);
                 CREATE INDEX IX_Relationships_Target
                     ON Relationships(TargetRecordId, RelationshipTypeId, SourceRecordId);
+                """),
+            DnaXMigration.Sql(4, "saved-grid-views", "Add reusable saved record views", """
+                CREATE TABLE SavedViews (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    RecordTypeId TEXT NOT NULL,
+                    Query TEXT NULL,
+                    GroupByFieldDefinitionId TEXT NULL,
+                    SortFieldDefinitionId TEXT NULL,
+                    SortDescending INTEGER NOT NULL CHECK (SortDescending IN (0, 1)),
+                    CreatedAtUtc TEXT NOT NULL,
+                    UpdatedAtUtc TEXT NOT NULL,
+                    FOREIGN KEY (RecordTypeId) REFERENCES RecordTypes(Id) ON DELETE RESTRICT,
+                    FOREIGN KEY (GroupByFieldDefinitionId) REFERENCES FieldDefinitions(Id) ON DELETE RESTRICT,
+                    FOREIGN KEY (SortFieldDefinitionId) REFERENCES FieldDefinitions(Id) ON DELETE RESTRICT
+                );
+
+                CREATE TABLE SavedViewColumns (
+                    SavedViewId TEXT NOT NULL,
+                    FieldDefinitionId TEXT NOT NULL,
+                    SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                    PRIMARY KEY (SavedViewId, FieldDefinitionId),
+                    UNIQUE (SavedViewId, SortOrder),
+                    FOREIGN KEY (SavedViewId) REFERENCES SavedViews(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id) ON DELETE RESTRICT
+                );
+
+                CREATE TABLE SavedViewFilters (
+                    SavedViewId TEXT NOT NULL,
+                    SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                    FieldDefinitionId TEXT NOT NULL,
+                    Operator INTEGER NOT NULL CHECK (Operator BETWEEN 0 AND 5),
+                    Value TEXT NOT NULL,
+                    PRIMARY KEY (SavedViewId, SortOrder),
+                    FOREIGN KEY (SavedViewId) REFERENCES SavedViews(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id) ON DELETE RESTRICT
+                );
+
+                CREATE INDEX IX_SavedViews_RecordType
+                    ON SavedViews(RecordTypeId, Name, Id);
+                CREATE INDEX IX_SavedViewColumns_Field
+                    ON SavedViewColumns(FieldDefinitionId, SavedViewId);
+                CREATE INDEX IX_SavedViewFilters_Field
+                    ON SavedViewFilters(FieldDefinitionId, SavedViewId);
                 """),
         ]);
 }

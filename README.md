@@ -4,7 +4,7 @@ Monkeysphere is a private, self-hosted relationship-memory application for recor
 
 ## Current vertical slice
 
-The current slice provides one administrator account, configurable record types and reusable typed fields, record editing, directional and symmetric relationships, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, and web links; unknown type identifiers retain a lossless text fallback.
+The current slice provides one administrator account, configurable record types and reusable typed fields, record editing, directional and symmetric relationships, reusable saved grid views, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Saved views package one record type, selected columns, up to ten filters, optional grouping, and display-name or field sorting. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, and web links; unknown type identifiers retain a lossless text fallback.
 
 ## Requirements
 

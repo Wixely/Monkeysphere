@@ -99,7 +99,18 @@ public sealed record RecordSearch(
     FieldFilterOperator? Operator = null,
     string? FilterValue = null,
     int Page = 1,
-    int PageSize = 25);
+    int PageSize = 25,
+    IReadOnlyList<RecordFilter>? Filters = null,
+    RecordSort? Sort = null);
+
+public sealed record RecordFilter(
+    Guid FieldDefinitionId,
+    FieldFilterOperator Operator,
+    string Value);
+
+public sealed record RecordSort(
+    Guid? FieldDefinitionId = null,
+    bool Descending = false);
 
 public sealed record PagedResult<T>(
     IReadOnlyList<T> Items,

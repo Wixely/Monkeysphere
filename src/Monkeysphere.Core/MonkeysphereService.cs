@@ -124,7 +124,23 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             throw new DomainValidationException("Typed filters require a field, operator, and value together.");
         }
 
-        return store.SearchRecordsAsync(search with { Query = search.Query?.Trim(), FilterValue = search.FilterValue?.Trim() }, cancellationToken);
+        if (search.Filters?.Count > 10)
+        {
+            throw new DomainValidationException("A search cannot contain more than 10 typed filters.");
+        }
+
+        RecordFilter[] filters = (search.Filters ?? [])
+            .Select(filter => string.IsNullOrWhiteSpace(filter.Value)
+                ? throw new DomainValidationException("Typed filters require a non-blank value.")
+                : filter with { Value = filter.Value.Trim() })
+            .ToArray();
+
+        return store.SearchRecordsAsync(search with
+        {
+            Query = search.Query?.Trim(),
+            FilterValue = search.FilterValue?.Trim(),
+            Filters = filters,
+        }, cancellationToken);
     }
 
     private async Task<RecordTypeDetails> RequireRecordTypeAsync(Guid id, CancellationToken cancellationToken) =>

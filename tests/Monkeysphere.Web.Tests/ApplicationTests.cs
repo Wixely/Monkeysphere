@@ -32,15 +32,54 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
     }
 
-    [Fact]
-    public async Task HomeRequiresAdministratorAuthentication()
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/saved-views")]
+    public async Task SensitivePagesRequireAdministratorAuthentication(string path)
     {
         using HttpClient client = CreateClient(allowRedirect: false);
 
-        HttpResponseMessage response = await client.GetAsync("/");
+        HttpResponseMessage response = await client.GetAsync(path);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/login", response.Headers.Location?.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task AuthenticatedSavedViewPagesRenderPersistedViews()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        using (IServiceScope scope = _factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
+            RecordType type = await records.CreateRecordTypeAsync("View type " + suffix);
+            FieldDefinition name = await records.CreateAndAttachFieldAsync(
+                type.Id,
+                new CreateFieldRequest("View field " + suffix, FieldTypes.Text, false));
+            _ = await views.CreateAsync(new SaveViewRequest(
+                "Grid view " + suffix,
+                type.Id,
+                null,
+                [name.Id],
+                []));
+        }
+
+        using HttpClient client = CreateClient(allowRedirect: false);
+        string loginHtml = await client.GetStringAsync("/login");
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = "/saved-views",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
+
+        string viewsHtml = await client.GetStringAsync("/saved-views");
+        string recordsHtml = await client.GetStringAsync("/records");
+        Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -253,10 +292,11 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
 public sealed class RestartPersistenceTests
 {
     [Fact]
-    public async Task RecordsSurviveACompleteApplicationRestart()
+    public async Task RecordsAndSavedViewsSurviveACompleteApplicationRestart()
     {
         string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
         Guid recordId;
+        Guid savedViewId;
         try
         {
             await using (PersistentApplicationFactory first = new(dataRoot))
@@ -265,12 +305,20 @@ public sealed class RestartPersistenceTests
                 _ = await client.GetAsync("/health/ready");
                 using IServiceScope scope = first.Services.CreateScope();
                 IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
                 RecordType type = await service.CreateRecordTypeAsync("Restart person");
                 FieldDefinition name = await service.CreateAndAttachFieldAsync(
                     type.Id,
                     new CreateFieldRequest("Name", FieldTypes.Text, true));
                 RecordDetails record = await service.CreateRecordAsync(type.Id, "Grace Hopper", [new(name.Id, "Grace")]);
                 recordId = record.Record.Id;
+                SavedViewDetails view = await views.CreateAsync(new SaveViewRequest(
+                    "Restart view",
+                    type.Id,
+                    "Grace",
+                    [name.Id],
+                    []));
+                savedViewId = view.View.Id;
             }
 
             await using (PersistentApplicationFactory second = new(dataRoot))
@@ -279,9 +327,13 @@ public sealed class RestartPersistenceTests
                 _ = await client.GetAsync("/health/ready");
                 using IServiceScope scope = second.Services.CreateScope();
                 IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
                 RecordDetails persisted = Assert.IsType<RecordDetails>(await service.GetRecordAsync(recordId));
                 Assert.Equal("Grace Hopper", persisted.Record.DisplayName);
                 Assert.Equal("Grace", Assert.Single(persisted.Values).TextValue);
+                SavedViewDetails persistedView = Assert.IsType<SavedViewDetails>(await views.GetAsync(savedViewId));
+                Assert.Equal("Restart view", persistedView.View.Name);
+                Assert.Equal(recordId, Assert.Single((await service.SearchRecordsAsync(views.ToSearch(persistedView))).Items).Id);
             }
         }
         finally

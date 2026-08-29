@@ -243,6 +243,80 @@ public sealed class RecordWorkflowTests
         await Assert.ThrowsAsync<DomainValidationException>(() => service.RenameRecordTypeAsync(pet.Id, person.Name));
     }
 
+    [Fact]
+    public async Task SavedViewRoundTripsMultipleFiltersColumnsGroupingSortingAndLifecycle()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ISavedViewService views = application.Services.GetRequiredService<ISavedViewService>();
+        RecordType person = await records.CreateRecordTypeAsync("Saved-view person");
+        FieldDefinition score = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Score", FieldTypes.Number, false));
+        FieldDefinition category = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Category", FieldTypes.Choice, false, ["Friend", "Family"]));
+
+        RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", [
+            new(score.Id, "42"),
+            new(category.Id, "Friend"),
+        ]);
+        RecordDetails grace = await records.CreateRecordAsync(person.Id, "Grace", [
+            new(score.Id, "84"),
+            new(category.Id, "Friend"),
+        ]);
+        _ = await records.CreateRecordAsync(person.Id, "Charles", [
+            new(score.Id, "100"),
+            new(category.Id, "Family"),
+        ]);
+
+        SavedViewDetails created = await views.CreateAsync(new SaveViewRequest(
+            "High-scoring friends",
+            person.Id,
+            Query: null,
+            ColumnFieldDefinitionIds: [category.Id, score.Id],
+            Filters:
+            [
+                new(score.Id, FieldFilterOperator.GreaterThan, "40"),
+                new(category.Id, FieldFilterOperator.Equals, "friend"),
+            ],
+            GroupByFieldDefinitionId: category.Id,
+            SortFieldDefinitionId: score.Id,
+            SortDescending: true));
+
+        Assert.Equal([category.Id, score.Id], created.ColumnFieldDefinitionIds);
+        Assert.Equal(2, created.Filters.Count);
+        Assert.Equal(created.View.Id, Assert.Single(await views.ListAsync()).Id);
+
+        PagedResult<RecordSummary> results = await records.SearchRecordsAsync(views.ToSearch(created));
+        Assert.Equal([grace.Record.Id, ada.Record.Id], results.Items.Select(item => item.Id));
+
+        await records.RenameFieldAsync(category.Id, "Circle");
+        await records.RetireFieldAsync(score.Id);
+        SavedViewDetails afterLifecycleChange = Assert.IsType<SavedViewDetails>(await views.GetAsync(created.View.Id));
+        Assert.Contains(score.Id, afterLifecycleChange.ColumnFieldDefinitionIds);
+        Assert.Equal(2, (await records.SearchRecordsAsync(views.ToSearch(afterLifecycleChange))).TotalCount);
+
+        SavedViewDetails updated = await views.UpdateAsync(created.View.Id, new SaveViewRequest(
+            "Friends by score",
+            person.Id,
+            null,
+            [score.Id],
+            [new(category.Id, FieldFilterOperator.Equals, "Friend")],
+            SortFieldDefinitionId: score.Id,
+            SortDescending: false));
+        Assert.Equal("Friends by score", updated.View.Name);
+        Assert.Single(updated.Filters);
+
+        SavedViewDetails duplicate = await views.DuplicateAsync(updated.View.Id, "Friends by score copy");
+        Assert.NotEqual(updated.View.Id, duplicate.View.Id);
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            views.DuplicateAsync(updated.View.Id, "Friends by score copy"));
+
+        Assert.True(await views.DeleteAsync(duplicate.View.Id));
+        Assert.False(await views.DeleteAsync(duplicate.View.Id));
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;

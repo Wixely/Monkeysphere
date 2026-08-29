@@ -341,7 +341,19 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             parameters.Add("Query", $"%{EscapeLike(search.Query)}%");
         }
 
-        AppendTypedFilter(where, parameters, search);
+        if (search.FieldDefinitionId is Guid legacyFieldId && search.Operator is FieldFilterOperator legacyOperator)
+        {
+            AppendTypedFilter(
+                where,
+                parameters,
+                new RecordFilter(legacyFieldId, legacyOperator, search.FilterValue!),
+                "Legacy");
+        }
+
+        for (int index = 0; index < (search.Filters?.Count ?? 0); index++)
+        {
+            AppendTypedFilter(where, parameters, search.Filters![index], $"Saved{index}");
+        }
 
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
@@ -351,40 +363,46 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
 
         parameters.Add("Limit", search.PageSize);
         parameters.Add("Offset", (search.Page - 1) * search.PageSize);
+        string orderBy = BuildOrderBy(search.Sort, parameters);
         IEnumerable<RecordSummaryRow> rows = await connection.QueryAsync<RecordSummaryRow>(new CommandDefinition("""
             SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
-            """ + where + " ORDER BY r.UpdatedAtUtc DESC, r.DisplayName COLLATE NOCASE, r.Id LIMIT @Limit OFFSET @Offset;",
+            """ + where + orderBy + " LIMIT @Limit OFFSET @Offset;",
             parameters,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new PagedResult<RecordSummary>(rows.Select(MapSummary).ToArray(), search.Page, search.PageSize, total);
     }
 
-    private static void AppendTypedFilter(StringBuilder where, DynamicParameters parameters, RecordSearch search)
+    private static void AppendTypedFilter(
+        StringBuilder where,
+        DynamicParameters parameters,
+        RecordFilter filterDefinition,
+        string suffix)
     {
-        if (search.FieldDefinitionId is not Guid fieldId || search.Operator is not FieldFilterOperator operation)
-        {
-            return;
-        }
-
-        parameters.Add("FilterFieldId", Key(fieldId));
-        string filter = search.FilterValue!;
+        string fieldParameter = "FilterFieldId" + suffix;
+        string valueParameter = "Filter" + suffix;
+        string patternParameter = "FilterPattern" + suffix;
+        string numberParameter = "FilterNumber" + suffix;
+        string dateParameter = "FilterDate" + suffix;
+        parameters.Add(fieldParameter, Key(filterDefinition.FieldDefinitionId));
+        string filter = filterDefinition.Value;
+        FieldFilterOperator operation = filterDefinition.Operator;
         string predicate = operation switch
         {
             FieldFilterOperator.Equals =>
-                "(fv.TextValue = @Filter COLLATE NOCASE OR fv.NumberValue = @Filter OR fv.DateValue = @Filter OR fv.TemporalValue = @Filter OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @Filter COLLATE NOCASE))",
+                $"(fv.TextValue = @{valueParameter} COLLATE NOCASE OR fv.NumberValue = @{valueParameter} OR fv.DateValue = @{valueParameter} OR fv.TemporalValue = @{valueParameter} OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value = @{valueParameter} COLLATE NOCASE))",
             FieldFilterOperator.Contains =>
-                "(fv.TextValue LIKE @FilterPattern ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @FilterPattern ESCAPE '\\' COLLATE NOCASE))",
-            FieldFilterOperator.GreaterThan => "fv.NumberSortValue > @FilterNumber",
-            FieldFilterOperator.LessThan => "fv.NumberSortValue < @FilterNumber",
-            FieldFilterOperator.Before => "COALESCE(fv.TemporalSortKey, fv.DateValue) < @FilterDate",
-            FieldFilterOperator.After => "COALESCE(fv.TemporalSortKey, fv.DateValue) > @FilterDate",
+                $"(fv.TextValue LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE))",
+            FieldFilterOperator.GreaterThan => $"fv.NumberSortValue > @{numberParameter}",
+            FieldFilterOperator.LessThan => $"fv.NumberSortValue < @{numberParameter}",
+            FieldFilterOperator.Before => $"COALESCE(fv.TemporalSortKey, fv.DateValue) < @{dateParameter}",
+            FieldFilterOperator.After => $"COALESCE(fv.TemporalSortKey, fv.DateValue) > @{dateParameter}",
             _ => throw new DomainValidationException("Unsupported field filter operator."),
         };
 
-        parameters.Add("Filter", filter);
-        parameters.Add("FilterPattern", $"%{EscapeLike(filter)}%");
+        parameters.Add(valueParameter, filter);
+        parameters.Add(patternParameter, $"%{EscapeLike(filter)}%");
         if (operation is FieldFilterOperator.GreaterThan or FieldFilterOperator.LessThan)
         {
             if (!double.TryParse(filter, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
@@ -392,17 +410,47 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                 throw new DomainValidationException("Numeric filters require an invariant number.");
             }
 
-            parameters.Add("FilterNumber", number);
+            parameters.Add(numberParameter, number);
         }
 
         if (operation is FieldFilterOperator.Before or FieldFilterOperator.After)
         {
-            parameters.Add("FilterDate", TemporalValues.NormalizeFilterSortKey(filter));
+            parameters.Add(dateParameter, TemporalValues.NormalizeFilterSortKey(filter));
         }
 
-        where.Append(" AND EXISTS (SELECT 1 FROM FieldValues fv WHERE fv.RecordId = r.Id AND fv.FieldDefinitionId = @FilterFieldId AND ");
+        where.Append(
+            CultureInfo.InvariantCulture,
+            $" AND EXISTS (SELECT 1 FROM FieldValues fv WHERE fv.RecordId = r.Id AND fv.FieldDefinitionId = @{fieldParameter} AND ");
         where.Append(predicate);
         where.Append(')');
+    }
+
+    private static string BuildOrderBy(RecordSort? sort, DynamicParameters parameters)
+    {
+        if (sort is null)
+        {
+            return " ORDER BY r.UpdatedAtUtc DESC, r.DisplayName COLLATE NOCASE, r.Id";
+        }
+
+        string direction = sort.Descending ? "DESC" : "ASC";
+        if (sort.FieldDefinitionId is not Guid fieldId)
+        {
+            return $" ORDER BY r.DisplayName COLLATE NOCASE {direction}, r.Id";
+        }
+
+        parameters.Add("SortFieldDefinitionId", Key(fieldId));
+        return $"""
+             ORDER BY
+                (SELECT sv.NumberSortValue FROM FieldValues sv
+                 WHERE sv.RecordId = r.Id AND sv.FieldDefinitionId = @SortFieldDefinitionId
+                 ORDER BY sv.Ordinal LIMIT 1) {direction},
+                (SELECT COALESCE(sv.TemporalSortKey, sv.DateValue, sv.TextValue,
+                                 (SELECT st.Value FROM FieldValueTags st WHERE st.FieldValueId = sv.Id ORDER BY st.Ordinal LIMIT 1))
+                 FROM FieldValues sv
+                 WHERE sv.RecordId = r.Id AND sv.FieldDefinitionId = @SortFieldDefinitionId
+                 ORDER BY sv.Ordinal LIMIT 1) COLLATE NOCASE {direction},
+                r.DisplayName COLLATE NOCASE, r.Id
+            """;
     }
 
     private static async Task InsertValuesAsync(

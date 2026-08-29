@@ -1,0 +1,381 @@
+@page "/saved-views"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMonkeysphereService Records
+@inject ISavedViewService Views
+
+<PageTitle>Saved views · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Reusable views</p>
+        <h1>Saved views</h1>
+        <p>Package a record grid's columns, filters, grouping, and sorting for reuse.</p>
+    </div>
+    <a class="button" href="/records">Open records</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+<div class="split-layout">
+    <section class="panel">
+        <div class="section-heading">
+            <h2>Existing views</h2>
+            <button class="button" type="button" @onclick="NewView">New view</button>
+        </div>
+        @if (_views.Count == 0)
+        {
+            <p class="empty-state">No saved views yet.</p>
+        }
+        else
+        {
+            <ul class="item-list">
+                @foreach (SavedView view in _views)
+                {
+                    <li>
+                        <button class="text-button" type="button" @onclick="() => EditAsync(view.Id)">@view.Name</button>
+                        <span class="pill">@TypeName(view.RecordTypeId)</span>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>@(_editingId.HasValue ? "Edit saved view" : "Create saved view")</h2>
+        <div class="form-grid">
+            <label>
+                Name
+                <input @bind="_name" maxlength="200" />
+            </label>
+            <label>
+                Record type
+                <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
+                    <option value="">Select a type</option>
+                    @foreach (RecordType type in _types)
+                    {
+                        <option value="@type.Id">@type.Name</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Saved search text
+                <input @bind="_query" maxlength="500" placeholder="Optional" />
+            </label>
+            <label>
+                Group rows by
+                <select @bind="_groupFieldValue">
+                    <option value="">No grouping</option>
+                    @foreach (RecordTypeField field in _fields)
+                    {
+                        <option value="@field.Definition.Id">@FieldLabel(field)</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Sort rows by
+                <select @bind="_sortFieldValue">
+                    <option value="">Display name</option>
+                    @foreach (RecordTypeField field in _fields)
+                    {
+                        <option value="@field.Definition.Id">@FieldLabel(field)</option>
+                    }
+                </select>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_sortDescending" />
+                Descending order
+            </label>
+        </div>
+
+        <fieldset class="field-picker">
+            <legend>Columns</legend>
+            @if (_fields.Count == 0)
+            {
+                <p class="empty-state">Select a record type to choose columns.</p>
+            }
+            else
+            {
+                @foreach (RecordTypeField field in _fields)
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox"
+                               checked="@_selectedColumns.Contains(field.Definition.Id)"
+                               @onchange="eventArgs => ToggleColumn(field.Definition.Id, eventArgs)" />
+                        @FieldLabel(field)
+                    </label>
+                }
+            }
+        </fieldset>
+
+        <div class="section-heading compact-heading">
+            <h3>Filters</h3>
+            <button class="button" type="button" disabled="@(_fields.Count == 0 || _filters.Count >= 10)" @onclick="AddFilter">Add filter</button>
+        </div>
+        @if (_filters.Count == 0)
+        {
+            <p class="empty-state">No saved filters.</p>
+        }
+        else
+        {
+            <div class="field-stack">
+                @foreach (FilterEditor filter in _filters)
+                {
+                    <div class="filter-row" @key="filter.Key">
+                        <label>
+                            Field
+                            <select @bind="filter.FieldValue">
+                                @foreach (RecordTypeField field in _fields)
+                                {
+                                    <option value="@field.Definition.Id">@FieldLabel(field)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            Operator
+                            <select @bind="filter.OperatorValue">
+                                @foreach (FieldFilterOperator operation in Enum.GetValues<FieldFilterOperator>())
+                                {
+                                    <option value="@operation">@operation</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            Value
+                            <input @bind="filter.Value" maxlength="2000" />
+                        </label>
+                        <button class="button danger subtle" type="button" @onclick="() => RemoveFilter(filter)">Remove</button>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="action-row wrap">
+            <button class="button primary" type="button" @onclick="SaveAsync">@(_editingId.HasValue ? "Save changes" : "Create view")</button>
+            @if (_editingId.HasValue)
+            {
+                <button class="button" type="button" @onclick="DuplicateAsync">Duplicate</button>
+                @if (_confirmDelete)
+                {
+                    <button class="button danger" type="button" @onclick="DeleteAsync">Confirm delete</button>
+                    <button class="button" type="button" @onclick="() => _confirmDelete = false">Cancel</button>
+                }
+                else
+                {
+                    <button class="button danger subtle" type="button" @onclick="() => _confirmDelete = true">Delete</button>
+                }
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<SavedView> _views = [];
+    private IReadOnlyList<RecordTypeField> _fields = [];
+    private readonly List<Guid> _selectedColumns = [];
+    private readonly List<FilterEditor> _filters = [];
+    private Guid? _editingId;
+    private string _name = string.Empty;
+    private string _recordTypeValue = string.Empty;
+    private string _query = string.Empty;
+    private string _groupFieldValue = string.Empty;
+    private string _sortFieldValue = string.Empty;
+    private bool _sortDescending;
+    private bool _confirmDelete;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Records.ListRecordTypesAsync();
+        await ReloadViewsAsync();
+    }
+
+    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    {
+        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        await LoadFieldsAsync();
+        _selectedColumns.Clear();
+        _filters.Clear();
+        _groupFieldValue = string.Empty;
+        _sortFieldValue = string.Empty;
+    }
+
+    private async Task LoadFieldsAsync()
+    {
+        _fields = Guid.TryParse(_recordTypeValue, out Guid recordTypeId)
+            ? (await Records.GetRecordTypeAsync(recordTypeId))?.Fields ?? []
+            : [];
+    }
+
+    private void ToggleColumn(Guid fieldId, ChangeEventArgs eventArgs)
+    {
+        if (eventArgs.Value is true)
+        {
+            if (!_selectedColumns.Contains(fieldId))
+            {
+                _selectedColumns.Add(fieldId);
+            }
+        }
+        else
+        {
+            _selectedColumns.Remove(fieldId);
+        }
+    }
+
+    private void AddFilter()
+    {
+        if (_fields.FirstOrDefault() is RecordTypeField field)
+        {
+            _filters.Add(new FilterEditor { FieldValue = field.Definition.Id.ToString() });
+        }
+    }
+
+    private void RemoveFilter(FilterEditor filter) => _filters.Remove(filter);
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            SaveViewRequest request = BuildRequest();
+            SavedViewDetails saved = _editingId is Guid id
+                ? await Views.UpdateAsync(id, request)
+                : await Views.CreateAsync(request);
+            _editingId = saved.View.Id;
+            _message = $"Saved {saved.View.Name}.";
+            _isError = false;
+            _confirmDelete = false;
+            await ReloadViewsAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task EditAsync(Guid id)
+    {
+        SavedViewDetails? details = await Views.GetAsync(id);
+        if (details is null)
+        {
+            _message = "Saved view was not found.";
+            _isError = true;
+            return;
+        }
+
+        _editingId = id;
+        _name = details.View.Name;
+        _recordTypeValue = details.View.RecordTypeId.ToString();
+        _query = details.View.Query ?? string.Empty;
+        _groupFieldValue = details.View.GroupByFieldDefinitionId?.ToString() ?? string.Empty;
+        _sortFieldValue = details.View.SortFieldDefinitionId?.ToString() ?? string.Empty;
+        _sortDescending = details.View.SortDescending;
+        _confirmDelete = false;
+        await LoadFieldsAsync();
+        _selectedColumns.Clear();
+        _selectedColumns.AddRange(details.ColumnFieldDefinitionIds);
+        _filters.Clear();
+        _filters.AddRange(details.Filters.Select(filter => new FilterEditor
+        {
+            FieldValue = filter.FieldDefinitionId.ToString(),
+            OperatorValue = filter.Operator.ToString(),
+            Value = filter.Value,
+        }));
+    }
+
+    private async Task DuplicateAsync()
+    {
+        if (_editingId is not Guid id)
+        {
+            return;
+        }
+
+        try
+        {
+            SavedViewDetails duplicate = await Views.DuplicateAsync(id, _name + " copy");
+            await ReloadViewsAsync();
+            await EditAsync(duplicate.View.Id);
+            _message = $"Created {duplicate.View.Name}.";
+            _isError = false;
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_editingId is Guid id && await Views.DeleteAsync(id))
+        {
+            _message = "Deleted saved view.";
+            _isError = false;
+            NewView();
+            await ReloadViewsAsync();
+        }
+    }
+
+    private SaveViewRequest BuildRequest()
+    {
+        if (!Guid.TryParse(_recordTypeValue, out Guid recordTypeId))
+        {
+            throw new DomainValidationException("Select a record type.");
+        }
+
+        RecordFilter[] filters = _filters.Select(filter =>
+        {
+            if (!Guid.TryParse(filter.FieldValue, out Guid fieldId) ||
+                !Enum.TryParse(filter.OperatorValue, out FieldFilterOperator operation))
+            {
+                throw new DomainValidationException("Each filter requires a valid field and operator.");
+            }
+
+            return new RecordFilter(fieldId, operation, filter.Value);
+        }).ToArray();
+        return new SaveViewRequest(
+            _name,
+            recordTypeId,
+            _query,
+            _selectedColumns.ToArray(),
+            filters,
+            ParseOptionalGuid(_groupFieldValue),
+            ParseOptionalGuid(_sortFieldValue),
+            _sortDescending);
+    }
+
+    private void NewView()
+    {
+        _editingId = null;
+        _name = string.Empty;
+        _recordTypeValue = string.Empty;
+        _query = string.Empty;
+        _groupFieldValue = string.Empty;
+        _sortFieldValue = string.Empty;
+        _sortDescending = false;
+        _confirmDelete = false;
+        _fields = [];
+        _selectedColumns.Clear();
+        _filters.Clear();
+    }
+
+    private async Task ReloadViewsAsync() => _views = await Views.ListAsync();
+    private string TypeName(Guid id) => _types.FirstOrDefault(type => type.Id == id)?.Name ?? "Unavailable type";
+    private static string FieldLabel(RecordTypeField field) => field.Definition.Lifecycle == FieldLifecycle.Retired
+        ? field.Definition.Name + " (retired)"
+        : field.Definition.Name;
+    private static Guid? ParseOptionalGuid(string value) => Guid.TryParse(value, out Guid id) ? id : null;
+
+    private sealed class FilterEditor
+    {
+        public Guid Key { get; } = Guid.NewGuid();
+        public string FieldValue { get; set; } = string.Empty;
+        public string OperatorValue { get; set; } = FieldFilterOperator.Equals.ToString();
+        public string Value { get; set; } = string.Empty;
+    }
+}
