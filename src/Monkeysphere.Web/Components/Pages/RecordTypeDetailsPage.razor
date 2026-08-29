@@ -154,6 +154,144 @@ else
             </div>
         }
     </section>
+
+    <section class="panel">
+        <h2>Evolve field definitions</h2>
+        <p class="muted">Preview every affected attachment, value, and saved-view reference before changing a shared field definition.</p>
+
+        <div class="settings-grid">
+            <div class="settings-card">
+                <h3>Merge compatible fields</h3>
+                <p class="muted">The source is retired after its references move to an active target with exactly the same type and configuration.</p>
+                <EditForm Model="_merge" OnValidSubmit="PreviewMergeAsync">
+                    <DataAnnotationsValidator />
+                    <label>
+                        Source field
+                        <select @bind="_merge.SourceId" required>
+                            <option value="">Choose the field to retire</option>
+                            @foreach (FieldDefinition definition in _definitions)
+                            {
+                                <option value="@definition.Id">@definition.Name (@definition.TypeId, @definition.Lifecycle)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Target field
+                        <select @bind="_merge.TargetId" required>
+                            <option value="">Choose the field to keep</option>
+                            @foreach (FieldDefinition definition in _definitions.Where(item => item.Lifecycle == FieldLifecycle.Active))
+                            {
+                                <option value="@definition.Id">@definition.Name (@definition.TypeId)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        If a record contains both fields
+                        <InputSelect @bind-Value="_merge.Resolution">
+                            <option value="@FieldMergeConflictResolution.Reject">Stop without changing anything</option>
+                            <option value="@FieldMergeConflictResolution.KeepTarget">Keep the target value</option>
+                            <option value="@FieldMergeConflictResolution.KeepSource">Keep the source value</option>
+                        </InputSelect>
+                    </label>
+                    <button class="button" type="submit">Preview merge</button>
+                </EditForm>
+
+                @if (_mergePreview is not null)
+                {
+                    <div class="operation-preview">
+                        <h4>Merge preview</h4>
+                        <p><strong>@_mergePreview.Source.Name</strong> will merge into <strong>@_mergePreview.Target.Name</strong>.</p>
+                        <ul>
+                            <li>@_mergePreview.SourceAttachmentCount record-type attachment(s)</li>
+                            <li>@_mergePreview.SourceValueCount stored value(s)</li>
+                            <li>@_mergePreview.ConflictingValueCount record conflict(s)</li>
+                            <li>@_mergePreview.SavedViewReferenceCount saved-view reference(s)</li>
+                        </ul>
+                        @if (!_mergePreview.IsCompatible)
+                        {
+                            <p class="validation-message">@_mergePreview.IncompatibilityReason</p>
+                        }
+                        else
+                        {
+                            <label class="checkbox-label">
+                                <InputCheckbox @bind-Value="_merge.Confirmed" />
+                                I reviewed this preview and want to apply the merge transactionally.
+                            </label>
+                            <button class="button danger" type="button" @onclick="ApplyMergeAsync">Apply merge</button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="settings-card">
+                <h3>Convert a field</h3>
+                <p class="muted">A conversion creates a new local definition and moves references only when every existing value validates safely.</p>
+                <EditForm Model="_conversion" OnValidSubmit="PreviewConversionAsync">
+                    <DataAnnotationsValidator />
+                    <label>
+                        Source field
+                        <select @bind="_conversion.SourceId" required>
+                            <option value="">Choose a field</option>
+                            @foreach (FieldDefinition definition in _definitions)
+                            {
+                                <option value="@definition.Id">@definition.Name (@definition.TypeId, @definition.Lifecycle)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        New field name
+                        <InputText @bind-Value="_conversion.Name" />
+                        <ValidationMessage For="() => _conversion.Name" />
+                    </label>
+                    <label>
+                        New type identifier
+                        <InputText @bind-Value="_conversion.TypeId" list="field-types" />
+                        <ValidationMessage For="() => _conversion.TypeId" />
+                    </label>
+                    @if (string.Equals(_conversion.TypeId, FieldTypes.Choice, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <label>
+                            Choices (one per line)
+                            <InputTextArea @bind-Value="_conversion.Choices" rows="5" />
+                        </label>
+                    }
+                    <button class="button" type="submit">Preview conversion</button>
+                </EditForm>
+
+                @if (_conversionPreview is not null)
+                {
+                    <div class="operation-preview">
+                        <h4>Conversion preview</h4>
+                        <p><strong>@_conversionPreview.Source.Name</strong> will become a new <code>@_conversionPreview.TargetTypeId</code> field named <strong>@_conversionPreview.TargetName</strong>.</p>
+                        <ul>
+                            <li>@_conversionPreview.AttachmentCount record-type attachment(s)</li>
+                            <li>@_conversionPreview.ValueCount stored value(s)</li>
+                            <li>@_conversionPreview.SavedViewReferenceCount saved-view reference(s)</li>
+                            <li>@_conversionPreview.FailedValueCount value(s) that cannot convert safely</li>
+                        </ul>
+                        @if (_conversionPreview.FailedValueCount > 0)
+                        {
+                            <p class="validation-message">Correct the incompatible values or choose a different target type, then preview again.</p>
+                            <ul>
+                                @foreach (FieldConversionIssue issue in _conversionPreview.Issues)
+                                {
+                                    <li><strong>@issue.RecordDisplayName:</strong> @issue.Reason</li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <label class="checkbox-label">
+                                <InputCheckbox @bind-Value="_conversion.Confirmed" />
+                                I reviewed this preview and want to create the new definition and migrate all references transactionally.
+                            </label>
+                            <button class="button danger" type="button" @onclick="ApplyConversionAsync">Apply conversion</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
 }
 
 @code {
@@ -165,10 +303,14 @@ else
     private readonly RenameModel _rename = new();
     private readonly NewFieldModel _newField = new();
     private readonly ExistingFieldModel _existingField = new();
+    private readonly MergeFieldModel _merge = new();
+    private readonly ConvertFieldModel _conversion = new();
     private IReadOnlyList<FieldDefinition> _definitions = [];
     private readonly Dictionary<Guid, string> _fieldNames = [];
     private string? _message;
     private bool _isError;
+    private FieldMergePreview? _mergePreview;
+    private FieldConversionPreview? _conversionPreview;
 
     protected override async Task OnParametersSetAsync() => await ReloadAsync();
 
@@ -225,10 +367,74 @@ else
         await ReloadAsync(preserveMessage: true);
     });
 
+    private async Task PreviewMergeAsync() => await RunAsync(async () =>
+    {
+        (Guid sourceId, Guid targetId) = MergeIds();
+        _mergePreview = await Service.PreviewFieldMergeAsync(sourceId, targetId);
+        _merge.Confirmed = false;
+        _message = _mergePreview.IsCompatible
+            ? "Merge preview is ready. Review conflicts and confirm before applying."
+            : _mergePreview.IncompatibilityReason;
+    });
+
+    private async Task ApplyMergeAsync() => await RunAsync(async () =>
+    {
+        if (!_merge.Confirmed || _mergePreview is null)
+        {
+            throw new DomainValidationException("Review and confirm the merge preview first.");
+        }
+
+        (Guid sourceId, Guid targetId) = MergeIds();
+        if (_mergePreview.Source.Id != sourceId || _mergePreview.Target.Id != targetId)
+        {
+            throw new DomainValidationException("The selected fields changed. Preview the merge again.");
+        }
+
+        await Service.MergeFieldsAsync(sourceId, targetId, _merge.Resolution, _mergePreview.Revision);
+        _message = $"Merged {_mergePreview.Source.Name} into {_mergePreview.Target.Name}. The source definition is retired.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private async Task PreviewConversionAsync() => await RunAsync(async () =>
+    {
+        Guid sourceId = ConversionSourceId();
+        _conversionPreview = await Service.PreviewFieldConversionAsync(sourceId, ConversionRequest());
+        _conversion.Confirmed = false;
+        _message = _conversionPreview.FailedValueCount == 0
+            ? "Conversion preview is ready. Every existing value can be represented safely."
+            : $"Conversion is blocked by {_conversionPreview.FailedValueCount} incompatible value(s).";
+    });
+
+    private async Task ApplyConversionAsync() => await RunAsync(async () =>
+    {
+        if (!_conversion.Confirmed || _conversionPreview is null)
+        {
+            throw new DomainValidationException("Review and confirm the conversion preview first.");
+        }
+
+        Guid sourceId = ConversionSourceId();
+        ConvertFieldRequest request = ConversionRequest();
+        string typeId = FieldTypes.NormalizeTypeId(request.TypeId);
+        string configuration = FieldTypes.NormalizeConfiguration(typeId, request.ChoiceOptions);
+        if (_conversionPreview.Source.Id != sourceId ||
+            !string.Equals(_conversionPreview.TargetName, request.Name.Trim(), StringComparison.Ordinal) ||
+            !string.Equals(_conversionPreview.TargetTypeId, typeId, StringComparison.Ordinal) ||
+            !string.Equals(_conversionPreview.TargetConfigurationJson, configuration, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("The conversion settings changed. Preview the conversion again.");
+        }
+
+        FieldDefinition target = await Service.ConvertFieldAsync(sourceId, request, _conversionPreview.Revision);
+        _message = $"Converted {_conversionPreview.Source.Name} into the new {target.Name} definition. The source definition is retired.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
     private async Task ReloadAsync(bool preserveMessage = false)
     {
         _details = await Service.GetRecordTypeAsync(Id);
         _definitions = await Service.ListFieldDefinitionsAsync();
+        _mergePreview = null;
+        _conversionPreview = null;
         if (_details is not null)
         {
             _rename.Name = _details.RecordType.Name;
@@ -258,6 +464,28 @@ else
 
     private void SetFieldName(Guid id, ChangeEventArgs args) =>
         _fieldNames[id] = args.Value?.ToString() ?? string.Empty;
+
+    private (Guid SourceId, Guid TargetId) MergeIds()
+    {
+        if (!Guid.TryParse(_merge.SourceId, out Guid sourceId) || !Guid.TryParse(_merge.TargetId, out Guid targetId))
+        {
+            throw new DomainValidationException("Choose both a source and target field definition.");
+        }
+
+        return (sourceId, targetId);
+    }
+
+    private Guid ConversionSourceId() => Guid.TryParse(_conversion.SourceId, out Guid sourceId)
+        ? sourceId
+        : throw new DomainValidationException("Choose a source field definition.");
+
+    private ConvertFieldRequest ConversionRequest()
+    {
+        string[]? choices = string.Equals(_conversion.TypeId, FieldTypes.Choice, StringComparison.OrdinalIgnoreCase)
+            ? _conversion.Choices.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : null;
+        return new ConvertFieldRequest(_conversion.Name, _conversion.TypeId, choices);
+    }
 
     private async Task RunAsync(Func<Task> action)
     {
@@ -297,5 +525,31 @@ else
         public string FieldDefinitionId { get; set; } = string.Empty;
 
         public bool IsRequired { get; set; }
+    }
+
+    private sealed class MergeFieldModel
+    {
+        public string SourceId { get; set; } = string.Empty;
+
+        public string TargetId { get; set; } = string.Empty;
+
+        public FieldMergeConflictResolution Resolution { get; set; } = FieldMergeConflictResolution.Reject;
+
+        public bool Confirmed { get; set; }
+    }
+
+    private sealed class ConvertFieldModel
+    {
+        public string SourceId { get; set; } = string.Empty;
+
+        [Required, StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required, StringLength(100)]
+        public string TypeId { get; set; } = FieldTypes.Text;
+
+        public string Choices { get; set; } = string.Empty;
+
+        public bool Confirmed { get; set; }
     }
 }

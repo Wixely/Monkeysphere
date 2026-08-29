@@ -730,6 +730,42 @@ input[type="checkbox"] {
     gap: .35rem;
 }
 
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    gap: 1rem;
+}
+
+.settings-card {
+    display: grid;
+    align-content: start;
+    gap: .75rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: .7rem;
+    background: var(--panel-warm);
+}
+
+.settings-card > h3,
+.settings-card > p,
+.operation-preview > h4,
+.operation-preview > p {
+    margin: 0;
+}
+
+.operation-preview {
+    display: grid;
+    gap: .75rem;
+    padding: .85rem;
+    border-left: .2rem solid var(--accent-bright);
+    background: rgba(231, 149, 33, .08);
+}
+
+.operation-preview ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
 .item-list {
     list-style: none;
     padding: 0;

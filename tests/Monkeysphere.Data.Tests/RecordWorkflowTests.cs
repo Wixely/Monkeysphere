@@ -246,6 +246,143 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task CompatibleFieldMergePreviewsConflictsAndMovesEveryReferenceTransactionally()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ISavedViewService views = application.Services.GetRequiredService<ISavedViewService>();
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition source = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Nickname", FieldTypes.Text, true));
+        FieldDefinition target = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Preferred name", FieldTypes.Text, false));
+        RecordDetails sourceOnly = await records.CreateRecordAsync(
+            person.Id,
+            "Ada",
+            [new(source.Id, "Enchantress of Numbers")]);
+        RecordDetails conflict = await records.CreateRecordAsync(
+            person.Id,
+            "Grace",
+            [new(source.Id, "Amazing Grace"), new(target.Id, "Grace")]);
+        SavedViewDetails saved = await views.CreateAsync(new SaveViewRequest(
+            "Nicknames",
+            person.Id,
+            null,
+            [source.Id, target.Id],
+            [new(source.Id, FieldFilterOperator.Contains, "Grace")],
+            source.Id,
+            source.Id));
+
+        FieldMergePreview preview = await records.PreviewFieldMergeAsync(source.Id, target.Id);
+
+        Assert.True(preview.IsCompatible);
+        Assert.Equal(2, preview.SourceValueCount);
+        Assert.Equal(1, preview.ConflictingValueCount);
+        Assert.Equal(4, preview.SavedViewReferenceCount);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.MergeFieldsAsync(
+            source.Id,
+            target.Id,
+            FieldMergeConflictResolution.Reject,
+            preview.Revision));
+
+        await records.UpdateRecordAsync(
+            sourceOnly.Record.Id,
+            "Ada",
+            [new(source.Id, "Enchantress")]);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.MergeFieldsAsync(
+            source.Id,
+            target.Id,
+            FieldMergeConflictResolution.KeepSource,
+            preview.Revision));
+        preview = await records.PreviewFieldMergeAsync(source.Id, target.Id);
+        await records.MergeFieldsAsync(source.Id, target.Id, FieldMergeConflictResolution.KeepSource, preview.Revision);
+
+        RecordTypeDetails type = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(person.Id));
+        RecordTypeField attachment = Assert.Single(type.Fields, field => field.Definition.Id == target.Id);
+        Assert.True(attachment.IsRequired);
+        Assert.DoesNotContain(type.Fields, field => field.Definition.Id == source.Id);
+        Assert.Equal("Enchantress", Assert.Single(
+            (await records.GetRecordAsync(sourceOnly.Record.Id))!.Values).TextValue);
+        Assert.Equal("Amazing Grace", Assert.Single(
+            (await records.GetRecordAsync(conflict.Record.Id))!.Values).TextValue);
+        Assert.Equal(FieldLifecycle.Retired, Assert.Single(
+            await records.ListFieldDefinitionsAsync(), field => field.Id == source.Id).Lifecycle);
+
+        SavedViewDetails updatedView = Assert.IsType<SavedViewDetails>(await views.GetAsync(saved.View.Id));
+        Assert.Equal([target.Id], updatedView.ColumnFieldDefinitionIds);
+        Assert.All(updatedView.Filters, filter => Assert.Equal(target.Id, filter.FieldDefinitionId));
+        Assert.Equal(target.Id, updatedView.View.GroupByFieldDefinitionId);
+        Assert.Equal(target.Id, updatedView.View.SortFieldDefinitionId);
+    }
+
+    [Fact]
+    public async Task FieldConversionRefusesLossThenCreatesANewDefinitionAndMigratesValues()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition source = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Score as text", FieldTypes.Text, false));
+        RecordDetails valid = await records.CreateRecordAsync(person.Id, "Ada", [new(source.Id, "12.5")]);
+        RecordDetails invalid = await records.CreateRecordAsync(person.Id, "Grace", [new(source.Id, "excellent")]);
+        ConvertFieldRequest request = new("Score", FieldTypes.Number);
+
+        FieldConversionPreview blocked = await records.PreviewFieldConversionAsync(source.Id, request);
+
+        Assert.Equal(2, blocked.ValueCount);
+        Assert.Equal(1, blocked.FailedValueCount);
+        Assert.Equal("Grace", Assert.Single(blocked.Issues).RecordDisplayName);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.ConvertFieldAsync(source.Id, request, blocked.Revision));
+        Assert.Single(await records.ListFieldDefinitionsAsync());
+
+        await records.UpdateRecordAsync(invalid.Record.Id, "Grace", [new(source.Id, "13.75")]);
+        FieldConversionPreview ready = await records.PreviewFieldConversionAsync(source.Id, request);
+        Assert.Equal(0, ready.FailedValueCount);
+
+        await records.UpdateRecordAsync(valid.Record.Id, "Ada", [new(source.Id, "12.75")]);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.ConvertFieldAsync(source.Id, request, ready.Revision));
+        ready = await records.PreviewFieldConversionAsync(source.Id, request);
+
+        FieldDefinition target = await records.ConvertFieldAsync(source.Id, request, ready.Revision);
+
+        Assert.NotEqual(source.Id, target.Id);
+        Assert.Equal(FieldTypes.Number, target.TypeId);
+        RecordTypeDetails type = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(person.Id));
+        Assert.Equal(target.Id, Assert.Single(type.Fields).Definition.Id);
+        Assert.Equal("12.75", Assert.Single((await records.GetRecordAsync(valid.Record.Id))!.Values).NumberValue);
+        Assert.Equal("13.75", Assert.Single((await records.GetRecordAsync(invalid.Record.Id))!.Values).NumberValue);
+        Assert.Equal(FieldLifecycle.Retired, Assert.Single(
+            await records.ListFieldDefinitionsAsync(), field => field.Id == source.Id).Lifecycle);
+    }
+
+    [Fact]
+    public async Task FieldMergeRequiresMatchingTypeAndConfiguration()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition source = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Kind", FieldTypes.Choice, false, ["Friend", "Family"]));
+        FieldDefinition target = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Category", FieldTypes.Choice, false, ["Friend", "Work"]));
+
+        FieldMergePreview preview = await records.PreviewFieldMergeAsync(source.Id, target.Id);
+
+        Assert.False(preview.IsCompatible);
+        Assert.Contains("configurations", preview.IncompatibilityReason, StringComparison.OrdinalIgnoreCase);
+        await Assert.ThrowsAsync<DomainValidationException>(() => records.MergeFieldsAsync(
+            source.Id,
+            target.Id,
+            FieldMergeConflictResolution.KeepTarget,
+            preview.Revision));
+    }
+
+    [Fact]
     public async Task TagsRejectEmptyAndOversizedValuesAndDeduplicateSafely()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

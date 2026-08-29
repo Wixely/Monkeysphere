@@ -57,6 +57,110 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
     public Task RetireFieldAsync(Guid id, CancellationToken cancellationToken = default) =>
         store.RetireFieldAsync(id, timeProvider.GetUtcNow(), cancellationToken);
 
+    public async Task<FieldMergePreview> PreviewFieldMergeAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceFieldDefinitionId == targetFieldDefinitionId)
+        {
+            throw new DomainValidationException("Choose two different field definitions to merge.");
+        }
+
+        return await store.PreviewFieldMergeAsync(
+            sourceFieldDefinitionId,
+            targetFieldDefinitionId,
+            cancellationToken).ConfigureAwait(false)
+            ?? throw new DomainValidationException("One or both field definitions were not found.");
+    }
+
+    public async Task MergeFieldsAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        FieldMergeConflictResolution conflictResolution,
+        string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(conflictResolution))
+        {
+            throw new DomainValidationException("Choose a supported merge conflict policy.");
+        }
+
+        FieldMergePreview preview = await PreviewFieldMergeAsync(
+            sourceFieldDefinitionId,
+            targetFieldDefinitionId,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(preview.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Field usage changed after the preview. Preview the merge again.");
+        }
+        if (!preview.IsCompatible)
+        {
+            throw new DomainValidationException(preview.IncompatibilityReason ?? "The field definitions are not compatible.");
+        }
+
+        if (preview.ConflictingValueCount > 0 && conflictResolution == FieldMergeConflictResolution.Reject)
+        {
+            throw new DomainValidationException(
+                $"{preview.ConflictingValueCount} record(s) contain both fields. Choose which value to keep before merging.");
+        }
+
+        await store.MergeFieldsAsync(
+            sourceFieldDefinitionId,
+            targetFieldDefinitionId,
+            conflictResolution,
+            expectedRevision,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<FieldConversionPreview> PreviewFieldConversionAsync(
+        Guid sourceFieldDefinitionId,
+        ConvertFieldRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        (FieldConversionPreview preview, _) = await PrepareConversionAsync(
+            sourceFieldDefinitionId,
+            request,
+            Guid.Empty,
+            cancellationToken).ConfigureAwait(false);
+        return preview;
+    }
+
+    public async Task<FieldDefinition> ConvertFieldAsync(
+        Guid sourceFieldDefinitionId,
+        ConvertFieldRequest request,
+        string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        Guid targetFieldDefinitionId = Guid.CreateVersion7();
+        (FieldConversionPreview preview, IReadOnlyList<ConvertedFieldValue> values) = await PrepareConversionAsync(
+            sourceFieldDefinitionId,
+            request,
+            targetFieldDefinitionId,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(preview.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Field usage changed after the preview. Preview the conversion again.");
+        }
+        if (preview.FailedValueCount != 0)
+        {
+            throw new DomainValidationException(
+                $"Conversion cannot continue because {preview.FailedValueCount} value(s) cannot be represented safely.");
+        }
+
+        return await store.ConvertFieldAsync(
+            sourceFieldDefinitionId,
+            targetFieldDefinitionId,
+            preview.TargetName,
+            preview.TargetTypeId,
+            preview.TargetConfigurationJson,
+            values,
+            expectedRevision,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<RecordDetails> CreateRecordAsync(
         Guid recordTypeId,
         string displayName,
@@ -152,6 +256,139 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
     private async Task<RecordTypeDetails> RequireRecordTypeAsync(Guid id, CancellationToken cancellationToken) =>
         await store.GetRecordTypeAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Record type was not found.");
+
+    private async Task<(FieldConversionPreview Preview, IReadOnlyList<ConvertedFieldValue> Values)> PrepareConversionAsync(
+        Guid sourceFieldDefinitionId,
+        ConvertFieldRequest request,
+        Guid targetFieldDefinitionId,
+        CancellationToken cancellationToken)
+    {
+        FieldUsageSnapshot usage = await store.GetFieldUsageAsync(sourceFieldDefinitionId, cancellationToken).ConfigureAwait(false)
+            ?? throw new DomainValidationException("Field definition was not found.");
+        string targetName = FieldTypes.Required(request.Name, "Field name", 200);
+        string targetTypeId = FieldTypes.NormalizeTypeId(request.TypeId);
+        string targetConfiguration = FieldTypes.NormalizeConfiguration(targetTypeId, request.ChoiceOptions);
+        FieldDefinition target = new(
+            targetFieldDefinitionId,
+            targetName,
+            targetTypeId,
+            targetConfiguration,
+            FieldLifecycle.Active,
+            timeProvider.GetUtcNow(),
+            timeProvider.GetUtcNow());
+
+        List<ConvertedFieldValue> converted = [];
+        List<FieldConversionIssue> issues = [];
+        int failed = 0;
+        foreach (FieldValueUsage value in usage.Values)
+        {
+            try
+            {
+                FieldValueInput input = ConversionInput(usage.Definition, target, value.Value);
+                NormalizedFieldValue normalized = NormalizeValue(target, input)
+                    ?? throw new DomainValidationException("The value would become empty.");
+                converted.Add(new ConvertedFieldValue(value.Value.Id, value.RecordId, normalized));
+            }
+            catch (DomainValidationException exception)
+            {
+                failed++;
+                if (issues.Count < 25)
+                {
+                    issues.Add(new FieldConversionIssue(value.RecordId, value.RecordDisplayName, exception.Message));
+                }
+            }
+        }
+
+        return (new FieldConversionPreview(
+            usage.Definition,
+            usage.Revision,
+            targetName,
+            targetTypeId,
+            targetConfiguration,
+            usage.AttachmentCount,
+            usage.Values.Count,
+            usage.SavedViewReferenceCount,
+            failed,
+            issues), converted);
+    }
+
+    private static FieldValueInput ConversionInput(
+        FieldDefinition source,
+        FieldDefinition target,
+        RecordValue value)
+    {
+        if (string.Equals(target.TypeId, FieldTypes.Tags, StringComparison.Ordinal))
+        {
+            if (!string.Equals(source.TypeId, FieldTypes.Tags, StringComparison.Ordinal))
+            {
+                throw new DomainValidationException("Structured tag values cannot be inferred from this field type.");
+            }
+
+            return new(target.Id, Tags: value.Tags);
+        }
+
+        if (string.Equals(target.TypeId, FieldTypes.Location, StringComparison.Ordinal))
+        {
+            if (!string.Equals(source.TypeId, FieldTypes.Location, StringComparison.Ordinal) || value.Location is null)
+            {
+                throw new DomainValidationException("Structured locations can only convert to another location field.");
+            }
+
+            return new(target.Id, Location: new LocationValueInput(
+                value.Location.DisplayContext,
+                Invariant(value.Location.Latitude),
+                Invariant(value.Location.Longitude),
+                Invariant(value.Location.AccuracyMetres),
+                Invariant(value.Location.ApproximationRadiusKilometres)));
+        }
+
+        if (string.Equals(target.TypeId, FieldTypes.Temporal, StringComparison.Ordinal))
+        {
+            if (string.Equals(source.TypeId, FieldTypes.Temporal, StringComparison.Ordinal) &&
+                value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision)
+            {
+                return new(target.Id, Temporal: new TemporalValueInput(
+                    value.TemporalValue,
+                    precision,
+                    value.IsApproximate,
+                    value.ApproximationNote));
+            }
+
+            if (string.Equals(source.TypeId, FieldTypes.ExactDate, StringComparison.Ordinal) && value.DateValue is not null)
+            {
+                return new(target.Id, Temporal: new TemporalValueInput(value.DateValue, TemporalPrecision.Day));
+            }
+
+            throw new DomainValidationException("Temporal precision cannot be inferred safely from this field type.");
+        }
+
+        if (string.Equals(source.TypeId, FieldTypes.Tags, StringComparison.Ordinal) ||
+            string.Equals(source.TypeId, FieldTypes.Location, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("This structured value cannot be flattened without losing information.");
+        }
+
+        if (string.Equals(source.TypeId, FieldTypes.Temporal, StringComparison.Ordinal))
+        {
+            if (string.Equals(target.TypeId, FieldTypes.ExactDate, StringComparison.Ordinal) &&
+                value.TemporalPrecision == TemporalPrecision.Day &&
+                !value.IsApproximate &&
+                string.IsNullOrWhiteSpace(value.ApproximationNote) &&
+                value.TemporalValue is not null)
+            {
+                return new(target.Id, value.TemporalValue);
+            }
+
+            throw new DomainValidationException("Temporal precision or approximation metadata would be lost.");
+        }
+
+        string scalar = value.TextValue ?? value.NumberValue ?? value.DateValue
+            ?? throw new DomainValidationException("The stored value has no safe scalar representation.");
+        return new(target.Id, scalar);
+    }
+
+    private static string? Invariant(double? value) =>
+        value?.ToString("0.#######", CultureInfo.InvariantCulture);
 
     private static string[] NormalizeAliases(string primaryName, IReadOnlyList<string>? aliases)
     {

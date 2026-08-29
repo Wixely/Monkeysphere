@@ -33,6 +33,32 @@ public interface IMonkeysphereStore
 
     Task RetireFieldAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default);
 
+    Task<FieldMergePreview?> PreviewFieldMergeAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        CancellationToken cancellationToken = default);
+
+    Task MergeFieldsAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        FieldMergeConflictResolution conflictResolution,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    Task<FieldUsageSnapshot?> GetFieldUsageAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<FieldDefinition> ConvertFieldAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        string targetName,
+        string targetTypeId,
+        string targetConfigurationJson,
+        IReadOnlyList<ConvertedFieldValue> convertedValues,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
     Task<RecordDetails> CreateRecordAsync(
         Guid id,
         Guid recordTypeId,
@@ -86,6 +112,29 @@ public interface IMonkeysphereService
     Task RenameFieldAsync(Guid id, string name, CancellationToken cancellationToken = default);
 
     Task RetireFieldAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<FieldMergePreview> PreviewFieldMergeAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        CancellationToken cancellationToken = default);
+
+    Task MergeFieldsAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        FieldMergeConflictResolution conflictResolution,
+        string expectedRevision,
+        CancellationToken cancellationToken = default);
+
+    Task<FieldConversionPreview> PreviewFieldConversionAsync(
+        Guid sourceFieldDefinitionId,
+        ConvertFieldRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<FieldDefinition> ConvertFieldAsync(
+        Guid sourceFieldDefinitionId,
+        ConvertFieldRequest request,
+        string expectedRevision,
+        CancellationToken cancellationToken = default);
 
     Task<RecordDetails> CreateRecordAsync(
         Guid recordTypeId,

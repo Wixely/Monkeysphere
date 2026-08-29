@@ -111,6 +111,63 @@ public sealed record CreateFieldRequest(
     bool IsRequired,
     IReadOnlyCollection<string>? ChoiceOptions = null);
 
+public enum FieldMergeConflictResolution
+{
+    Reject,
+    KeepTarget,
+    KeepSource,
+}
+
+public sealed record FieldMergePreview(
+    FieldDefinition Source,
+    FieldDefinition Target,
+    string Revision,
+    bool IsCompatible,
+    string? IncompatibilityReason,
+    int SourceAttachmentCount,
+    int SourceValueCount,
+    int ConflictingValueCount,
+    int SavedViewReferenceCount);
+
+public sealed record ConvertFieldRequest(
+    string Name,
+    string TypeId,
+    IReadOnlyCollection<string>? ChoiceOptions = null);
+
+public sealed record FieldConversionIssue(
+    Guid RecordId,
+    string RecordDisplayName,
+    string Reason);
+
+public sealed record FieldConversionPreview(
+    FieldDefinition Source,
+    string Revision,
+    string TargetName,
+    string TargetTypeId,
+    string TargetConfigurationJson,
+    int AttachmentCount,
+    int ValueCount,
+    int SavedViewReferenceCount,
+    int FailedValueCount,
+    IReadOnlyList<FieldConversionIssue> Issues);
+
+public sealed record FieldValueUsage(
+    Guid RecordId,
+    string RecordDisplayName,
+    RecordValue Value);
+
+public sealed record FieldUsageSnapshot(
+    FieldDefinition Definition,
+    string Revision,
+    int AttachmentCount,
+    int SavedViewReferenceCount,
+    IReadOnlyList<FieldValueUsage> Values);
+
+public sealed record ConvertedFieldValue(
+    Guid SourceValueId,
+    Guid RecordId,
+    NormalizedFieldValue Value);
+
 public enum FieldFilterOperator
 {
     Equals,

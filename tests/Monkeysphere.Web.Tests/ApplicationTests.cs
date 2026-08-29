@@ -129,10 +129,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         string viewsHtml = await client.GetStringAsync("/saved-views");
         string recordsHtml = await client.GetStringAsync("/records");
+        string typeHtml = await client.GetStringAsync($"/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
+        Assert.Contains("Evolve field definitions", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("Preview merge", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("Preview conversion", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Coordinate accuracy (metres)", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Images", recordHtml, StringComparison.Ordinal);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using Dapper;
 using DnaX.Hosting;
@@ -223,6 +224,400 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             new { Id = Key(id), Now = Timestamp(now) },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Active field definition was not found.");
+    }
+
+    public async Task<FieldMergePreview?> PreviewFieldMergeAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        FieldDefinition? source = await QueryFieldDefinitionAsync(connection, sourceFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
+        FieldDefinition? target = await QueryFieldDefinitionAsync(connection, targetFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
+        if (source is null || target is null)
+        {
+            return null;
+        }
+
+        string? incompatibility = target.Lifecycle != FieldLifecycle.Active
+            ? "The target field definition must be active."
+            : !string.Equals(source.TypeId, target.TypeId, StringComparison.Ordinal)
+                ? "Field definitions can merge only when their type identifiers match exactly."
+                : !string.Equals(source.ConfigurationJson, target.ConfigurationJson, StringComparison.Ordinal)
+                    ? "Field definitions can merge only when their configurations match exactly."
+                    : null;
+        DynamicParameters parameters = new();
+        parameters.Add("SourceId", Key(sourceFieldDefinitionId));
+        parameters.Add("TargetId", Key(targetFieldDefinitionId));
+        using SqlMapper.GridReader counts = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT COUNT(*) FROM RecordTypeFields WHERE FieldDefinitionId = @SourceId;
+            SELECT COUNT(*) FROM FieldValues WHERE FieldDefinitionId = @SourceId;
+            SELECT COUNT(*)
+            FROM FieldValues source
+            WHERE source.FieldDefinitionId = @SourceId
+              AND EXISTS (
+                  SELECT 1 FROM FieldValues target
+                  WHERE target.RecordId = source.RecordId
+                    AND target.FieldDefinitionId = @TargetId
+                    AND target.Ordinal = source.Ordinal);
+            SELECT
+                (SELECT COUNT(*) FROM SavedViewColumns WHERE FieldDefinitionId = @SourceId) +
+                (SELECT COUNT(*) FROM SavedViewFilters WHERE FieldDefinitionId = @SourceId) +
+                (SELECT COUNT(*) FROM SavedViews WHERE GroupByFieldDefinitionId = @SourceId) +
+                (SELECT COUNT(*) FROM SavedViews WHERE SortFieldDefinitionId = @SourceId);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int attachments = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int values = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int conflicts = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int savedViews = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        string revision = await ComputeFieldRevisionAsync(
+            connection,
+            [sourceFieldDefinitionId, targetFieldDefinitionId],
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new FieldMergePreview(
+            source,
+            target,
+            revision,
+            incompatibility is null,
+            incompatibility,
+            attachments,
+            values,
+            conflicts,
+            savedViews);
+    }
+
+    public async Task MergeFieldsAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        FieldMergeConflictResolution conflictResolution,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (sourceFieldDefinitionId == targetFieldDefinitionId || !Enum.IsDefined(conflictResolution))
+        {
+            throw new DomainValidationException("Choose two different fields and a supported conflict policy.");
+        }
+
+        string currentRevision = await ComputeFieldRevisionAsync(
+            connection,
+            [sourceFieldDefinitionId, targetFieldDefinitionId],
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Field usage changed after the preview. Preview the merge again.");
+        }
+
+        FieldDefinition? source = await QueryFieldDefinitionAsync(connection, sourceFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
+        FieldDefinition? target = await QueryFieldDefinitionAsync(connection, targetFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
+        if (source is null || target is null)
+        {
+            throw new DomainValidationException("One or both field definitions were not found.");
+        }
+
+        if (target.Lifecycle != FieldLifecycle.Active ||
+            !string.Equals(source.TypeId, target.TypeId, StringComparison.Ordinal) ||
+            !string.Equals(source.ConfigurationJson, target.ConfigurationJson, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("The field definitions are no longer compatible for merging.");
+        }
+
+        DynamicParameters parameters = new();
+        parameters.Add("SourceId", Key(sourceFieldDefinitionId));
+        parameters.Add("TargetId", Key(targetFieldDefinitionId));
+        parameters.Add("Now", Timestamp(now));
+        int conflicts = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
+            SELECT COUNT(*)
+            FROM FieldValues source
+            WHERE source.FieldDefinitionId = @SourceId
+              AND EXISTS (
+                  SELECT 1 FROM FieldValues target
+                  WHERE target.RecordId = source.RecordId
+                    AND target.FieldDefinitionId = @TargetId
+                    AND target.Ordinal = source.Ordinal);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (conflicts > 0 && conflictResolution == FieldMergeConflictResolution.Reject)
+        {
+            throw new DomainValidationException(
+                $"{conflicts} record(s) now contain both fields. Preview again and choose which value to keep.");
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE Records
+            SET UpdatedAtUtc = @Now
+            WHERE EXISTS (
+                SELECT 1 FROM FieldValues source
+                WHERE source.RecordId = Records.Id AND source.FieldDefinitionId = @SourceId);
+
+            UPDATE SavedViews
+            SET UpdatedAtUtc = @Now
+            WHERE GroupByFieldDefinitionId = @SourceId OR SortFieldDefinitionId = @SourceId
+               OR EXISTS (SELECT 1 FROM SavedViewColumns c WHERE c.SavedViewId = SavedViews.Id AND c.FieldDefinitionId = @SourceId)
+               OR EXISTS (SELECT 1 FROM SavedViewFilters f WHERE f.SavedViewId = SavedViews.Id AND f.FieldDefinitionId = @SourceId);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        string conflictDelete = conflictResolution == FieldMergeConflictResolution.KeepSource
+            ? """
+                DELETE FROM FieldValues AS target
+                WHERE target.FieldDefinitionId = @TargetId
+                  AND EXISTS (
+                      SELECT 1 FROM FieldValues source
+                      WHERE source.RecordId = target.RecordId
+                        AND source.FieldDefinitionId = @SourceId
+                        AND source.Ordinal = target.Ordinal);
+                """
+            : """
+                DELETE FROM FieldValues AS source
+                WHERE source.FieldDefinitionId = @SourceId
+                  AND EXISTS (
+                      SELECT 1 FROM FieldValues target
+                      WHERE target.RecordId = source.RecordId
+                        AND target.FieldDefinitionId = @TargetId
+                        AND target.Ordinal = source.Ordinal);
+                """;
+        await connection.ExecuteAsync(new CommandDefinition(
+            conflictDelete,
+            parameters,
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE FieldValues SET FieldDefinitionId = @TargetId, UpdatedAtUtc = @Now
+            WHERE FieldDefinitionId = @SourceId;
+
+            UPDATE RecordTypeFields AS target
+            SET IsRequired = MAX(IsRequired, (
+                SELECT source.IsRequired FROM RecordTypeFields source
+                WHERE source.RecordTypeId = target.RecordTypeId AND source.FieldDefinitionId = @SourceId))
+            WHERE target.FieldDefinitionId = @TargetId
+              AND EXISTS (
+                  SELECT 1 FROM RecordTypeFields source
+                  WHERE source.RecordTypeId = target.RecordTypeId AND source.FieldDefinitionId = @SourceId);
+
+            DELETE FROM RecordTypeFields AS source
+            WHERE source.FieldDefinitionId = @SourceId
+              AND EXISTS (
+                  SELECT 1 FROM RecordTypeFields target
+                  WHERE target.RecordTypeId = source.RecordTypeId AND target.FieldDefinitionId = @TargetId);
+
+            UPDATE RecordTypeFields SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+
+            DELETE FROM SavedViewColumns AS source
+            WHERE source.FieldDefinitionId = @SourceId
+              AND EXISTS (
+                  SELECT 1 FROM SavedViewColumns target
+                  WHERE target.SavedViewId = source.SavedViewId AND target.FieldDefinitionId = @TargetId);
+            UPDATE SavedViewColumns SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE SavedViewFilters SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE SavedViews SET GroupByFieldDefinitionId = @TargetId WHERE GroupByFieldDefinitionId = @SourceId;
+            UPDATE SavedViews SET SortFieldDefinitionId = @TargetId WHERE SortFieldDefinitionId = @SourceId;
+
+            UPDATE FieldDefinitions SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @SourceId;
+            UPDATE FieldDefinitions SET UpdatedAtUtc = @Now WHERE Id = @TargetId;
+            UPDATE RecordTypes SET UpdatedAtUtc = @Now
+            WHERE EXISTS (
+                SELECT 1 FROM RecordTypeFields fields
+                WHERE fields.RecordTypeId = RecordTypes.Id AND fields.FieldDefinitionId = @TargetId);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<FieldUsageSnapshot?> GetFieldUsageAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        FieldDefinition? definition = await QueryFieldDefinitionAsync(connection, id, transaction, cancellationToken).ConfigureAwait(false);
+        if (definition is null)
+        {
+            return null;
+        }
+
+        DynamicParameters parameters = new();
+        parameters.Add("Id", Key(id));
+        using SqlMapper.GridReader counts = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT COUNT(*) FROM RecordTypeFields WHERE FieldDefinitionId = @Id;
+            SELECT
+                (SELECT COUNT(*) FROM SavedViewColumns WHERE FieldDefinitionId = @Id) +
+                (SELECT COUNT(*) FROM SavedViewFilters WHERE FieldDefinitionId = @Id) +
+                (SELECT COUNT(*) FROM SavedViews WHERE GroupByFieldDefinitionId = @Id) +
+                (SELECT COUNT(*) FROM SavedViews WHERE SortFieldDefinitionId = @Id);
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        int attachments = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+        int savedViews = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
+
+        FieldUsageValueRow[] rows = (await connection.QueryAsync<FieldUsageValueRow>(new CommandDefinition("""
+            SELECT fv.Id, fv.RecordId, r.DisplayName AS RecordDisplayName,
+                   fv.FieldDefinitionId, fd.Name AS FieldName, fd.TypeId, fv.Ordinal,
+                   fv.TextValue, fv.NumberValue, fv.NumberSortValue, fv.DateValue,
+                   fv.TemporalValue, fv.TemporalPrecision, fv.TemporalSortKey,
+                   fv.IsApproximate, fv.ApproximationNote
+            FROM FieldValues fv
+            JOIN Records r ON r.Id = fv.RecordId
+            JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
+            WHERE fv.FieldDefinitionId = @Id
+            ORDER BY r.DisplayName COLLATE NOCASE, fv.RecordId, fv.Ordinal;
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        if (rows.Length == 0)
+        {
+            string emptyRevision = await ComputeFieldRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return new FieldUsageSnapshot(definition, emptyRevision, attachments, savedViews, []);
+        }
+
+        string[] valueIds = rows.Select(row => row.Id).ToArray();
+        IEnumerable<TagRow> tags = await connection.QueryAsync<TagRow>(new CommandDefinition("""
+            SELECT FieldValueId, Ordinal, Value
+            FROM FieldValueTags
+            WHERE FieldValueId IN @ValueIds
+            ORDER BY FieldValueId, Ordinal;
+            """, new { ValueIds = valueIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        Dictionary<string, string[]> tagLookup = tags
+            .GroupBy(item => item.FieldValueId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Value).ToArray(), StringComparer.OrdinalIgnoreCase);
+        IEnumerable<LocationRow> locations = await connection.QueryAsync<LocationRow>(new CommandDefinition("""
+            SELECT FieldValueId, DisplayContext, Latitude, Longitude, AccuracyMetres, ApproximationRadiusKilometres
+            FROM FieldValueLocations
+            WHERE FieldValueId IN @ValueIds;
+            """, new { ValueIds = valueIds }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        Dictionary<string, LocationValue> locationLookup = locations.ToDictionary(
+            row => row.FieldValueId,
+            row => new LocationValue(row.DisplayContext, row.Latitude, row.Longitude, row.AccuracyMetres, row.ApproximationRadiusKilometres),
+            StringComparer.OrdinalIgnoreCase);
+        FieldValueUsage[] values = rows.Select(row => new FieldValueUsage(
+            ParseGuid(row.RecordId),
+            row.RecordDisplayName,
+            new RecordValue(
+                ParseGuid(row.Id), ParseGuid(row.FieldDefinitionId), row.FieldName, row.TypeId, row.Ordinal,
+                row.TextValue, row.NumberValue, row.NumberSortValue, row.DateValue,
+                tagLookup.GetValueOrDefault(row.Id, []), row.TemporalValue,
+                row.TemporalPrecision is null ? null : (TemporalPrecision?)row.TemporalPrecision,
+                row.TemporalSortKey, row.IsApproximate != 0, row.ApproximationNote,
+                locationLookup.GetValueOrDefault(row.Id)))).ToArray();
+        string revision = await ComputeFieldRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new FieldUsageSnapshot(definition, revision, attachments, savedViews, values);
+    }
+
+    public async Task<FieldDefinition> ConvertFieldAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        string targetName,
+        string targetTypeId,
+        string targetConfigurationJson,
+        IReadOnlyList<ConvertedFieldValue> convertedValues,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        string timestamp = Timestamp(now);
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string currentRevision = await ComputeFieldRevisionAsync(
+            connection,
+            [sourceFieldDefinitionId],
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("Field usage changed after the preview. Preview the conversion again.");
+        }
+
+        FieldDefinition? source = await QueryFieldDefinitionAsync(connection, sourceFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
+        if (source is null)
+        {
+            throw new DomainValidationException("Field definition was not found.");
+        }
+
+        string[] storedValueIds = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT Id FROM FieldValues WHERE FieldDefinitionId = @SourceId ORDER BY Id;",
+            new { SourceId = Key(sourceFieldDefinitionId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        string[] suppliedValueIds = convertedValues.Select(value => Key(value.SourceValueId)).Order(StringComparer.Ordinal).ToArray();
+        if (!storedValueIds.Order(StringComparer.Ordinal).SequenceEqual(suppliedValueIds, StringComparer.Ordinal))
+        {
+            throw new DomainValidationException("Field values changed after the preview. Preview the conversion again.");
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO FieldDefinitions
+                (Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc)
+            VALUES (@TargetId, @Name, @TypeId, @ConfigurationJson, 0, @Now, @Now);
+
+            UPDATE Records SET UpdatedAtUtc = @Now
+            WHERE EXISTS (
+                SELECT 1 FROM FieldValues source
+                WHERE source.RecordId = Records.Id AND source.FieldDefinitionId = @SourceId);
+
+            UPDATE SavedViews SET UpdatedAtUtc = @Now
+            WHERE GroupByFieldDefinitionId = @SourceId OR SortFieldDefinitionId = @SourceId
+               OR EXISTS (SELECT 1 FROM SavedViewColumns c WHERE c.SavedViewId = SavedViews.Id AND c.FieldDefinitionId = @SourceId)
+               OR EXISTS (SELECT 1 FROM SavedViewFilters f WHERE f.SavedViewId = SavedViews.Id AND f.FieldDefinitionId = @SourceId);
+            """,
+            new
+            {
+                TargetId = Key(targetFieldDefinitionId),
+                SourceId = Key(sourceFieldDefinitionId),
+                Name = targetName,
+                TypeId = targetTypeId,
+                ConfigurationJson = targetConfigurationJson,
+                Now = timestamp,
+            },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        foreach (ConvertedFieldValue converted in convertedValues)
+        {
+            int deleted = await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM FieldValues WHERE Id = @Id AND RecordId = @RecordId AND FieldDefinitionId = @SourceId;",
+                new
+                {
+                    Id = Key(converted.SourceValueId),
+                    RecordId = Key(converted.RecordId),
+                    SourceId = Key(sourceFieldDefinitionId),
+                }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            RequireChanged(deleted, "A field value changed during conversion. The conversion was rolled back.");
+            await InsertValuesAsync(
+                connection,
+                transaction,
+                converted.RecordId,
+                [converted.Value],
+                timestamp,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE RecordTypeFields SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE SavedViewColumns SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE SavedViewFilters SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE SavedViews SET GroupByFieldDefinitionId = @TargetId WHERE GroupByFieldDefinitionId = @SourceId;
+            UPDATE SavedViews SET SortFieldDefinitionId = @TargetId WHERE SortFieldDefinitionId = @SourceId;
+            UPDATE FieldDefinitions SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @SourceId;
+            UPDATE RecordTypes SET UpdatedAtUtc = @Now
+            WHERE EXISTS (
+                SELECT 1 FROM RecordTypeFields fields
+                WHERE fields.RecordTypeId = RecordTypes.Id AND fields.FieldDefinitionId = @TargetId);
+            """,
+            new
+            {
+                TargetId = Key(targetFieldDefinitionId),
+                SourceId = Key(sourceFieldDefinitionId),
+                Now = timestamp,
+            },
+            transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new FieldDefinition(
+            targetFieldDefinitionId,
+            targetName,
+            targetTypeId,
+            targetConfigurationJson,
+            FieldLifecycle.Active,
+            now,
+            now);
     }
 
     public async Task<RecordDetails> CreateRecordAsync(
@@ -688,6 +1083,63 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         return rows.Select(row => new RecordTypeField(MapField(row), row.SortOrder, row.IsRequired != 0)).ToArray();
     }
 
+    private static Task<FieldDefinition?> QueryFieldDefinitionAsync(
+        SqliteConnection connection,
+        Guid id,
+        CancellationToken cancellationToken) =>
+        QueryFieldDefinitionAsync(connection, id, null, cancellationToken);
+
+    private static async Task<FieldDefinition?> QueryFieldDefinitionAsync(
+        SqliteConnection connection,
+        Guid id,
+        SqliteTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        FieldRow? row = await connection.QuerySingleOrDefaultAsync<FieldRow>(new CommandDefinition("""
+            SELECT Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc,
+                   CanonicalKey, PresetKey, PresetVersion,
+                   0 AS SortOrder, 0 AS IsRequired
+            FROM FieldDefinitions
+            WHERE Id = @Id;
+            """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return row is null ? null : MapField(row);
+    }
+
+    private static async Task<string> ComputeFieldRevisionAsync(
+        SqliteConnection connection,
+        IReadOnlyList<Guid> fieldDefinitionIds,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        string[] ids = fieldDefinitionIds.Select(Key).Order(StringComparer.Ordinal).ToArray();
+        IEnumerable<string> rows = await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT Snapshot
+            FROM (
+                SELECT 'definition|' || Id || '|' || TypeId || '|' || ConfigurationJson || '|' || Lifecycle || '|' || UpdatedAtUtc AS Snapshot
+                FROM FieldDefinitions WHERE Id IN @Ids
+                UNION ALL
+                SELECT 'attachment|' || RecordTypeId || '|' || FieldDefinitionId || '|' || SortOrder || '|' || IsRequired
+                FROM RecordTypeFields WHERE FieldDefinitionId IN @Ids
+                UNION ALL
+                SELECT 'value|' || Id || '|' || RecordId || '|' || FieldDefinitionId || '|' || Ordinal || '|' || UpdatedAtUtc
+                FROM FieldValues WHERE FieldDefinitionId IN @Ids
+                UNION ALL
+                SELECT 'column|' || SavedViewId || '|' || FieldDefinitionId || '|' || SortOrder
+                FROM SavedViewColumns WHERE FieldDefinitionId IN @Ids
+                UNION ALL
+                SELECT 'filter|' || SavedViewId || '|' || SortOrder || '|' || FieldDefinitionId || '|' || Operator || '|' || Value
+                FROM SavedViewFilters WHERE FieldDefinitionId IN @Ids
+                UNION ALL
+                SELECT 'view|' || Id || '|' || COALESCE(GroupByFieldDefinitionId, '') || '|' || COALESCE(SortFieldDefinitionId, '')
+                FROM SavedViews
+                WHERE GroupByFieldDefinitionId IN @Ids OR SortFieldDefinitionId IN @Ids
+            )
+            ORDER BY Snapshot;
+            """, new { Ids = ids }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        byte[] snapshot = Encoding.UTF8.GetBytes(string.Join('\n', rows));
+        return Convert.ToHexString(SHA256.HashData(snapshot));
+    }
+
     private static async Task<IReadOnlyList<RecordValue>> QueryValuesAsync(
         SqliteConnection connection,
         Guid recordId,
@@ -840,6 +1292,26 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     private sealed class FieldValueRow
     {
         public required string Id { get; init; }
+        public required string FieldDefinitionId { get; init; }
+        public required string FieldName { get; init; }
+        public required string TypeId { get; init; }
+        public int Ordinal { get; init; }
+        public string? TextValue { get; init; }
+        public string? NumberValue { get; init; }
+        public double? NumberSortValue { get; init; }
+        public string? DateValue { get; init; }
+        public string? TemporalValue { get; init; }
+        public int? TemporalPrecision { get; init; }
+        public string? TemporalSortKey { get; init; }
+        public int IsApproximate { get; init; }
+        public string? ApproximationNote { get; init; }
+    }
+
+    private sealed class FieldUsageValueRow
+    {
+        public required string Id { get; init; }
+        public required string RecordId { get; init; }
+        public required string RecordDisplayName { get; init; }
         public required string FieldDefinitionId { get; init; }
         public required string FieldName { get; init; }
         public required string TypeId { get; init; }
