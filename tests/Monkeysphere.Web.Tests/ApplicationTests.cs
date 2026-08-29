@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Data.Sqlite;
 using Monkeysphere.Core;
+using Monkeysphere.Data;
 using Monkeysphere.Web.Security;
 
 namespace Monkeysphere.Web.Tests;
@@ -213,6 +214,61 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Single(paths, path => path.EndsWith(".original.png", StringComparison.Ordinal));
         Assert.DoesNotContain(paths, path => path.Contains("preview", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, path => path.StartsWith("keys/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OfflineRestoreRollsBackLiveDataAndRegeneratesImageDerivatives()
+    {
+        string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            Guid recordId;
+            Guid imageId;
+            string packagePath;
+            await using (PersistentApplicationFactory factory = new(dataRoot))
+            {
+                _ = factory.Services;
+                using IServiceScope scope = factory.Services.CreateScope();
+                IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
+                IBackupService backups = scope.ServiceProvider.GetRequiredService<IBackupService>();
+                RecordType type = await records.CreateRecordTypeAsync("Restore type");
+                RecordDetails record = await records.CreateRecordAsync(type.Id, "Before backup", []);
+                byte[] png = Convert.FromBase64String(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+                RecordImage image = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
+                BackupInfo backup = await backups.CreateAsync();
+                packagePath = Path.Combine(dataRoot, "backups", backup.FileName);
+                _ = await records.UpdateRecordAsync(record.Record.Id, "After backup", []);
+                recordId = record.Record.Id;
+                imageId = image.Id;
+            }
+
+            SqliteConnection.ClearAllPools();
+            string rollback = await OfflineBackupRestore.RestoreAsync(packagePath, dataRoot);
+            Assert.True(Directory.Exists(rollback));
+
+            await using (PersistentApplicationFactory restoredFactory = new(dataRoot))
+            {
+                _ = restoredFactory.Services;
+                using IServiceScope scope = restoredFactory.Services.CreateScope();
+                IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+                IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
+                Assert.Equal("Before backup", (await records.GetRecordAsync(recordId))?.Record.DisplayName);
+                RecordImageFile preview = Assert.IsType<RecordImageFile>(
+                    await images.OpenAsync(recordId, imageId, RecordImageVariant.Preview));
+                await preview.Content.DisposeAsync();
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
     }
 
     [Fact]

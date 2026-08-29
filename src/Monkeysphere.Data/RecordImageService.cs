@@ -245,12 +245,49 @@ public sealed class RecordImageService(
                 ExtensionForContentType(image.OriginalContentType)),
             _ => throw new ArgumentOutOfRangeException(nameof(variant)),
         };
+        if (variant is RecordImageVariant.Preview or RecordImageVariant.Thumbnail && !File.Exists(path))
+        {
+            await RegenerateDerivativesAsync(image, cancellationToken).ConfigureAwait(false);
+        }
+
         return File.Exists(path)
             ? new RecordImageFile(
                 new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan),
                 variant == RecordImageVariant.Original ? image.OriginalContentType : "image/webp",
                 variant == RecordImageVariant.Original ? image.OriginalFileName : null)
             : null;
+    }
+
+    private async Task RegenerateDerivativesAsync(RecordImage image, CancellationToken cancellationToken)
+    {
+        string originalPath = RecordImageStoragePaths.OriginalPath(
+            paths,
+            image.RecordId,
+            image.Id,
+            ExtensionForContentType(image.OriginalContentType));
+        byte[] encoded = await File.ReadAllBytesAsync(originalPath, cancellationToken).ConfigureAwait(false);
+        using SKBitmap original = SKBitmap.Decode(encoded)
+            ?? throw new InvalidDataException("The retained original image could not be decoded.");
+        ImageCorrection correction = image.Correction ?? new ImageCorrection();
+        ValidateCrop(correction, original.Width, original.Height);
+        using SKBitmap corrected = ApplyCorrection(original, correction);
+        string previewPath = RecordImageStoragePaths.PreviewPath(paths, image.RecordId, image.Id);
+        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, image.RecordId, image.Id);
+        string suffix = "." + Guid.CreateVersion7().ToString("N") + ".tmp";
+        string previewTemporary = previewPath + suffix;
+        string thumbnailTemporary = thumbnailPath + suffix;
+        try
+        {
+            await WriteWebpAsync(corrected, previewTemporary, PreviewDimension, 88, cancellationToken).ConfigureAwait(false);
+            await WriteWebpAsync(corrected, thumbnailTemporary, ThumbnailDimension, 82, cancellationToken).ConfigureAwait(false);
+            File.Move(previewTemporary, previewPath, true);
+            File.Move(thumbnailTemporary, thumbnailPath, true);
+        }
+        finally
+        {
+            DeleteIfExists(previewTemporary);
+            DeleteIfExists(thumbnailTemporary);
+        }
     }
 
     private async Task<RecordImage> RequireImageAsync(

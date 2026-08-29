@@ -48,6 +48,8 @@ The first remote scope is `records.read`. It permits bounded record-type listing
 
 The authenticated Backups page creates a versioned `.monkeysphere-backup` package from SQLite online snapshots of both databases plus every database-referenced original image. A JSON manifest records the backup identity, application schema version, byte lengths, entry kinds, and SHA-256 checksums; the completed package is reopened and validated before it is offered for download. Deployment configuration, data-protection keys, administrator credentials, temporary files, and regenerable image derivatives are deliberately excluded.
 
+Restore is deliberately offline. Stop Monkeysphere, then run the same executable with `--restore-backup <package-path>` and the normal `MONKEYSPHERE_DATA_ROOT` setting. The process acquires the data-root instance lock, stages and revalidates the archive, checks both SQLite databases, verifies the DnaX application-ledger version and original-media references, replaces only the two databases and record-media tree, and retains the previous live data beneath `backups/rollback-*`. Display derivatives are regenerated from originals on first access after restore. Start Monkeysphere normally only after the restore command succeeds.
+
 Temporal values preserve century, decade, year, month, day, minute, or second precision plus optional approximation metadata. Before/after filters accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`.
 
 Aliases are ordered, case-insensitively unique within a record, and cannot duplicate its primary display name. Record search matches aliases as well as primary names and field values.

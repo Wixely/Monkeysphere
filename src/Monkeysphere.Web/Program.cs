@@ -22,6 +22,19 @@ using Monkeysphere.Web;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+string writableDataRoot = ResolveDataRoot(builder.Configuration, builder.Environment);
+Directory.CreateDirectory(writableDataRoot);
+await using FileStream instanceLock = await AcquireInstanceLockAsync(
+    Path.Combine(writableDataRoot, "monkeysphere.lock"),
+    TimeSpan.FromSeconds(5));
+string? restorePackage = RestorePackageArgument(args);
+if (restorePackage is not null)
+{
+    string rollback = await OfflineBackupRestore.RestoreAsync(restorePackage, writableDataRoot);
+    Console.WriteLine($"Restore completed. Previous data was retained at: {rollback}");
+    return;
+}
+
 builder.Host.UseWindowsService(options => options.ServiceName = "Monkeysphere");
 builder.Host.UseSystemd();
 
@@ -162,7 +175,43 @@ app.MapDnaXRemoteMcp();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.Run();
+await app.RunAsync();
+
+static string? RestorePackageArgument(string[] arguments)
+{
+    int index = Array.FindIndex(arguments, argument => string.Equals(argument, "--restore-backup", StringComparison.OrdinalIgnoreCase));
+    if (index < 0)
+    {
+        return null;
+    }
+
+    if (index + 1 >= arguments.Length || string.IsNullOrWhiteSpace(arguments[index + 1]))
+    {
+        throw new InvalidOperationException("--restore-backup requires a .monkeysphere-backup path.");
+    }
+
+    return arguments[index + 1];
+}
+
+static async Task<FileStream> AcquireInstanceLockAsync(string path, TimeSpan timeout)
+{
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+    while (true)
+    {
+        try
+        {
+            return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException) when (DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+        catch (IOException exception)
+        {
+            throw new IOException("Another Monkeysphere process is using this data root. Stop it before starting or restoring.", exception);
+        }
+    }
+}
 
 static string ResolveDataRoot(IConfiguration configuration, IHostEnvironment environment)
 {
