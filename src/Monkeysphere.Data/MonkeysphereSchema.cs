@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 10,
+        currentVersion: 11,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -288,6 +288,40 @@ public static class MonkeysphereSchema
                     WHERE DismissedAtUtc IS NULL;
                 CREATE INDEX IX_Reminders_Active
                     ON Reminders(DismissedAtUtc, RecordId, FieldDefinitionId, ValueOrdinal, LeadDays);
+                """),
+            DnaXMigration.Sql(11, "vcard-provenance", "Add idempotent vCard import and semantic property provenance", """
+                CREATE TABLE VCardImports (
+                    Fingerprint TEXT NOT NULL,
+                    RecordId TEXT NOT NULL,
+                    SourceVersion TEXT NOT NULL CHECK (SourceVersion IN ('3.0', '4.0')),
+                    ImportedAtUtc TEXT NOT NULL,
+                    PRIMARY KEY (Fingerprint, RecordId),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_VCardImports_Record
+                    ON VCardImports(RecordId, ImportedAtUtc, Fingerprint);
+
+                CREATE TABLE VCardProperties (
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    GroupName TEXT NULL,
+                    PropertyName TEXT NOT NULL,
+                    ParametersJson TEXT NOT NULL,
+                    RawValue TEXT NOT NULL,
+                    MappingKind INTEGER NOT NULL CHECK (MappingKind BETWEEN 0 AND 3),
+                    FieldDefinitionId TEXT NULL,
+                    ValueOrdinal INTEGER NULL CHECK (ValueOrdinal IS NULL OR ValueOrdinal >= 0),
+                    PRIMARY KEY (RecordId, Ordinal),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id),
+                    CHECK ((MappingKind = 3 AND FieldDefinitionId IS NOT NULL AND ValueOrdinal IS NOT NULL) OR
+                           (MappingKind <> 3 AND FieldDefinitionId IS NULL AND ValueOrdinal IS NULL))
+                );
+
+                CREATE INDEX IX_VCardProperties_Field
+                    ON VCardProperties(FieldDefinitionId, RecordId, ValueOrdinal)
+                    WHERE FieldDefinitionId IS NOT NULL;
                 """),
         ]);
 }

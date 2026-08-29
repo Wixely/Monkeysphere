@@ -155,6 +155,7 @@ app.MapGet("/health/ready", () => Results.Ok(new { status = "ready" })).AllowAno
 app.MapAdministratorAuthentication();
 app.MapRecordImages();
 app.MapCalendarExport();
+app.MapVCardExport();
 app.MapMonkeysphereRemoteApi();
 app.MapDnaXRemoteMcp();
 app.MapRazorComponents<App>()

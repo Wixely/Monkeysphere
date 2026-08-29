@@ -129,9 +129,10 @@ public static class VCardParser
             throw new DomainValidationException("Each vCard must declare exactly one supported VERSION: 3.0 or 4.0.");
         }
 
-        if (!properties.Any(property => property.Name == "FN" && !string.IsNullOrWhiteSpace(property.TextValue)))
+        VCardProperty[] formattedNames = properties.Where(property => property.Name == "FN").ToArray();
+        if (formattedNames.Length != 1 || string.IsNullOrWhiteSpace(formattedNames[0].TextValue))
         {
-            throw new DomainValidationException("Each vCard must contain a non-empty formatted name (FN).");
+            throw new DomainValidationException("Each vCard must contain exactly one non-empty formatted name (FN).");
         }
 
         string canonical = string.Join('\n', properties.Select(VCardSerializer.PropertyLine));
@@ -324,6 +325,34 @@ public static class VCardSerializer
 
 public static class VCardText
 {
+    public static IReadOnlyList<string> SplitList(string value)
+    {
+        List<string> values = [];
+        StringBuilder current = new();
+        bool escaped = false;
+        foreach (char character in value)
+        {
+            if (!escaped && character == '\\')
+            {
+                escaped = true;
+                current.Append(character);
+            }
+            else if (!escaped && character == ',')
+            {
+                values.Add(Decode(current.ToString()));
+                current.Clear();
+            }
+            else
+            {
+                current.Append(character);
+                escaped = false;
+            }
+        }
+
+        values.Add(Decode(current.ToString()));
+        return values;
+    }
+
     public static string Decode(string value)
     {
         StringBuilder decoded = new(value.Length);

@@ -185,6 +185,13 @@ public interface IMonkeysphereService
         IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default);
 
+    Task<PreparedRecord> PrepareRecordAsync(
+        Guid recordTypeId,
+        string displayName,
+        IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
+        CancellationToken cancellationToken = default);
+
     Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<RecordDetails> UpdateRecordAsync(

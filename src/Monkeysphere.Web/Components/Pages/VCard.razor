@@ -1,0 +1,263 @@
+@page "/vcard"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IVCardService VCards
+@inject IMonkeysphereService Records
+
+<PageTitle>Import and export · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Portable contacts</p>
+        <h1>vCard import and export</h1>
+        <p>Preview one-time vCard 3.0 or 4.0 imports, resolve duplicates explicitly, and export selected people as vCard 4.0.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+<div class="split-layout vcard-layout">
+    <section class="panel">
+        <p class="eyebrow">Import</p>
+        <h2>Preview a contact file</h2>
+        <p>The Person preset must be installed. Files are read in memory, limited to 5 MiB and 1,000 contacts, and are not applied until you confirm every row.</p>
+        <label>
+            vCard file
+            <InputFile OnChange="PreviewAsync" accept=".vcf,text/vcard,text/x-vcard" />
+        </label>
+        @if (_preview is not null)
+        {
+            <div class="import-summary">
+                <strong>@_preview.Contacts.Count contact(s)</strong>
+                <span>Target: @_preview.RecordTypeName</span>
+            </div>
+            <div class="vcard-preview-list">
+                @foreach (ImportEditor editor in _importEditors)
+                {
+                    VCardContactPreview contact = editor.Contact;
+                    <article class="vcard-preview">
+                        <div class="section-heading compact-heading">
+                            <div>
+                                <h3>@contact.DisplayName</h3>
+                                <small>@contact.FieldMappings.Count mapped field(s) · @contact.OpaquePropertyIndexes.Count preserved property/properties</small>
+                            </div>
+                            @if (contact.DuplicateCandidates.Count > 0)
+                            {
+                                <span class="pill">@contact.DuplicateCandidates.Count possible duplicate(s)</span>
+                            }
+                        </div>
+                        @if (contact.FieldMappings.Count > 0)
+                        {
+                            <ul class="compact-list">
+                                @foreach (VCardFieldMapping mapping in contact.FieldMappings)
+                                {
+                                    <li>@mapping.FieldName: @MappingDisplay(mapping)</li>
+                                }
+                            </ul>
+                        }
+                        <div class="form-grid">
+                            <label>
+                                Action
+                                <select @bind="editor.Action">
+                                    <option value="@VCardImportAction.CreateSeparately">Create separately</option>
+                                    <option value="@VCardImportAction.Skip">Skip</option>
+                                    @if (contact.DuplicateCandidates.Count > 0)
+                                    {
+                                        <option value="@VCardImportAction.MergeNonConflicting">Merge non-conflicting values</option>
+                                        <option value="@VCardImportAction.ReplaceMappedValues">Replace mapped values</option>
+                                    }
+                                </select>
+                                <small>@ActionExplanation(editor.Action)</small>
+                            </label>
+                            @if (editor.Action is VCardImportAction.MergeNonConflicting or VCardImportAction.ReplaceMappedValues)
+                            {
+                                <label>
+                                    Existing contact
+                                    <select @bind="editor.ExistingRecordValue">
+                                        @foreach (VCardDuplicateCandidate candidate in contact.DuplicateCandidates)
+                                        {
+                                            <option value="@candidate.RecordId">@candidate.DisplayName — @string.Join(", ", candidate.Reasons)</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+            <button class="button primary" type="button" @onclick="ApplyAsync">Apply all choices transactionally</button>
+        }
+    </section>
+
+    <section class="panel">
+        <p class="eyebrow">Export</p>
+        <h2>Select people to disclose</h2>
+        <p>Exports include the selected records' mapped contact fields and semantically preserved source properties. Review the selection before downloading.</p>
+        @if (!_hasPersonType)
+        {
+            <p class="empty-state">Install the Person preset to export contacts.</p>
+        }
+        else
+        {
+            <div class="action-row">
+                <label class="grow-label">
+                    Find people
+                    <input @bind="_exportQuery" maxlength="300" placeholder="Name, alias, or searchable value" />
+                </label>
+                <button class="button" type="button" @onclick="ReloadPeopleAsync">Search</button>
+            </div>
+            @if (_people.Count == 0)
+            {
+                <p class="empty-state">No Person records match this search.</p>
+            }
+            else
+            {
+                <div class="export-picker">
+                    @foreach (RecordSummary person in _people)
+                    {
+                        <label class="checkbox-label">
+                            <input type="checkbox"
+                                   checked="@_selectedExports.Contains(person.Id)"
+                                   @onchange="args => ToggleExport(person.Id, args)" />
+                            @person.DisplayName
+                        </label>
+                    }
+                </div>
+                @if (_peopleTotal > _people.Count)
+                {
+                    <p class="empty-state">Showing the first 100 of @_peopleTotal matches. Use the search above to narrow the export selection.</p>
+                }
+                @if (_selectedExports.Count > 0)
+                {
+                    <a class="button primary" href="@ExportHref()">Download @_selectedExports.Count selected (.vcf)</a>
+                }
+                else
+                {
+                    <button class="button primary" type="button" disabled>Select contacts to export</button>
+                }
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private VCardImportPreview? _preview;
+    private readonly List<ImportEditor> _importEditors = [];
+    private IReadOnlyList<RecordSummary> _people = [];
+    private int _peopleTotal;
+    private bool _hasPersonType;
+    private string _exportQuery = string.Empty;
+    private readonly HashSet<Guid> _selectedExports = [];
+    private string? _message;
+    private bool _isError;
+
+    protected override Task OnInitializedAsync() => ReloadPeopleAsync();
+
+    private async Task PreviewAsync(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            await using Stream stream = args.File.OpenReadStream(VCardParser.MaximumBytes);
+            using MemoryStream content = new();
+            await stream.CopyToAsync(content);
+            _preview = await VCards.PreviewAsync(content.ToArray());
+            _importEditors.Clear();
+            _importEditors.AddRange(_preview.Contacts.Select(contact => new ImportEditor(contact)));
+            _message = $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying.";
+            _isError = false;
+        }
+        catch (Exception exception) when (exception is DomainValidationException or IOException)
+        {
+            _preview = null;
+            _importEditors.Clear();
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+
+        try
+        {
+            VCardImportSelection[] selections = _importEditors.Select(editor => new VCardImportSelection(
+                editor.Contact.Index,
+                editor.Action,
+                Guid.TryParse(editor.ExistingRecordValue, out Guid existingId) ? existingId : null)).ToArray();
+            VCardImportResult result = await VCards.ApplyAsync(_preview, selections);
+            _message = $"Import complete: {result.Created} created, {result.Merged} merged, {result.Replaced} replaced, {result.Skipped} skipped.";
+            _isError = false;
+            _preview = null;
+            _importEditors.Clear();
+            await ReloadPeopleAsync();
+        }
+        catch (DomainValidationException exception)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task ReloadPeopleAsync()
+    {
+        RecordType? person = (await Records.ListRecordTypesAsync()).FirstOrDefault(type =>
+            type.Lifecycle == RecordTypeLifecycle.Active && type.PresetKey == "monkeysphere.person");
+        _hasPersonType = person is not null;
+        PagedResult<RecordSummary>? people = person is null
+            ? null
+            : await Records.SearchRecordsAsync(new(
+                Query: string.IsNullOrWhiteSpace(_exportQuery) ? null : _exportQuery,
+                RecordTypeId: person.Id,
+                PageSize: 100));
+        _people = people?.Items ?? [];
+        _peopleTotal = people?.TotalCount ?? 0;
+        _selectedExports.RemoveWhere(id => !_people.Any(person => person.Id == id));
+    }
+
+    private void ToggleExport(Guid id, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _selectedExports.Add(id);
+        }
+        else
+        {
+            _selectedExports.Remove(id);
+        }
+    }
+
+    private string ExportHref() => "/vcard/export.vcf?ids=" + string.Join(',', _selectedExports.Order());
+
+    private static string MappingDisplay(VCardFieldMapping mapping) =>
+        mapping.Input.ScalarValue ?? mapping.Input.Temporal?.Value ?? "mapped value";
+
+    private static string ActionExplanation(VCardImportAction action) => action switch
+    {
+        VCardImportAction.CreateSeparately => "Creates a new record even when a possible duplicate exists.",
+        VCardImportAction.Skip => "Makes no database changes for this contact.",
+        VCardImportAction.MergeNonConflicting => "Keeps the existing name and values, fills empty mapped fields, adds aliases, and preserves conflicts for export.",
+        VCardImportAction.ReplaceMappedValues => "Replaces the primary name, aliases, and fields present in this vCard; unrelated local fields remain.",
+        _ => string.Empty,
+    };
+
+    private sealed class ImportEditor
+    {
+        public ImportEditor(VCardContactPreview contact)
+        {
+            Contact = contact;
+            Action = contact.RecommendedAction;
+            ExistingRecordValue = contact.DuplicateCandidates.FirstOrDefault()?.RecordId.ToString() ?? string.Empty;
+        }
+
+        public VCardContactPreview Contact { get; }
+        public VCardImportAction Action { get; set; }
+        public string ExistingRecordValue { get; set; }
+    }
+}

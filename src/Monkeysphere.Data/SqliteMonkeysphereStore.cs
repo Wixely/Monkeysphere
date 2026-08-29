@@ -645,6 +645,9 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             UPDATE Reminders SET FieldDefinitionId = @TargetId
             WHERE FieldDefinitionId = @SourceId;
 
+            UPDATE VCardProperties SET FieldDefinitionId = @TargetId
+            WHERE FieldDefinitionId = @SourceId;
+
             UPDATE RecordTypeFields AS target
             SET IsRequired = MAX(IsRequired, (
                 SELECT source.IsRequired FROM RecordTypeFields source
@@ -847,6 +850,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE RecordTypeFields SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE Reminders SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE VCardProperties SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewColumns SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewFilters SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViews SET GroupByFieldDefinitionId = @TargetId WHERE GroupByFieldDefinitionId = @SourceId;

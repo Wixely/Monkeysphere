@@ -81,6 +81,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
     [InlineData("/calendar/export.ics?from=2026-09-01&to=2026-09-30")]
+    [InlineData("/vcard")]
+    [InlineData("/vcard/export.vcf?ids=0198f100-0000-7000-8000-000000000001")]
     public async Task SensitivePagesRequireAdministratorAuthentication(string path)
     {
         using HttpClient client = CreateClient(allowRedirect: false);
@@ -191,6 +193,56 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
         Assert.Equal("/login", logout.Headers.Location?.OriginalString);
         Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync("/")).StatusCode);
+    }
+
+    [Fact]
+    public async Task AuthenticatedVCardPageImportsAndExportsOnlySelectedPeople()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        Guid recordId;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IPresetService presets = scope.ServiceProvider.GetRequiredService<IPresetService>();
+            IVCardService vcards = scope.ServiceProvider.GetRequiredService<IVCardService>();
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            await presets.CompleteSetupAsync("people", ["monkeysphere.person"]);
+            VCardImportPreview preview = await vcards.PreviewAsync(Encoding.UTF8.GetBytes("""
+                BEGIN:VCARD
+                VERSION:4.0
+                FN:Web Export Person
+                EMAIL:web@example.test
+                END:VCARD
+                """));
+            await vcards.ApplyAsync(preview, [new(0, VCardImportAction.CreateSeparately)]);
+            recordId = Assert.Single((await records.SearchRecordsAsync(new("Web Export Person", preview.RecordTypeId))).Items).Id;
+        }
+
+        using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true,
+        });
+        string loginHtml = await client.GetStringAsync("/login");
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = "/vcard",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
+
+        string page = await client.GetStringAsync("/vcard");
+        Assert.Contains("Preview a contact file", page, StringComparison.Ordinal);
+        Assert.Contains("Web Export Person", page, StringComparison.Ordinal);
+        HttpResponseMessage export = await client.GetAsync($"/vcard/export.vcf?ids={recordId:D}");
+        Assert.Equal(HttpStatusCode.OK, export.StatusCode);
+        Assert.Equal("text/vcard", export.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("monkeysphere-contacts.vcf", export.Content.Headers.ContentDisposition?.FileName);
+        string exported = await export.Content.ReadAsStringAsync();
+        Assert.Contains("FN:Web Export Person", exported, StringComparison.Ordinal);
+        Assert.Contains("EMAIL:web@example.test", exported, StringComparison.Ordinal);
     }
 
     [Fact]

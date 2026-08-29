@@ -237,22 +237,41 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         IReadOnlyList<string>? aliases = null,
         CancellationToken cancellationToken = default)
     {
+        PreparedRecord prepared = await PrepareRecordAsync(
+            recordTypeId,
+            displayName,
+            values,
+            aliases,
+            cancellationToken).ConfigureAwait(false);
+        return await store.CreateRecordAsync(
+            Guid.CreateVersion7(),
+            prepared.RecordTypeId,
+            prepared.DisplayName,
+            prepared.Aliases,
+            prepared.Values,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PreparedRecord> PrepareRecordAsync(
+        Guid recordTypeId,
+        string displayName,
+        IReadOnlyList<FieldValueInput> values,
+        IReadOnlyList<string>? aliases = null,
+        CancellationToken cancellationToken = default)
+    {
         RecordTypeDetails type = await RequireRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false);
         if (type.RecordType.Lifecycle != RecordTypeLifecycle.Active)
         {
             throw new DomainValidationException("New records cannot be added to a retired record type.");
         }
 
-        IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values);
         string primaryName = FieldTypes.Required(displayName, "Display name", 300);
-        return await store.CreateRecordAsync(
-            Guid.CreateVersion7(),
+        return new(
             recordTypeId,
             primaryName,
             NormalizeAliases(primaryName, aliases),
-            normalized,
-            timeProvider.GetUtcNow(),
-            cancellationToken).ConfigureAwait(false);
+            NormalizeValues(type, values));
     }
 
     public Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default) =>

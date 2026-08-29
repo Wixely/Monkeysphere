@@ -130,6 +130,12 @@ public sealed record NormalizedFieldValue(
     NormalizedTemporalValue? Temporal = null,
     LocationValue? Location = null);
 
+public sealed record PreparedRecord(
+    Guid RecordTypeId,
+    string DisplayName,
+    IReadOnlyList<string> Aliases,
+    IReadOnlyList<NormalizedFieldValue> Values);
+
 public sealed record CreateFieldRequest(
     string Name,
     string TypeId,
