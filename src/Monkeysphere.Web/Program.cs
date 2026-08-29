@@ -156,6 +156,7 @@ app.MapAdministratorAuthentication();
 app.MapRecordImages();
 app.MapCalendarExport();
 app.MapVCardExport();
+app.MapBackupDownloads();
 app.MapMonkeysphereRemoteApi();
 app.MapDnaXRemoteMcp();
 app.MapRazorComponents<App>()

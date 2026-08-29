@@ -46,6 +46,8 @@ The first remote scope is `records.read`. It permits bounded record-type listing
 
 `MONKEYSPHERE_DATA_ROOT` selects the mutable data root and defaults to `data` beneath the content root. Application data and DnaX remote-access state use separate SQLite files and separate migration ledgers.
 
+The authenticated Backups page creates a versioned `.monkeysphere-backup` package from SQLite online snapshots of both databases plus every database-referenced original image. A JSON manifest records the backup identity, application schema version, byte lengths, entry kinds, and SHA-256 checksums; the completed package is reopened and validated before it is offered for download. Deployment configuration, data-protection keys, administrator credentials, temporary files, and regenerable image derivatives are deliberately excluded.
+
 Temporal values preserve century, decade, year, month, day, minute, or second precision plus optional approximation metadata. Before/after filters accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`.
 
 Aliases are ordered, case-insensitively unique within a record, and cannot duplicate its primary display name. Record search matches aliases as well as primary names and field values.

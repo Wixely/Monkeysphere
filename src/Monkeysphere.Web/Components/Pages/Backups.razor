@@ -1,0 +1,96 @@
+@page "/backups"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IBackupService BackupService
+
+<PageTitle>Backups · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Portable recovery</p>
+        <h1>Backups</h1>
+        <p>Create a checksummed package containing consistent database snapshots and authoritative image originals.</p>
+    </div>
+    <button class="button primary" type="button" disabled="@_working" @onclick="CreateAsync">@(_working ? "Creating…" : "Create backup")</button>
+</div>
+
+<div class="notice" role="note">
+    Backups exclude deployment configuration, data-protection keys, administrator credentials, and regenerable image derivatives. Store downloaded packages as sensitive personal data.
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Verified packages</p>
+            <h2>Available backups</h2>
+        </div>
+    </div>
+
+    @if (_backups.Count == 0)
+    {
+        <p class="empty-state">No backups have been created yet.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Created</th><th>Size</th><th>Package</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (BackupInfo backup in _backups)
+                    {
+                        <tr>
+                            <td>@backup.CreatedAtUtc.ToLocalTime().ToString("g")</td>
+                            <td>@FormatSize(backup.ByteLength)</td>
+                            <td><code>@backup.FileName</code></td>
+                            <td><a class="button" href="/backups/@backup.Id/download">Download</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<BackupInfo> _backups = [];
+    private bool _working;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync() => _backups = await BackupService.ListAsync();
+
+    private async Task CreateAsync()
+    {
+        _working = true;
+        _message = null;
+        try
+        {
+            BackupInfo backup = await BackupService.CreateAsync();
+            _backups = await BackupService.ListAsync();
+            _message = $"Created and verified {backup.FileName}.";
+            _isError = false;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1_073_741_824 => $"{bytes / 1_073_741_824d:0.##} GB",
+        >= 1_048_576 => $"{bytes / 1_048_576d:0.##} MB",
+        >= 1_024 => $"{bytes / 1_024d:0.##} KB",
+        _ => $"{bytes} B",
+    };
+}

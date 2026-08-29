@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using DnaX.RemoteAccess;
@@ -90,6 +91,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/map")]
     [InlineData("/calendar/export.ics?from=2026-09-01&to=2026-09-30")]
     [InlineData("/vcard")]
+    [InlineData("/backups")]
     [InlineData("/vcard/export.vcf?ids=0198f100-0000-7000-8000-000000000001")]
     public async Task SensitivePagesRequireAdministratorAuthentication(string path)
     {
@@ -177,6 +179,40 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Coordinate accuracy (metres)", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Click the map to set coordinates", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Images", recordHtml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BackupPackagesContainVerifiedDatabasesAndOriginalsOnly()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        IBackupService backups;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
+            backups = scope.ServiceProvider.GetRequiredService<IBackupService>();
+            RecordType type = await records.CreateRecordTypeAsync("Backup type " + Guid.NewGuid().ToString("N"));
+            RecordDetails record = await records.CreateRecordAsync(type.Id, "Backed-up record", []);
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            _ = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
+        }
+
+        BackupInfo backup = await backups.CreateAsync();
+        BackupValidation validation = await backups.ValidateAsync(backup.Id);
+        Assert.Equal(1, validation.FormatVersion);
+        Assert.Equal(Monkeysphere.Data.MonkeysphereSchema.Manifest.CurrentVersion, validation.ApplicationSchemaVersion);
+        Assert.Equal(1, validation.OriginalImageCount);
+
+        await using Stream content = Assert.IsAssignableFrom<Stream>(await backups.OpenAsync(backup.Id));
+        using ZipArchive archive = new(content, ZipArchiveMode.Read);
+        string[] paths = archive.Entries.Select(entry => entry.FullName).ToArray();
+        Assert.Contains("manifest.json", paths);
+        Assert.Contains("databases/monkeysphere.db", paths);
+        Assert.Contains("databases/remote-access.db", paths);
+        Assert.Single(paths, path => path.EndsWith(".original.png", StringComparison.Ordinal));
+        Assert.DoesNotContain(paths, path => path.Contains("preview", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, path => path.StartsWith("keys/", StringComparison.Ordinal));
     }
 
     [Fact]
