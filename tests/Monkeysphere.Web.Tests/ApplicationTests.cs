@@ -87,6 +87,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/")]
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
+    [InlineData("/map")]
     [InlineData("/calendar/export.ics?from=2026-09-01&to=2026-09-30")]
     [InlineData("/vcard")]
     [InlineData("/vcard/export.vcf?ids=0198f100-0000-7000-8000-000000000001")]
@@ -115,7 +116,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("View field " + suffix, FieldTypes.Text, false));
-            _ = await records.CreateAndAttachFieldAsync(
+            FieldDefinition location = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Map location " + suffix, FieldTypes.Location, false));
             FieldDefinition occasion = await records.CreateAndAttachFieldAsync(
@@ -124,7 +125,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             recordId = (await records.CreateRecordAsync(
                 type.Id,
                 "View record " + suffix,
-                [new(occasion.Id, "2026-09-15")])).Record.Id;
+                [
+                    new(occasion.Id, "2026-09-15"),
+                    new(location.Id, Location: new LocationValueInput("Test location", "51.5", "-0.1")),
+                ])).Record.Id;
             _ = await views.CreateAsync(new SaveViewRequest(
                 "Grid view " + suffix,
                 type.Id,
@@ -147,6 +151,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string viewsHtml = await client.GetStringAsync("/saved-views");
         string recordsHtml = await client.GetStringAsync("/records");
         string calendarHtml = await client.GetStringAsync("/calendar");
+        string mapHtml = await client.GetStringAsync("/map");
         HttpResponseMessage calendarExport = await client.GetAsync("/calendar/export.ics?from=2026-09-01&to=2026-09-30");
         string typeHtml = await client.GetStringAsync($"/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
@@ -156,6 +161,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Upcoming exact dates", calendarHtml, StringComparison.Ordinal);
         Assert.Contains("View type " + suffix, calendarHtml, StringComparison.Ordinal);
         Assert.Contains("Remind me", calendarHtml, StringComparison.Ordinal);
+        Assert.Contains("Private spatial view", mapHtml, StringComparison.Ordinal);
+        Assert.Contains("1 location", mapHtml, StringComparison.Ordinal);
+        Assert.Contains("Map location " + suffix, mapHtml, StringComparison.Ordinal);
         Assert.Equal("text/calendar", calendarExport.Content.Headers.ContentType?.MediaType);
         Assert.Equal("monkeysphere-calendar.ics", calendarExport.Content.Headers.ContentDisposition?.FileName);
         Assert.Contains("View record " + suffix, await calendarExport.Content.ReadAsStringAsync(), StringComparison.Ordinal);

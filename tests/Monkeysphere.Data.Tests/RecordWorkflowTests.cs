@@ -200,6 +200,42 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task SpatialMapQueriesCoordinatesWithFiltersBoundsAndPagination()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        ISpatialMapService maps = application.Services.GetRequiredService<ISpatialMapService>();
+        RecordType place = await records.CreateRecordTypeAsync("Mapped place");
+        FieldDefinition location = await records.CreateAndAttachFieldAsync(
+            place.Id,
+            new CreateFieldRequest("Location", FieldTypes.Location, false));
+        _ = await records.CreateRecordAsync(place.Id, "London", [
+            new(location.Id, Location: new LocationValueInput("Central London", "51.5074", "-0.1278")),
+        ]);
+        _ = await records.CreateRecordAsync(place.Id, "Tokyo", [
+            new(location.Id, Location: new LocationValueInput("Central Tokyo", "35.6762", "139.6503")),
+        ]);
+        _ = await records.CreateRecordAsync(place.Id, "Unknown", [
+            new(location.Id, Location: new LocationValueInput("Somewhere", ApproximationRadiusKilometres: "25")),
+        ]);
+
+        PagedResult<SpatialMapEntry> world = await maps.QueryAsync(new(PageSize: 1));
+        Assert.Equal(2, world.TotalCount);
+        Assert.Single(world.Items);
+        PagedResult<SpatialMapEntry> london = await maps.QueryAsync(new(
+            South: 50,
+            West: -1,
+            North: 52,
+            East: 1,
+            RecordTypeId: place.Id,
+            FieldDefinitionId: location.Id));
+        SpatialMapEntry entry = Assert.Single(london.Items);
+        Assert.Equal("London", entry.RecordDisplayName);
+        Assert.Equal("Central London", entry.DisplayContext);
+        Assert.Equal(51.5074, entry.Latitude);
+    }
+
+    [Fact]
     public async Task RequiredAndChoiceValidationHappensBeforeStorage()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

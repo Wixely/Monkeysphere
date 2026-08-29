@@ -1,0 +1,132 @@
+@page "/map"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ISpatialMapService Maps
+@inject IMonkeysphereService Records
+
+<PageTitle>Map · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Places in context</p>
+        <h1>Map</h1>
+        <p>Explore records with known coordinates without sharing those coordinates with a map provider.</p>
+    </div>
+</div>
+
+<section class="panel map-filters" aria-label="Map filters">
+    <div class="form-grid">
+        <label>
+            Record type
+            <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
+                <option value="">All record types</option>
+                @foreach (RecordType type in _types)
+                {
+                    <option value="@type.Id">@type.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Location field
+            <select value="@_fieldValue" @onchange="FieldChangedAsync">
+                <option value="">All location fields</option>
+                @foreach (FieldDefinition field in _locationFields)
+                {
+                    <option value="@field.Id">@field.Name</option>
+                }
+            </select>
+        </label>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Private spatial view</p>
+            <h2>Record locations</h2>
+        </div>
+        <span class="pill">@_results.TotalCount location@(_results.TotalCount == 1 ? string.Empty : "s")</span>
+    </div>
+
+    @if (_results.Items.Count == 0)
+    {
+        <p class="empty-state">No records with coordinates match these filters.</p>
+    }
+    else
+    {
+        <SpatialRecordMap Entries="_results.Items" />
+        <div class="pagination" aria-label="Map result pages">
+            <button class="button" type="button" disabled="@(_results.Page <= 1)" @onclick="PreviousPageAsync">Previous</button>
+            <span>Page @_results.Page of @PageCount()</span>
+            <button class="button" type="button" disabled="@(_results.Page >= PageCount())" @onclick="NextPageAsync">Next</button>
+        </div>
+    }
+</section>
+
+@code {
+    private const int PageSize = 100;
+    private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<FieldDefinition> _locationFields = [];
+    private PagedResult<SpatialMapEntry> _results = new([], 1, PageSize, 0);
+    private string _recordTypeValue = string.Empty;
+    private string _fieldValue = string.Empty;
+    private int _page = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Records.ListRecordTypesAsync();
+        await LoadLocationFieldsAsync();
+        await ReloadAsync();
+    }
+
+    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    {
+        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _fieldValue = string.Empty;
+        _page = 1;
+        await LoadLocationFieldsAsync();
+        await ReloadAsync();
+    }
+
+    private async Task FieldChangedAsync(ChangeEventArgs eventArgs)
+    {
+        _fieldValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _page = 1;
+        await ReloadAsync();
+    }
+
+    private async Task LoadLocationFieldsAsync()
+    {
+        IEnumerable<FieldDefinition> fields = SelectedRecordTypeId() is Guid typeId
+            ? (await Records.GetRecordTypeAsync(typeId))?.Fields.Select(item => item.Definition) ?? []
+            : await Records.ListFieldDefinitionsAsync();
+        _locationFields = fields
+            .Where(field => field.TypeId == FieldTypes.Location)
+            .DistinctBy(field => field.Id)
+            .OrderBy(field => field.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task ReloadAsync()
+    {
+        Guid? fieldId = Guid.TryParse(_fieldValue, out Guid parsedFieldId) ? parsedFieldId : null;
+        _results = await Maps.QueryAsync(new(RecordTypeId: SelectedRecordTypeId(), FieldDefinitionId: fieldId, Page: _page, PageSize: PageSize));
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        _page = Math.Max(1, _page - 1);
+        await ReloadAsync();
+    }
+
+    private async Task NextPageAsync()
+    {
+        _page = Math.Min(PageCount(), _page + 1);
+        await ReloadAsync();
+    }
+
+    private int PageCount() => Math.Max(1, (int)Math.Ceiling(_results.TotalCount / (double)PageSize));
+
+    private Guid? SelectedRecordTypeId() =>
+        Guid.TryParse(_recordTypeValue, out Guid recordTypeId) ? recordTypeId : null;
+}
