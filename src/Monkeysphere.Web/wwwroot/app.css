@@ -675,7 +675,7 @@ input[type="checkbox"] {
 
 .image-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
     gap: 1rem;
 }
 
@@ -686,6 +686,11 @@ input[type="checkbox"] {
     border: 1px solid var(--line);
     border-radius: .7rem;
     background: var(--panel-warm);
+}
+
+.record-image.cover-image {
+    border-color: var(--accent-bright);
+    box-shadow: 0 0 0 2px rgba(231, 149, 33, .18);
 }
 
 .record-image img {
@@ -711,6 +716,28 @@ input[type="checkbox"] {
 
 .record-image figcaption small {
     color: var(--muted);
+}
+
+.image-correction {
+    padding: .6rem;
+    border: 1px solid var(--line);
+    border-radius: .45rem;
+    background: rgba(255, 253, 248, .6);
+}
+
+.image-correction summary {
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.image-correction > * + * {
+    margin-top: .65rem;
+}
+
+.crop-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .55rem;
 }
 
 .location-editor {

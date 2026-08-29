@@ -11,7 +11,7 @@ Monkeysphere stores sensitive personal information. The single administrator, ho
 - Field merge and conversion are administrator-only application operations. Both require a read-only impact preview and explicit confirmation; a revision fingerprint rejects stale previews, conversion fails closed when any stored value would lose structure or validation, and the final mutation is transactional.
 - Record-type retirement and merge use the same administrator-only preview, explicit confirmation, stale-revision rejection, and transactional boundary. Retirement does not erase records, and merging never silently strengthens required-field rules for existing records.
 - Authentication before location queries or retrieval. Coordinates, accuracy, and approximation radii are treated as sensitive record data and are returned only through the existing authenticated application and scoped remote-record boundaries.
-- Authentication before image delivery. Uploaded images are byte-, dimension-, pixel-, and format-bounded, decoded before acceptance, stored under opaque paths, and rendered through regenerated WebP derivatives with source metadata removed.
+- Authentication before every image delivery. Uploaded images are byte-, dimension-, pixel-, and format-bounded, decoded before acceptance, stored under opaque paths, and ordinarily rendered through regenerated WebP derivatives with source metadata removed. Retained originals require a separate explicit download action and are returned as non-cacheable attachments.
 - DnaX remote access unavailable by default, with separate credentials, randomized routes, bounded requests, and redacted audit metadata when deliberately enabled.
 - Minimal unauthenticated liveness response.
 
@@ -23,4 +23,4 @@ The built-in credential is public and must be overridden before exposing a deplo
 
 ## Known initial non-goals
 
-There is no application-level encryption of SQLite files, original media, exports, or backups. Host and storage administrators can read them. Original media is retained for future export but is not served by the browser application. Mutating remote operations, arbitrary SQL, shell access, and filesystem browsing are not provided.
+There is no application-level encryption of SQLite files, original media, exports, or backups. Host and storage administrators can read them. Original media is retained and can be explicitly downloaded by the authenticated administrator; it may contain metadata that the normalized display derivatives remove. Mutating remote operations, arbitrary SQL, shell access, and filesystem browsing are not provided.

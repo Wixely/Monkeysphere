@@ -113,6 +113,21 @@ public interface IMonkeysphereStore
         Guid imageId,
         DateTimeOffset now,
         CancellationToken cancellationToken = default);
+
+    Task<RecordImage> UpdateRecordImageAsync(
+        Guid recordId,
+        Guid imageId,
+        string? caption,
+        bool isCover,
+        ImageCorrection correction,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+    Task ReorderRecordImagesAsync(
+        Guid recordId,
+        IReadOnlyList<Guid> imageIds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IMonkeysphereService
@@ -218,6 +233,24 @@ public interface IRecordImageService
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteAsync(Guid recordId, Guid imageId, CancellationToken cancellationToken = default);
+
+    Task<RecordImage> UpdateMetadataAsync(
+        Guid recordId,
+        Guid imageId,
+        string? caption,
+        bool isCover,
+        CancellationToken cancellationToken = default);
+
+    Task ReorderAsync(
+        Guid recordId,
+        IReadOnlyList<Guid> imageIds,
+        CancellationToken cancellationToken = default);
+
+    Task<RecordImage> CorrectAsync(
+        Guid recordId,
+        Guid imageId,
+        ImageCorrection correction,
+        CancellationToken cancellationToken = default);
 
     Task<RecordImageFile?> OpenAsync(
         Guid recordId,

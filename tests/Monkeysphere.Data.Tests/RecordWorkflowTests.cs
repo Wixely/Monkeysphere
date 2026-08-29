@@ -105,6 +105,7 @@ public sealed class RecordWorkflowTests
         Assert.Equal("portrait.png", first.OriginalFileName);
         Assert.Equal("image/png", first.OriginalContentType);
         Assert.Equal(0, first.Ordinal);
+        Assert.True(first.IsCover);
         Assert.Equal(1, second.Ordinal);
         Assert.Equal([first.Id, second.Id], (await records.GetRecordAsync(record.Record.Id))!.Images.Select(image => image.Id));
         RecordImageFile thumbnail = Assert.IsType<RecordImageFile>(
@@ -115,16 +116,44 @@ public sealed class RecordWorkflowTests
             Assert.True(thumbnail.Content.Length > 0);
         }
 
+        RecordImage captioned = await images.UpdateMetadataAsync(record.Record.Id, second.Id, "A second portrait", true);
+        Assert.Equal("A second portrait", captioned.Caption);
+        Assert.True(captioned.IsCover);
+        await images.ReorderAsync(record.Record.Id, [second.Id, first.Id]);
+        IReadOnlyList<RecordImage> reordered = (await records.GetRecordAsync(record.Record.Id))!.Images;
+        Assert.Equal([second.Id, first.Id], reordered.Select(image => image.Id));
+
+        RecordImage corrected = await images.CorrectAsync(record.Record.Id, second.Id, new ImageCorrection(1));
+        Assert.Equal(1, corrected.Correction?.RotationQuarterTurns);
+        await Assert.ThrowsAsync<DomainValidationException>(() => images.CorrectAsync(
+            record.Record.Id,
+            second.Id,
+            new ImageCorrection(CropX: 1, CropY: 0, CropWidth: 1, CropHeight: 1)));
+        RecordImageFile original = Assert.IsType<RecordImageFile>(
+            await images.OpenAsync(record.Record.Id, second.Id, RecordImageVariant.Original));
+        await using (original.Content)
+        {
+            Assert.Equal("image/png", original.ContentType);
+            Assert.Equal("another.png", original.DownloadFileName);
+            using MemoryStream copy = new();
+            await original.Content.CopyToAsync(copy);
+            Assert.Equal(png, copy.ToArray());
+        }
+
         await Assert.ThrowsAsync<DomainValidationException>(() =>
             images.AddAsync(record.Record.Id, new MemoryStream("not an image"u8.ToArray()), "fake.jpg"));
-        Assert.True(await images.DeleteAsync(record.Record.Id, first.Id));
-        Assert.False(await images.DeleteAsync(record.Record.Id, first.Id));
+        Assert.True(await images.DeleteAsync(record.Record.Id, second.Id));
+        Assert.False(await images.DeleteAsync(record.Record.Id, second.Id));
+        RecordImage remaining = Assert.Single((await records.GetRecordAsync(record.Record.Id))!.Images);
+        Assert.Equal(first.Id, remaining.Id);
+        Assert.Equal(0, remaining.Ordinal);
+        Assert.True(remaining.IsCover);
 
         string mediaDirectory = paths.ResolveWritable(Path.Combine("media", "records", record.Record.Id.ToString("N")));
         Assert.True(Directory.Exists(mediaDirectory));
         Assert.True(await records.DeleteRecordAsync(record.Record.Id));
         Assert.False(Directory.Exists(mediaDirectory));
-        Assert.Null(await images.OpenAsync(record.Record.Id, second.Id, RecordImageVariant.Preview));
+        Assert.Null(await images.OpenAsync(record.Record.Id, first.Id, RecordImageVariant.Preview));
     }
 
     [Fact]

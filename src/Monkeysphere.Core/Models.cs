@@ -101,15 +101,26 @@ public sealed record RecordImage(
     long OriginalByteLength,
     int Width,
     int Height,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    string? Caption = null,
+    bool IsCover = false,
+    ImageCorrection? Correction = null);
+
+public sealed record ImageCorrection(
+    int RotationQuarterTurns = 0,
+    int? CropX = null,
+    int? CropY = null,
+    int? CropWidth = null,
+    int? CropHeight = null);
 
 public enum RecordImageVariant
 {
     Preview,
     Thumbnail,
+    Original,
 }
 
-public sealed record RecordImageFile(Stream Content, string ContentType);
+public sealed record RecordImageFile(Stream Content, string ContentType, string? DownloadFileName = null);
 
 public sealed record FieldValueInput(
     Guid FieldDefinitionId,

@@ -34,7 +34,7 @@ A conversion previews every source value against a proposed new local definition
 
 ## Record images
 
-Images are a record-level capability rather than configurable preset fields. SQLite stores ordered metadata and cascades it with the owning record. Validated originals and generated display derivatives live under opaque UUID-based paths within `media/records` beneath the configured writable data root. The application decodes JPEG, PNG, and WebP uploads with bounded byte, dimension, and pixel limits, then creates metadata-stripped WebP previews and thumbnails with SkiaSharp. Only those derivatives are served, through authenticated endpoints with private no-store caching and MIME-sniffing disabled; original filenames never determine filesystem paths.
+Images are a record-level capability rather than configurable preset fields. SQLite stores ordered metadata and cascades it with the owning record. DnaX migration 12 adds bounded captions, one cover per record, stable manual order, and non-destructive rotation/crop settings. Validated originals and generated display derivatives live under opaque UUID-based paths within `media/records` beneath the configured writable data root. The application decodes JPEG, PNG, and WebP uploads with bounded byte, dimension, and pixel limits, then creates metadata-stripped WebP previews and thumbnails with SkiaSharp. Corrections regenerate only those derivatives from the retained original. Display and explicit original-download endpoints require authentication, use private no-store caching and disable MIME sniffing; original filenames become attachment metadata but never determine filesystem paths.
 
 ## Presets and first-run setup
 

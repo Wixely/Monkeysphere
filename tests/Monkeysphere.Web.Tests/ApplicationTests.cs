@@ -74,6 +74,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal("image/webp", response.Content.Headers.ContentType?.MediaType);
         Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
         Assert.True((await response.Content.ReadAsByteArrayAsync()).Length > 0);
+        HttpResponseMessage original = await client.GetAsync($"/records/{recordId}/images/{imageId}/original");
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        Assert.Equal("image/png", original.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("portrait.png", original.Content.Headers.ContentDisposition?.FileName);
     }
 
     [Theory]

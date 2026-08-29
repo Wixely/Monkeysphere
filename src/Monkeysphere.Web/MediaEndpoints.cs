@@ -20,6 +20,7 @@ public static class MediaEndpoints
                 {
                     "preview" => RecordImageVariant.Preview,
                     "thumbnail" => RecordImageVariant.Thumbnail,
+                    "original" => RecordImageVariant.Original,
                     _ => null,
                 };
                 if (requestedVariant is null)
@@ -39,7 +40,11 @@ public static class MediaEndpoints
 
                 context.Response.Headers.CacheControl = "private, no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
-                return Results.Stream(image.Content, image.ContentType, enableRangeProcessing: false);
+                return Results.Stream(
+                    image.Content,
+                    image.ContentType,
+                    image.DownloadFileName,
+                    enableRangeProcessing: false);
             })
             .RequireAuthorization();
         return endpoints;

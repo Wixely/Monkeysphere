@@ -41,7 +41,10 @@ public sealed record RemoteRecordImage(
     long OriginalByteLength,
     int Width,
     int Height,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    string? Caption,
+    bool IsCover,
+    ImageCorrection? Correction);
 
 public sealed record RemoteRelationship(
     Guid Id,
@@ -173,7 +176,10 @@ public sealed class MonkeysphereRemoteQueries(
                 image.OriginalByteLength,
                 image.Width,
                 image.Height,
-                image.CreatedAtUtc)).ToArray(),
+                image.CreatedAtUtc,
+                image.Caption,
+                image.IsCover,
+                image.Correction)).ToArray(),
             details.Values.Select(value => new RemoteRecordValue(
                 value.FieldDefinitionId,
                 value.FieldName,

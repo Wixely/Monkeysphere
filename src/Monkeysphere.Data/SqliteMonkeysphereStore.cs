@@ -1014,10 +1014,12 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         int changed = await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO RecordImages (
                 Id, RecordId, Ordinal, OriginalFileName, OriginalContentType,
-                OriginalByteLength, Width, Height, CreatedAtUtc)
+                OriginalByteLength, Width, Height, CreatedAtUtc, Caption, IsCover,
+                RotationQuarterTurns, CropX, CropY, CropWidth, CropHeight)
             VALUES (
                 @Id, @RecordId, @Ordinal, @OriginalFileName, @OriginalContentType,
-                @OriginalByteLength, @Width, @Height, @CreatedAtUtc);
+                @OriginalByteLength, @Width, @Height, @CreatedAtUtc, @Caption, @IsCover,
+                @RotationQuarterTurns, @CropX, @CropY, @CropWidth, @CropHeight);
             """,
             new
             {
@@ -1030,6 +1032,13 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
                 image.Width,
                 image.Height,
                 CreatedAtUtc = Timestamp(image.CreatedAtUtc),
+                image.Caption,
+                IsCover = image.IsCover ? 1 : 0,
+                RotationQuarterTurns = image.Correction?.RotationQuarterTurns ?? 0,
+                CropX = image.Correction?.CropX,
+                CropY = image.Correction?.CropY,
+                CropWidth = image.Correction?.CropWidth,
+                CropHeight = image.Correction?.CropHeight,
             },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -1058,8 +1067,28 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (changed == 1)
         {
+            string[] remainingImageIds = (await connection.QueryAsync<string>(new CommandDefinition("""
+                SELECT Id FROM RecordImages WHERE RecordId = @RecordId ORDER BY Ordinal, Id;
+                """, new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
             await connection.ExecuteAsync(new CommandDefinition(
-                "UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;",
+                "UPDATE RecordImages SET Ordinal = Ordinal + 1000 WHERE RecordId = @RecordId;",
+                new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            for (int ordinal = 0; ordinal < remainingImageIds.Length; ordinal++)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE RecordImages SET Ordinal = @Ordinal WHERE Id = @Id AND RecordId = @RecordId;
+                    """, new { Ordinal = ordinal, Id = remainingImageIds[ordinal], RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE RecordImages SET IsCover = 1
+                WHERE Id = (
+                    SELECT Id FROM RecordImages
+                    WHERE RecordId = @RecordId
+                    ORDER BY Ordinal, Id LIMIT 1)
+                  AND NOT EXISTS (SELECT 1 FROM RecordImages WHERE RecordId = @RecordId AND IsCover = 1);
+                UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;
+                """,
                 new { Now = Timestamp(now), RecordId = Key(recordId) },
                 transaction,
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -1067,6 +1096,88 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return changed == 1;
+    }
+
+    public async Task<RecordImage> UpdateRecordImageAsync(
+        Guid recordId,
+        Guid imageId,
+        string? caption,
+        bool isCover,
+        ImageCorrection correction,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (isCover)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE RecordImages SET IsCover = 0 WHERE RecordId = @RecordId;",
+                new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+
+        int changed = await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE RecordImages
+            SET Caption = @Caption,
+                IsCover = CASE WHEN @IsCover = 1 THEN 1 ELSE IsCover END,
+                RotationQuarterTurns = @RotationQuarterTurns,
+                CropX = @CropX,
+                CropY = @CropY,
+                CropWidth = @CropWidth,
+                CropHeight = @CropHeight
+            WHERE Id = @Id AND RecordId = @RecordId;
+            """, new
+        {
+            Id = Key(imageId),
+            RecordId = Key(recordId),
+            Caption = caption,
+            IsCover = isCover ? 1 : 0,
+            correction.RotationQuarterTurns,
+            correction.CropX,
+            correction.CropY,
+            correction.CropWidth,
+            correction.CropHeight,
+        }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        RequireChanged(changed, "Image was not found.");
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;",
+            new { Now = Timestamp(now), RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return (await ListRecordImagesAsync(connection, recordId, cancellationToken).ConfigureAwait(false))
+            .Single(image => image.Id == imageId);
+    }
+
+    public async Task ReorderRecordImagesAsync(
+        Guid recordId,
+        IReadOnlyList<Guid> imageIds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string[] stored = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT Id FROM RecordImages WHERE RecordId = @RecordId ORDER BY Id;",
+            new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).Order(StringComparer.Ordinal).ToArray();
+        string[] supplied = imageIds.Select(Key).Order(StringComparer.Ordinal).ToArray();
+        if (!stored.SequenceEqual(supplied, StringComparer.Ordinal))
+        {
+            throw new DomainValidationException("Image order must contain every current image exactly once.");
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE RecordImages SET Ordinal = Ordinal + 1000 WHERE RecordId = @RecordId;",
+            new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        for (int ordinal = 0; ordinal < imageIds.Count; ordinal++)
+        {
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE RecordImages SET Ordinal = @Ordinal WHERE Id = @Id AND RecordId = @RecordId;
+                """, new { Ordinal = ordinal, Id = Key(imageIds[ordinal]), RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE Records SET UpdatedAtUtc = @Now WHERE Id = @RecordId;",
+            new { Now = Timestamp(now), RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default)
@@ -1324,7 +1435,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     {
         IEnumerable<RecordImageRow> rows = await connection.QueryAsync<RecordImageRow>(new CommandDefinition("""
             SELECT Id, RecordId, Ordinal, OriginalFileName, OriginalContentType,
-                   OriginalByteLength, Width, Height, CreatedAtUtc
+                   OriginalByteLength, Width, Height, CreatedAtUtc, Caption, IsCover,
+                   RotationQuarterTurns, CropX, CropY, CropWidth, CropHeight
             FROM RecordImages
             WHERE RecordId = @RecordId
             ORDER BY Ordinal, Id;
@@ -1340,7 +1452,10 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             row.OriginalByteLength,
             row.Width,
             row.Height,
-            ParseTimestamp(row.CreatedAtUtc))).ToArray();
+            ParseTimestamp(row.CreatedAtUtc),
+            row.Caption,
+            row.IsCover != 0,
+            new ImageCorrection(row.RotationQuarterTurns, row.CropX, row.CropY, row.CropWidth, row.CropHeight))).ToArray();
     }
 
     private static async Task<IReadOnlyList<RecordTypeField>> QueryFieldsAsync(
@@ -1668,6 +1783,13 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public int Width { get; init; }
         public int Height { get; init; }
         public required string CreatedAtUtc { get; init; }
+        public string? Caption { get; init; }
+        public int IsCover { get; init; }
+        public int RotationQuarterTurns { get; init; }
+        public int? CropX { get; init; }
+        public int? CropY { get; init; }
+        public int? CropWidth { get; init; }
+        public int? CropHeight { get; init; }
     }
 
     private sealed class TagRow

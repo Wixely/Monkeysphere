@@ -190,18 +190,57 @@ else
                 else
                 {
                     <div class="image-grid">
-                        @foreach (RecordImage image in _images)
+                        @foreach (ImageEditor editor in _imageEditors)
                         {
-                            <figure class="record-image">
+                            RecordImage image = editor.Image;
+                            <figure class="record-image @(image.IsCover ? "cover-image" : null)" @key="image.Id">
                                 <a href="/records/@image.RecordId/images/@image.Id/preview" target="_blank" rel="noopener">
                                     <img src="/records/@image.RecordId/images/@image.Id/thumbnail"
-                                         alt="@image.OriginalFileName"
+                                         alt="@(image.Caption ?? image.OriginalFileName)"
                                          loading="lazy" />
                                 </a>
                                 <figcaption>
-                                    <span title="@image.OriginalFileName">@image.OriginalFileName</span>
-                                    <small>@image.Width Ã— @image.Height</small>
-                                    <button class="button danger" type="button" @onclick="() => DeleteImageAsync(image.Id)">Remove</button>
+                                    <div class="section-heading compact-heading">
+                                        <span title="@image.OriginalFileName">@image.OriginalFileName</span>
+                                        @if (image.IsCover)
+                                        {
+                                            <span class="pill">Cover</span>
+                                        }
+                                    </div>
+                                    <small>@image.Width × @image.Height · @((image.Correction?.RotationQuarterTurns ?? 0) * 90)° rotation</small>
+                                    <label>
+                                        Caption
+                                        <textarea @bind="editor.Caption" maxlength="500" rows="2"></textarea>
+                                    </label>
+                                    <div class="action-row wrap">
+                                        <button class="button" type="button" @onclick="() => SaveImageMetadataAsync(editor)">Save caption</button>
+                                        @if (!image.IsCover)
+                                        {
+                                            <button class="button" type="button" @onclick="() => MakeCoverAsync(editor)">Make cover</button>
+                                        }
+                                        <button class="button" type="button" disabled="@(image.Ordinal == 0)" @onclick="() => MoveImageAsync(image.Id, -1)">Move earlier</button>
+                                        <button class="button" type="button" disabled="@(image.Ordinal == _images.Count - 1)" @onclick="() => MoveImageAsync(image.Id, 1)">Move later</button>
+                                    </div>
+                                    <details class="image-correction">
+                                        <summary>Rotate or crop</summary>
+                                        <div class="action-row wrap">
+                                            <button class="button" type="button" @onclick="() => RotateImageAsync(editor, -1)">Rotate left</button>
+                                            <button class="button" type="button" @onclick="() => RotateImageAsync(editor, 1)">Rotate right</button>
+                                            <button class="button" type="button" @onclick="() => ResetCorrectionAsync(editor)">Reset correction</button>
+                                        </div>
+                                        <p class="muted">Optional crop bounds use pixels in the retained original: @image.Width × @image.Height.</p>
+                                        <div class="crop-grid">
+                                            <label>X <input type="number" min="0" @bind="editor.CropX" /></label>
+                                            <label>Y <input type="number" min="0" @bind="editor.CropY" /></label>
+                                            <label>Width <input type="number" min="1" @bind="editor.CropWidth" /></label>
+                                            <label>Height <input type="number" min="1" @bind="editor.CropHeight" /></label>
+                                        </div>
+                                        <button class="button" type="button" @onclick="() => ApplyCropAsync(editor)">Apply crop</button>
+                                    </details>
+                                    <div class="action-row wrap">
+                                        <a class="button" href="/records/@image.RecordId/images/@image.Id/original">Download original</a>
+                                        <button class="button danger" type="button" @onclick="() => DeleteImageAsync(image.Id)">Remove</button>
+                                    </div>
                                 </figcaption>
                             </figure>
                         }
@@ -318,6 +357,7 @@ else
     private string _relatedQuery = string.Empty;
     private string _relationshipNote = string.Empty;
     private IReadOnlyList<RecordImage> _images = [];
+    private List<ImageEditor> _imageEditors = [];
     private bool _uploading;
 
     protected override async Task OnParametersSetAsync()
@@ -335,7 +375,7 @@ else
             {
                 _model.DisplayName = _record.Record.DisplayName;
                 _model.Aliases = string.Join(Environment.NewLine, _record.Aliases);
-                _images = _record.Images;
+                SyncImages(_record.Images);
                 _selectedTypeValue = _record.Record.RecordTypeId.ToString();
                 _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
                 BuildEditors(_record);
@@ -436,7 +476,7 @@ else
             }
 
             _record = await Service.GetRecordAsync(recordId);
-            _images = _record?.Images ?? [];
+            SyncImages(_record?.Images ?? []);
             _message = null;
         }
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException or IOException)
@@ -457,8 +497,112 @@ else
         }
 
         await ImageService.DeleteAsync(recordId, imageId);
+        await RefreshImagesAsync(recordId);
+    }
+
+    private async Task SaveImageMetadataAsync(ImageEditor editor)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        try
+        {
+            await ImageService.UpdateMetadataAsync(recordId, editor.Image.Id, editor.Caption, false);
+            await RefreshImagesAsync(recordId);
+            _message = "Image caption saved.";
+        }
+        catch (DomainValidationException exception)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private async Task MakeCoverAsync(ImageEditor editor)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        await ImageService.UpdateMetadataAsync(recordId, editor.Image.Id, editor.Caption, true);
+        await RefreshImagesAsync(recordId);
+        _message = "Cover image updated.";
+    }
+
+    private async Task MoveImageAsync(Guid imageId, int offset)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        List<Guid> order = _images.OrderBy(image => image.Ordinal).Select(image => image.Id).ToList();
+        int current = order.IndexOf(imageId);
+        int target = current + offset;
+        if (current < 0 || target < 0 || target >= order.Count)
+        {
+            return;
+        }
+
+        (order[current], order[target]) = (order[target], order[current]);
+        await ImageService.ReorderAsync(recordId, order);
+        await RefreshImagesAsync(recordId);
+    }
+
+    private Task RotateImageAsync(ImageEditor editor, int direction)
+    {
+        int current = editor.Image.Correction?.RotationQuarterTurns ?? 0;
+        ImageCorrection correction = EditorCorrection(editor) with
+        {
+            RotationQuarterTurns = (current + direction + 4) % 4,
+        };
+        return ApplyCorrectionAsync(editor, correction);
+    }
+
+    private Task ResetCorrectionAsync(ImageEditor editor) =>
+        ApplyCorrectionAsync(editor, new ImageCorrection());
+
+    private Task ApplyCropAsync(ImageEditor editor) =>
+        ApplyCorrectionAsync(editor, EditorCorrection(editor));
+
+    private async Task ApplyCorrectionAsync(ImageEditor editor, ImageCorrection correction)
+    {
+        if (RecordId is not Guid recordId)
+        {
+            return;
+        }
+
+        try
+        {
+            await ImageService.CorrectAsync(recordId, editor.Image.Id, correction);
+            await RefreshImagesAsync(recordId);
+            _message = "Display correction applied. The original file is unchanged.";
+        }
+        catch (Exception exception) when (exception is DomainValidationException or IOException)
+        {
+            _message = exception.Message;
+        }
+    }
+
+    private static ImageCorrection EditorCorrection(ImageEditor editor) => new(
+        editor.Image.Correction?.RotationQuarterTurns ?? 0,
+        editor.CropX,
+        editor.CropY,
+        editor.CropWidth,
+        editor.CropHeight);
+
+    private async Task RefreshImagesAsync(Guid recordId)
+    {
         _record = await Service.GetRecordAsync(recordId);
-        _images = _record?.Images ?? [];
+        SyncImages(_record?.Images ?? []);
+    }
+
+    private void SyncImages(IReadOnlyList<RecordImage> images)
+    {
+        _images = images;
+        _imageEditors = images.Select(image => new ImageEditor(image)).ToList();
     }
 
     private async Task LoadRelationshipsAsync(Guid recordId)
@@ -576,5 +720,25 @@ else
         public string Longitude { get; set; } = string.Empty;
         public string LocationAccuracyMetres { get; set; } = string.Empty;
         public string LocationRadiusKilometres { get; set; } = string.Empty;
+    }
+
+    private sealed class ImageEditor
+    {
+        public ImageEditor(RecordImage image)
+        {
+            Image = image;
+            Caption = image.Caption ?? string.Empty;
+            CropX = image.Correction?.CropX;
+            CropY = image.Correction?.CropY;
+            CropWidth = image.Correction?.CropWidth;
+            CropHeight = image.Correction?.CropHeight;
+        }
+
+        public RecordImage Image { get; }
+        public string Caption { get; set; }
+        public int? CropX { get; set; }
+        public int? CropY { get; set; }
+        public int? CropWidth { get; set; }
+        public int? CropHeight { get; set; }
     }
 }

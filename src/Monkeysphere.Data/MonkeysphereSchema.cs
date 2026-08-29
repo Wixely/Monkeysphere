@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 11,
+        currentVersion: 12,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -322,6 +322,30 @@ public static class MonkeysphereSchema
                 CREATE INDEX IX_VCardProperties_Field
                     ON VCardProperties(FieldDefinitionId, RecordId, ValueOrdinal)
                     WHERE FieldDefinitionId IS NOT NULL;
+                """),
+            DnaXMigration.Sql(12, "richer-record-images", "Add captions, cover selection, ordering, and non-destructive corrections", """
+                ALTER TABLE RecordImages ADD COLUMN Caption TEXT NULL;
+                ALTER TABLE RecordImages ADD COLUMN IsCover INTEGER NOT NULL DEFAULT 0
+                    CHECK (IsCover IN (0, 1));
+                ALTER TABLE RecordImages ADD COLUMN RotationQuarterTurns INTEGER NOT NULL DEFAULT 0
+                    CHECK (RotationQuarterTurns BETWEEN 0 AND 3);
+                ALTER TABLE RecordImages ADD COLUMN CropX INTEGER NULL CHECK (CropX IS NULL OR CropX >= 0);
+                ALTER TABLE RecordImages ADD COLUMN CropY INTEGER NULL CHECK (CropY IS NULL OR CropY >= 0);
+                ALTER TABLE RecordImages ADD COLUMN CropWidth INTEGER NULL CHECK (CropWidth IS NULL OR CropWidth > 0);
+                ALTER TABLE RecordImages ADD COLUMN CropHeight INTEGER NULL CHECK (CropHeight IS NULL OR CropHeight > 0);
+
+                UPDATE RecordImages
+                SET IsCover = 1
+                WHERE Id IN (
+                    SELECT cover.Id
+                    FROM RecordImages cover
+                    WHERE cover.Ordinal = (
+                        SELECT MIN(candidate.Ordinal)
+                        FROM RecordImages candidate
+                        WHERE candidate.RecordId = cover.RecordId));
+
+                CREATE UNIQUE INDEX UX_RecordImages_Cover
+                    ON RecordImages(RecordId) WHERE IsCover = 1;
                 """),
         ]);
 }
