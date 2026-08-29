@@ -24,16 +24,18 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
         };
 
         const string filters = """
-            fl.Latitude BETWEEN @South AND @North
-            AND ((@West <= @East AND fl.Longitude BETWEEN @West AND @East)
-                 OR (@West > @East AND (fl.Longitude >= @West OR fl.Longitude <= @East)))
+            spatial.MaxLatitude >= @South AND spatial.MinLatitude <= @North
+            AND ((@West <= @East AND spatial.MaxLongitude >= @West AND spatial.MinLongitude <= @East)
+                 OR (@West > @East AND (spatial.MaxLongitude >= @West OR spatial.MinLongitude <= @East)))
             AND (@RecordTypeId IS NULL OR r.RecordTypeId = @RecordTypeId)
             AND (@FieldDefinitionId IS NULL OR fv.FieldDefinitionId = @FieldDefinitionId)
             """;
 
         string sql = $"""
             SELECT COUNT(*)
-            FROM FieldValueLocations fl
+            FROM FieldValueLocationSpatial spatial
+            INNER JOIN FieldValueLocationSpatialKeys spatialKey ON spatialKey.RowId = spatial.RowId
+            INNER JOIN FieldValueLocations fl ON fl.FieldValueId = spatialKey.FieldValueId
             INNER JOIN FieldValues fv ON fv.Id = fl.FieldValueId
             INNER JOIN Records r ON r.Id = fv.RecordId
             WHERE {filters};
@@ -50,7 +52,9 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
                    fl.Longitude,
                    fl.AccuracyMetres,
                    fl.ApproximationRadiusKilometres
-            FROM FieldValueLocations fl
+            FROM FieldValueLocationSpatial spatial
+            INNER JOIN FieldValueLocationSpatialKeys spatialKey ON spatialKey.RowId = spatial.RowId
+            INNER JOIN FieldValueLocations fl ON fl.FieldValueId = spatialKey.FieldValueId
             INNER JOIN FieldValues fv ON fv.Id = fl.FieldValueId
             INNER JOIN Records r ON r.Id = fv.RecordId
             INNER JOIN RecordTypes rt ON rt.Id = r.RecordTypeId

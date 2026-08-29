@@ -23,6 +23,14 @@ function replaceEntries(state, entries, fit) {
     }));
     state.source.clear();
     state.source.addFeatures(features);
+    state.radiusSource.clear();
+    state.radiusSource.addFeatures(entries
+        .filter(entry => Number.isFinite(entry.approximationRadiusKilometres) && entry.approximationRadiusKilometres > 0)
+        .map(entry => new ol.Feature({
+            geometry: ol.geom.Polygon
+                .circular([entry.longitude, entry.latitude], entry.approximationRadiusKilometres * 1000, 64)
+                .transform('EPSG:4326', 'EPSG:3857')
+        })));
     if (fit && features.length > 0) {
         state.map.getView().fit(state.source.getExtent(), { padding: [45, 45, 45, 45], maxZoom: 10, duration: 180 });
     }
@@ -34,6 +42,7 @@ export function create(element, callback, entries) {
     }
 
     const source = new ol.source.Vector();
+    const radiusSource = new ol.source.Vector();
     const clusters = new ol.source.Cluster({ distance: 48, minDistance: 12, source });
     const map = new ol.Map({
         target: element,
@@ -43,11 +52,18 @@ export function create(element, callback, entries) {
                 showLabels: true,
                 wrapX: true
             }),
+            new ol.layer.Vector({
+                source: radiusSource,
+                style: new ol.style.Style({
+                    fill: new ol.style.Fill({ color: 'rgba(221, 132, 20, .13)' }),
+                    stroke: new ol.style.Stroke({ color: 'rgba(169, 85, 8, .65)', width: 2, lineDash: [6, 5] })
+                })
+            }),
             new ol.layer.Vector({ source: clusters, style: markerStyle })
         ],
         view: new ol.View({ center: ol.proj.fromLonLat([0, 20]), zoom: 2, minZoom: 1, maxZoom: 19 })
     });
-    const state = { map, source };
+    const state = { map, source, radiusSource };
     map.on('singleclick', event => {
         const cluster = map.forEachFeatureAtPixel(event.pixel, feature => feature);
         if (!cluster) {

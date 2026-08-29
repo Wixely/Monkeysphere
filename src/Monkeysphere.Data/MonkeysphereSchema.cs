@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 12,
+        currentVersion: 13,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -346,6 +346,106 @@ public static class MonkeysphereSchema
 
                 CREATE UNIQUE INDEX UX_RecordImages_Cover
                     ON RecordImages(RecordId) WHERE IsCover = 1;
+                """),
+            DnaXMigration.Sql(13, "location-spatial-index", "Add an approximation-aware R-tree for location map queries", """
+                CREATE TABLE FieldValueLocationSpatialKeys (
+                    RowId INTEGER PRIMARY KEY AUTOINCREMENT,
+                    FieldValueId TEXT NOT NULL UNIQUE,
+                    FOREIGN KEY (FieldValueId) REFERENCES FieldValueLocations(FieldValueId) ON DELETE CASCADE
+                );
+
+                CREATE VIRTUAL TABLE FieldValueLocationSpatial USING rtree(
+                    RowId,
+                    MinLongitude,
+                    MaxLongitude,
+                    MinLatitude,
+                    MaxLatitude
+                );
+
+                INSERT INTO FieldValueLocationSpatialKeys (FieldValueId)
+                SELECT FieldValueId
+                FROM FieldValueLocations
+                WHERE Latitude IS NOT NULL
+                ORDER BY FieldValueId;
+
+                INSERT INTO FieldValueLocationSpatial (RowId, MinLongitude, MaxLongitude, MinLatitude, MaxLatitude)
+                SELECT keys.RowId,
+                       CASE
+                           WHEN location.ApproximationRadiusKilometres IS NULL THEN location.Longitude
+                           WHEN abs(location.Latitude) >= 89.9 THEN -180
+                           WHEN location.Longitude - (location.ApproximationRadiusKilometres / (111.32 * cos(location.Latitude * pi() / 180))) < -180 THEN -180
+                           ELSE location.Longitude - (location.ApproximationRadiusKilometres / (111.32 * cos(location.Latitude * pi() / 180)))
+                       END,
+                       CASE
+                           WHEN location.ApproximationRadiusKilometres IS NULL THEN location.Longitude
+                           WHEN abs(location.Latitude) >= 89.9 THEN 180
+                           WHEN location.Longitude + (location.ApproximationRadiusKilometres / (111.32 * cos(location.Latitude * pi() / 180))) > 180 THEN 180
+                           ELSE location.Longitude + (location.ApproximationRadiusKilometres / (111.32 * cos(location.Latitude * pi() / 180)))
+                       END,
+                       max(-90, location.Latitude - coalesce(location.ApproximationRadiusKilometres, 0) / 111.32),
+                       min(90, location.Latitude + coalesce(location.ApproximationRadiusKilometres, 0) / 111.32)
+                FROM FieldValueLocations location
+                INNER JOIN FieldValueLocationSpatialKeys keys ON keys.FieldValueId = location.FieldValueId
+                WHERE location.Latitude IS NOT NULL;
+
+                CREATE TRIGGER FieldValueLocations_Spatial_Insert
+                AFTER INSERT ON FieldValueLocations
+                WHEN NEW.Latitude IS NOT NULL
+                BEGIN
+                    INSERT INTO FieldValueLocationSpatialKeys (FieldValueId) VALUES (NEW.FieldValueId);
+                    INSERT INTO FieldValueLocationSpatial (RowId, MinLongitude, MaxLongitude, MinLatitude, MaxLatitude)
+                    VALUES (
+                        last_insert_rowid(),
+                        CASE
+                            WHEN NEW.ApproximationRadiusKilometres IS NULL THEN NEW.Longitude
+                            WHEN abs(NEW.Latitude) >= 89.9 THEN -180
+                            WHEN NEW.Longitude - (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180))) < -180 THEN -180
+                            ELSE NEW.Longitude - (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180)))
+                        END,
+                        CASE
+                            WHEN NEW.ApproximationRadiusKilometres IS NULL THEN NEW.Longitude
+                            WHEN abs(NEW.Latitude) >= 89.9 THEN 180
+                            WHEN NEW.Longitude + (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180))) > 180 THEN 180
+                            ELSE NEW.Longitude + (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180)))
+                        END,
+                        max(-90, NEW.Latitude - coalesce(NEW.ApproximationRadiusKilometres, 0) / 111.32),
+                        min(90, NEW.Latitude + coalesce(NEW.ApproximationRadiusKilometres, 0) / 111.32));
+                END;
+
+                CREATE TRIGGER FieldValueLocations_Spatial_Delete
+                AFTER DELETE ON FieldValueLocations
+                BEGIN
+                    DELETE FROM FieldValueLocationSpatial
+                    WHERE RowId = (SELECT RowId FROM FieldValueLocationSpatialKeys WHERE FieldValueId = OLD.FieldValueId);
+                    DELETE FROM FieldValueLocationSpatialKeys WHERE FieldValueId = OLD.FieldValueId;
+                END;
+
+                CREATE TRIGGER FieldValueLocations_Spatial_Update
+                AFTER UPDATE OF Latitude, Longitude, ApproximationRadiusKilometres ON FieldValueLocations
+                BEGIN
+                    DELETE FROM FieldValueLocationSpatial
+                    WHERE RowId = (SELECT RowId FROM FieldValueLocationSpatialKeys WHERE FieldValueId = NEW.FieldValueId);
+                    INSERT OR IGNORE INTO FieldValueLocationSpatialKeys (FieldValueId)
+                    SELECT NEW.FieldValueId WHERE NEW.Latitude IS NOT NULL;
+                    INSERT INTO FieldValueLocationSpatial (RowId, MinLongitude, MaxLongitude, MinLatitude, MaxLatitude)
+                    SELECT keys.RowId,
+                           CASE
+                               WHEN NEW.ApproximationRadiusKilometres IS NULL THEN NEW.Longitude
+                               WHEN abs(NEW.Latitude) >= 89.9 THEN -180
+                               WHEN NEW.Longitude - (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180))) < -180 THEN -180
+                               ELSE NEW.Longitude - (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180)))
+                           END,
+                           CASE
+                               WHEN NEW.ApproximationRadiusKilometres IS NULL THEN NEW.Longitude
+                               WHEN abs(NEW.Latitude) >= 89.9 THEN 180
+                               WHEN NEW.Longitude + (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180))) > 180 THEN 180
+                               ELSE NEW.Longitude + (NEW.ApproximationRadiusKilometres / (111.32 * cos(NEW.Latitude * pi() / 180)))
+                           END,
+                           max(-90, NEW.Latitude - coalesce(NEW.ApproximationRadiusKilometres, 0) / 111.32),
+                           min(90, NEW.Latitude + coalesce(NEW.ApproximationRadiusKilometres, 0) / 111.32)
+                    FROM FieldValueLocationSpatialKeys keys
+                    WHERE keys.FieldValueId = NEW.FieldValueId AND NEW.Latitude IS NOT NULL;
+                END;
                 """),
         ]);
 }

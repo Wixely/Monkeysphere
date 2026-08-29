@@ -215,12 +215,15 @@ public sealed class RecordWorkflowTests
         _ = await records.CreateRecordAsync(place.Id, "Tokyo", [
             new(location.Id, Location: new LocationValueInput("Central Tokyo", "35.6762", "139.6503")),
         ]);
+        _ = await records.CreateRecordAsync(place.Id, "Near London", [
+            new(location.Id, Location: new LocationValueInput("Approximate area", "51.5", "2", ApproximationRadiusKilometres: "150")),
+        ]);
         _ = await records.CreateRecordAsync(place.Id, "Unknown", [
             new(location.Id, Location: new LocationValueInput("Somewhere", ApproximationRadiusKilometres: "25")),
         ]);
 
         PagedResult<SpatialMapEntry> world = await maps.QueryAsync(new(PageSize: 1));
-        Assert.Equal(2, world.TotalCount);
+        Assert.Equal(3, world.TotalCount);
         Assert.Single(world.Items);
         PagedResult<SpatialMapEntry> london = await maps.QueryAsync(new(
             South: 50,
@@ -229,10 +232,13 @@ public sealed class RecordWorkflowTests
             East: 1,
             RecordTypeId: place.Id,
             FieldDefinitionId: location.Id));
-        SpatialMapEntry entry = Assert.Single(london.Items);
+        Assert.Equal(2, london.Items.Count);
+        SpatialMapEntry entry = Assert.Single(london.Items, item => item.RecordDisplayName == "London");
         Assert.Equal("London", entry.RecordDisplayName);
         Assert.Equal("Central London", entry.DisplayContext);
         Assert.Equal(51.5074, entry.Latitude);
+        SpatialMapEntry approximate = Assert.Single(london.Items, item => item.RecordDisplayName == "Near London");
+        Assert.Equal(150, approximate.ApproximationRadiusKilometres);
     }
 
     [Fact]

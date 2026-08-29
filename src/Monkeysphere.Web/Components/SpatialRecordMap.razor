@@ -16,6 +16,10 @@
                 {
                     <small>@entry.DisplayContext</small>
                 }
+                @if (entry.ApproximationRadiusKilometres is double radius)
+                {
+                    <small>Approximation radius: @radius.ToString("0.####", CultureInfo.CurrentCulture) km</small>
+                }
             </article>
         }
     </div>
