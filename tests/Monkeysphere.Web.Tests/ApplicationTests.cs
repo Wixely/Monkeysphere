@@ -30,11 +30,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage live = await client.GetAsync("/health/live");
         HttpResponseMessage ready = await client.GetAsync("/health/ready");
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
+        HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
         Assert.Equal(HttpStatusCode.OK, mapLibrary.StatusCode);
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
+        Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);
+        Assert.True((await graphLibrary.Content.ReadAsByteArrayAsync()).Length > 400_000);
     }
 
     [Fact]
@@ -90,6 +93,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
     [InlineData("/map")]
+    [InlineData("/graph")]
     [InlineData("/calendar/export.ics?from=2026-09-01&to=2026-09-30")]
     [InlineData("/vcard")]
     [InlineData("/backups")]
@@ -114,6 +118,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         {
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
             ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
+            IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
             RecordType type = await records.CreateRecordTypeAsync("View type " + suffix);
             typeId = type.Id;
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
@@ -132,6 +137,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                     new(occasion.Id, "2026-09-15"),
                     new(location.Id, Location: new LocationValueInput("Test location", "51.5", "-0.1")),
                 ])).Record.Id;
+            RecordDetails related = await records.CreateRecordAsync(type.Id, "Related record " + suffix, []);
+            RelationshipType connection = await relationships.CreateTypeAsync(new(
+                "Graph connection " + suffix,
+                RelationshipDirectionality.Symmetric));
+            _ = await relationships.CreateAsync(connection.Id, recordId, related.Record.Id);
             _ = await views.CreateAsync(new SaveViewRequest(
                 "Grid view " + suffix,
                 type.Id,
@@ -155,6 +165,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string recordsHtml = await client.GetStringAsync("/records");
         string calendarHtml = await client.GetStringAsync("/calendar");
         string mapHtml = await client.GetStringAsync("/map");
+        string graphHtml = await client.GetStringAsync("/graph");
         HttpResponseMessage calendarExport = await client.GetAsync("/calendar/export.ics?from=2026-09-01&to=2026-09-30");
         string typeHtml = await client.GetStringAsync($"/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
@@ -167,6 +178,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Private spatial view", mapHtml, StringComparison.Ordinal);
         Assert.Contains("1 location", mapHtml, StringComparison.Ordinal);
         Assert.Contains("Map location " + suffix, mapHtml, StringComparison.Ordinal);
+        Assert.Contains("Bounded private view", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Graph connection " + suffix, graphHtml, StringComparison.Ordinal);
         Assert.Equal("text/calendar", calendarExport.Content.Headers.ContentType?.MediaType);
         Assert.Equal("monkeysphere-calendar.ics", calendarExport.Content.Headers.ContentDisposition?.FileName);
         Assert.Contains("View record " + suffix, await calendarExport.Content.ReadAsStringAsync(), StringComparison.Ordinal);

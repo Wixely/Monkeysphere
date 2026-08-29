@@ -820,6 +820,25 @@ input[type="checkbox"] {
     gap: .4rem;
 }
 
+.relationship-graph {
+    width: 100%;
+    height: min(68vh, 44rem);
+    min-height: 28rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background:
+        radial-gradient(circle at 20% 15%, rgba(233, 162, 59, .16), transparent 30%),
+        #fffaf0;
+}
+
+.graph-selection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
 .location-map .ol-control button {
     color: #fffaf0;
     background: var(--accent-dark);

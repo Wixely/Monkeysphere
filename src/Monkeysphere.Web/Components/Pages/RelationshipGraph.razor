@@ -1,0 +1,161 @@
+@page "/graph"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IRelationshipGraphService GraphService
+@inject IRelationshipService Relationships
+
+<PageTitle>Relationship graph · Monkeysphere</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Connections at a glance</p>
+        <h1>Relationship graph</h1>
+        <p>Search the whole dataset or focus on one record and expand its neighbours up to three hops.</p>
+    </div>
+</div>
+
+<section class="panel graph-filters" aria-label="Graph filters">
+    <div class="form-grid">
+        <label>
+            Record name or alias
+            <input @bind="_search" maxlength="200" placeholder="Search records" />
+        </label>
+        <label>
+            Relationship type
+            <select @bind="_relationshipTypeValue">
+                <option value="">All relationship types</option>
+                @foreach (RelationshipType type in _types)
+                {
+                    <option value="@type.Id">@type.Name</option>
+                }
+            </select>
+        </label>
+    </div>
+    <div class="action-row">
+        <button class="button primary" type="button" @onclick="SearchAsync">Search graph</button>
+        @if (_focusRecordId.HasValue)
+        {
+            <button class="button" type="button" @onclick="ClearFocusAsync">Return to search</button>
+        }
+    </div>
+</section>
+
+@if (_graph.NodesTruncated || _graph.EdgesTruncated)
+{
+    <div class="notice" role="status">
+        This view reached the @(_graph.NodesTruncated ? "500-node" : "2,000-edge") limit. Narrow the name or relationship-type filter to reveal hidden items.
+    </div>
+}
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Bounded private view</p>
+            <h2>@_graph.Nodes.Count nodes · @_graph.Edges.Count edges</h2>
+        </div>
+        @if (_focusRecordId.HasValue)
+        {
+            <span class="pill">@_depth hop@(_depth == 1 ? string.Empty : "s")</span>
+        }
+    </div>
+
+    @if (_graph.Nodes.Count == 0)
+    {
+        <p class="empty-state">No records match this graph view.</p>
+    }
+    else
+    {
+        <RelationshipGraphCanvas Graph="_graph" OnNodeSelected="SelectNode" />
+    }
+</section>
+
+@if (_selected is not null)
+{
+    <section class="panel graph-selection" aria-live="polite">
+        <div>
+            <p class="eyebrow">Selected record</p>
+            <h2>@_selected.DisplayName</h2>
+            <p>@_selected.RecordTypeName · distance @_selected.Distance</p>
+        </div>
+        <div class="action-row">
+            <a class="button primary" href="/records/@_selected.RecordId">Open record</a>
+            <button class="button" type="button" @onclick="FocusSelectedAsync">Show neighbours</button>
+            @if (_focusRecordId.HasValue && _depth < 3)
+            {
+                <button class="button" type="button" @onclick="ExpandAsync">Expand another hop</button>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<RelationshipType> _types = [];
+    private RelationshipGraphResult _graph = new([], [], false, false);
+    private RelationshipGraphNode? _selected;
+    private string _search = string.Empty;
+    private string _relationshipTypeValue = string.Empty;
+    private Guid? _focusRecordId;
+    private int _depth = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Relationships.ListTypesAsync();
+        await ReloadAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _focusRecordId = null;
+        _selected = null;
+        _depth = 1;
+        await ReloadAsync();
+    }
+
+    private Task SelectNode(Guid recordId)
+    {
+        _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
+        return Task.CompletedTask;
+    }
+
+    private async Task FocusSelectedAsync()
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        _focusRecordId = _selected.RecordId;
+        _search = string.Empty;
+        _depth = 1;
+        await ReloadAsync();
+        _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == _focusRecordId);
+    }
+
+    private async Task ExpandAsync()
+    {
+        _depth = Math.Min(3, _depth + 1);
+        await ReloadAsync();
+    }
+
+    private async Task ClearFocusAsync()
+    {
+        _focusRecordId = null;
+        _selected = null;
+        _depth = 1;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        Guid? relationshipTypeId = Guid.TryParse(_relationshipTypeValue, out Guid parsed) ? parsed : null;
+        _graph = await GraphService.QueryAsync(new(
+            _search,
+            relationshipTypeId,
+            _focusRecordId,
+            _depth));
+        if (_selected is not null)
+        {
+            _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == _selected.RecordId);
+        }
+    }
+}

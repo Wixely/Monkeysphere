@@ -73,6 +73,45 @@ public sealed class RelationshipWorkflowTests
         RelationshipType retired = Assert.Single(await relationships.ListTypesAsync());
         Assert.Equal(RelationshipLifecycle.Retired, retired.Lifecycle);
     }
+
+    [Fact]
+    public async Task RelationshipGraphSupportsSearchTypeFilteringAndBoundedNeighbourExpansion()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+        IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
+        RecordType person = await records.CreateRecordTypeAsync("Graph person");
+        RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", [], ["Enchantress"]);
+        RecordDetails charles = await records.CreateRecordAsync(person.Id, "Charles", []);
+        RecordDetails mary = await records.CreateRecordAsync(person.Id, "Mary", []);
+        RecordDetails unrelated = await records.CreateRecordAsync(person.Id, "Unrelated", []);
+        RelationshipType knows = await relationships.CreateTypeAsync(new("knows", RelationshipDirectionality.Symmetric));
+        RelationshipType inspired = await relationships.CreateTypeAsync(new("inspired", RelationshipDirectionality.Directional, "inspired by"));
+        _ = await relationships.CreateAsync(knows.Id, ada.Record.Id, charles.Record.Id);
+        _ = await relationships.CreateAsync(inspired.Id, charles.Record.Id, mary.Record.Id);
+        _ = await relationships.CreateAsync(knows.Id, mary.Record.Id, unrelated.Record.Id);
+
+        RelationshipGraphResult search = await graph.QueryAsync(new(Search: "Enchantress"));
+        Assert.Equal(ada.Record.Id, Assert.Single(search.Nodes).RecordId);
+        Assert.Empty(search.Edges);
+
+        RelationshipGraphResult depthOne = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id, Depth: 1));
+        Assert.Equal([ada.Record.Id, charles.Record.Id], depthOne.Nodes.Select(node => node.RecordId));
+        Assert.Single(depthOne.Edges);
+
+        RelationshipGraphResult filtered = await graph.QueryAsync(new(
+            FocusRecordId: ada.Record.Id,
+            RelationshipTypeId: knows.Id,
+            Depth: 3));
+        Assert.Equal([ada.Record.Id, charles.Record.Id], filtered.Nodes.Select(node => node.RecordId));
+        Assert.Single(filtered.Edges);
+
+        RelationshipGraphResult truncated = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id, Depth: 3, NodeLimit: 2));
+        Assert.True(truncated.NodesTruncated);
+        Assert.Equal(2, truncated.Nodes.Count);
+        Assert.DoesNotContain(truncated.Nodes, node => node.RecordId == unrelated.Record.Id);
+    }
 }
 
 internal sealed class TestApplication : IAsyncDisposable

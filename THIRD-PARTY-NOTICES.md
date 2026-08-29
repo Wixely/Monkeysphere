@@ -37,3 +37,10 @@ OpenLayers 10.10.0 is vendored from the official release package at <https://git
 | `ol.js` | `B89AF8EC3B76F564D515FD07FED3EC414AECF8F33F685B77B607451CB0C2029F` |
 | `ol.css` | `ABC8AFD72CC10BD29CC143F443BAE4A6804BD3CB3FB262E6B6A6BC6C924EA34F` |
 | `LICENSE.md` | `6C4347B83A8C9FEEF18D57B18E3B6C44CF901B3C344A4A1FBD837E421555AB8E` |
+
+Cytoscape.js 3.34.0 is vendored from the official release tag at <https://github.com/cytoscape/cytoscape.js/releases/tag/v3.34.0> and is MIT licensed. Its license is retained beside the browser build in `src/Monkeysphere.Web/wwwroot/vendor/cytoscape/3.34.0/LICENSE`. Monkeysphere consumes the published minified build directly and does not use an npm or Node.js build step.
+
+| File | SHA-256 |
+| --- | --- |
+| `cytoscape.min.js` | `9C2A3BF2592E0B14A1F7BEC07C03A54F16DEDF32AF9CD0AF155C716AA6C87BC3` |
+| `LICENSE` | `EB319C6E6F233607F71E8E2F450391751883CFC0EEB3CA7EF574C13D1D9C2203` |

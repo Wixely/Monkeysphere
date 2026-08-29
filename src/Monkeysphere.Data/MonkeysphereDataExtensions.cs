@@ -32,6 +32,8 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IRelationshipStore, SqliteRelationshipStore>();
         services.AddSingleton<IRelationshipService, RelationshipService>();
+        services.AddSingleton<IRelationshipGraphStore, SqliteRelationshipGraphStore>();
+        services.AddSingleton<IRelationshipGraphService, RelationshipGraphService>();
         services.AddSingleton<ISavedViewStore, SqliteSavedViewStore>();
         services.AddSingleton<ISavedViewService, SavedViewService>();
         services.AddSingleton<IPresetStore, SqlitePresetStore>();
