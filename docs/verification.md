@@ -1,6 +1,6 @@
 # Verification status
 
-Last verified: 2026-08-29
+Last verified: 2026-08-30
 
 ## Verified evidence
 
@@ -28,6 +28,7 @@ Last verified: 2026-08-29
 - A separate Release process smoke test applied DnaX migration 5 to a fresh SQLite data root, accepted the default administrator login, and served the authenticated four-tier wizard and its examples successfully.
 - A focused Chromium accessibility review covered desktop and 390 by 844 mobile layouts, keyboard access to the skip link, setup selection state, mobile navigation wrapping, and the accessibility tree. Graph and map visualizations now expose bounded standard-control or HTML-list alternatives.
 - A Chromium visual and rendering sweep covered the first-run wizard and every primary authenticated route at desktop and 390 by 844 mobile sizes. It confirmed the sans-serif stack, compact spacing, zero document overflow, correct Unicode rendering, no visible Blazor error UI, and successful delivery of the fingerprinted favicon.
+- A Chromium combobox sweep covered every route that previously rendered a native select or datalist. It confirmed HTML/CSS listboxes with visible type filtering, mouse and Enter selection, outside-click closing, open custom field-type identifiers, no native select remnants, zero mobile overflow, and clean console/network logs. Authenticated rendering tests assert the combobox semantics and behavior asset.
 
 ## Not yet verified
 

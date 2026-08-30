@@ -68,13 +68,7 @@ else
                 <h3>Merge into another type</h3>
                 <label>
                     Active target type
-                    <select @bind="_typeMergeTargetId">
-                        <option value="">Choose the type to keep</option>
-                        @foreach (RecordType type in TypeMergeTargets)
-                        {
-                            <option value="@type.Id">@type.Name</option>
-                        }
-                    </select>
+                    <SearchableSelect TValue="string" @bind-Value="_typeMergeTargetId" Options="TypeMergeTargetOptions" AriaLabel="Active target type" />
                 </label>
                 <button class="button" type="button" @onclick="PreviewTypeMergeAsync">Preview type merge</button>
                 @if (_typeMergePreview is not null)
@@ -128,13 +122,7 @@ else
                 </label>
                 <label>
                     Type identifier
-                    <InputText @bind-Value="_newField.TypeId" list="field-types" />
-                    <datalist id="field-types">
-                        @foreach (string typeId in FieldTypes.Recognized)
-                        {
-                            <option value="@typeId"></option>
-                        }
-                    </datalist>
+                    <SearchableSelect TValue="string" @bind-Value="_newField.TypeId" Options="FieldTypeOptions" AriaLabel="Type identifier" AllowCustomValue="true" Required="true" />
                     <ValidationMessage For="() => _newField.TypeId" />
                 </label>
             </div>
@@ -165,13 +153,7 @@ else
                 <DataAnnotationsValidator />
                 <label>
                     Field definition
-                    <select @bind="_existingField.FieldDefinitionId" required>
-                        <option value="">Choose a field</option>
-                        @foreach (FieldDefinition definition in AvailableDefinitions)
-                        {
-                            <option value="@definition.Id">@definition.Name (@definition.TypeId)</option>
-                        }
-                    </select>
+                    <SearchableSelect TValue="string" @bind-Value="_existingField.FieldDefinitionId" Options="AvailableDefinitionOptions" AriaLabel="Field definition" Required="true" />
                 </label>
                 <label class="checkbox-label">
                     <InputCheckbox @bind-Value="_existingField.IsRequired" />
@@ -241,31 +223,15 @@ else
                     <DataAnnotationsValidator />
                     <label>
                         Source field
-                        <select @bind="_merge.SourceId" required>
-                            <option value="">Choose the field to retire</option>
-                            @foreach (FieldDefinition definition in _definitions)
-                            {
-                                <option value="@definition.Id">@definition.Name (@definition.TypeId, @definition.Lifecycle)</option>
-                            }
-                        </select>
+                        <SearchableSelect TValue="string" @bind-Value="_merge.SourceId" Options="SourceDefinitionOptions" AriaLabel="Source field" Required="true" />
                     </label>
                     <label>
                         Target field
-                        <select @bind="_merge.TargetId" required>
-                            <option value="">Choose the field to keep</option>
-                            @foreach (FieldDefinition definition in _definitions.Where(item => item.Lifecycle == FieldLifecycle.Active))
-                            {
-                                <option value="@definition.Id">@definition.Name (@definition.TypeId)</option>
-                            }
-                        </select>
+                        <SearchableSelect TValue="string" @bind-Value="_merge.TargetId" Options="TargetDefinitionOptions" AriaLabel="Target field" Required="true" />
                     </label>
                     <label>
                         If a record contains both fields
-                        <InputSelect @bind-Value="_merge.Resolution">
-                            <option value="@FieldMergeConflictResolution.Reject">Stop without changing anything</option>
-                            <option value="@FieldMergeConflictResolution.KeepTarget">Keep the target value</option>
-                            <option value="@FieldMergeConflictResolution.KeepSource">Keep the source value</option>
-                        </InputSelect>
+                        <SearchableSelect TValue="FieldMergeConflictResolution" @bind-Value="_merge.Resolution" Options="ConflictResolutionOptions" AriaLabel="Merge conflict resolution" />
                     </label>
                     <button class="button" type="submit">Preview merge</button>
                 </EditForm>
@@ -304,13 +270,7 @@ else
                     <DataAnnotationsValidator />
                     <label>
                         Source field
-                        <select @bind="_conversion.SourceId" required>
-                            <option value="">Choose a field</option>
-                            @foreach (FieldDefinition definition in _definitions)
-                            {
-                                <option value="@definition.Id">@definition.Name (@definition.TypeId, @definition.Lifecycle)</option>
-                            }
-                        </select>
+                        <SearchableSelect TValue="string" @bind-Value="_conversion.SourceId" Options="ConversionSourceOptions" AriaLabel="Source field" Required="true" />
                     </label>
                     <label>
                         New field name
@@ -319,7 +279,7 @@ else
                     </label>
                     <label>
                         New type identifier
-                        <InputText @bind-Value="_conversion.TypeId" list="field-types" />
+                        <SearchableSelect TValue="string" @bind-Value="_conversion.TypeId" Options="FieldTypeOptions" AriaLabel="New type identifier" AllowCustomValue="true" Required="true" />
                         <ValidationMessage For="() => _conversion.TypeId" />
                     </label>
                     @if (string.Equals(_conversion.TypeId, FieldTypes.Choice, StringComparison.OrdinalIgnoreCase))
@@ -391,6 +351,31 @@ else
     private bool _retirementConfirmed;
     private bool _typeMergeConfirmed;
     private string _typeMergeTargetId = string.Empty;
+
+    private IReadOnlyList<ComboboxOption<string>> TypeMergeTargetOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose the type to keep"), .. TypeMergeTargets.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private static IReadOnlyList<ComboboxOption<string>> FieldTypeOptions { get; } =
+        [.. FieldTypes.Recognized.Select(typeId => new ComboboxOption<string>(typeId, typeId))];
+
+    private IReadOnlyList<ComboboxOption<string>> AvailableDefinitionOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose a field"), .. AvailableDefinitions.Select(definition => new ComboboxOption<string>(definition.Id.ToString(), $"{definition.Name} ({definition.TypeId})"))];
+
+    private IReadOnlyList<ComboboxOption<string>> SourceDefinitionOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose the field to retire"), .. _definitions.Select(definition => new ComboboxOption<string>(definition.Id.ToString(), $"{definition.Name} ({definition.TypeId}, {definition.Lifecycle})"))];
+
+    private IReadOnlyList<ComboboxOption<string>> TargetDefinitionOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose the field to keep"), .. _definitions.Where(item => item.Lifecycle == FieldLifecycle.Active).Select(definition => new ComboboxOption<string>(definition.Id.ToString(), $"{definition.Name} ({definition.TypeId})"))];
+
+    private IReadOnlyList<ComboboxOption<string>> ConversionSourceOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose a field"), .. _definitions.Select(definition => new ComboboxOption<string>(definition.Id.ToString(), $"{definition.Name} ({definition.TypeId}, {definition.Lifecycle})"))];
+
+    private static IReadOnlyList<ComboboxOption<FieldMergeConflictResolution>> ConflictResolutionOptions { get; } =
+    [
+        new(FieldMergeConflictResolution.Reject, "Stop without changing anything"),
+        new(FieldMergeConflictResolution.KeepTarget, "Keep the target value"),
+        new(FieldMergeConflictResolution.KeepSource, "Keep the source value"),
+    ];
 
     protected override async Task OnParametersSetAsync() => await ReloadAsync();
 

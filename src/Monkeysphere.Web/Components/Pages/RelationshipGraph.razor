@@ -22,13 +22,7 @@
         </label>
         <label>
             Relationship type
-            <select @bind="_relationshipTypeValue">
-                <option value="">All relationship types</option>
-                @foreach (RelationshipType type in _types)
-                {
-                    <option value="@type.Id">@type.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" @bind-Value="_relationshipTypeValue" Options="RelationshipTypeOptions" AriaLabel="Relationship type" />
         </label>
     </div>
     <div class="action-row">
@@ -69,13 +63,7 @@
         <RelationshipGraphCanvas Graph="_graph" OnNodeSelected="SelectNode" />
         <label class="graph-record-picker">
             Select a displayed record
-            <select value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" @onchange="SelectNodeFromList">
-                <option value="">Choose a record</option>
-                @foreach (RelationshipGraphNode node in _graph.Nodes)
-                {
-                    <option value="@node.RecordId">@node.DisplayName — @node.RecordTypeName, distance @node.Distance</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Select a displayed record" OnSelected="SelectNodeFromList" />
         </label>
     }
 </section>
@@ -108,6 +96,12 @@
     private Guid? _focusRecordId;
     private int _depth = 1;
 
+    private IReadOnlyList<ComboboxOption<string>> RelationshipTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "All relationship types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}, distance {node.Distance}"))];
+
     protected override async Task OnInitializedAsync()
     {
         _types = await Relationships.ListTypesAsync();
@@ -128,9 +122,9 @@
         return Task.CompletedTask;
     }
 
-    private Task SelectNodeFromList(ChangeEventArgs eventArgs)
+    private Task SelectNodeFromList(string value)
     {
-        _selected = Guid.TryParse(eventArgs.Value?.ToString(), out Guid recordId)
+        _selected = Guid.TryParse(value, out Guid recordId)
             ? _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId)
             : null;
         return Task.CompletedTask;

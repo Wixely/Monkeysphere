@@ -53,13 +53,7 @@
             </label>
             <label>
                 Record type
-                <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
-                    <option value="">Select a type</option>
-                    @foreach (RecordType type in _types)
-                    {
-                        <option value="@type.Id">@type.Name</option>
-                    }
-                </select>
+                <SearchableSelect TValue="string" Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" OnSelected="RecordTypeChangedAsync" />
             </label>
             <label>
                 Saved search text
@@ -67,23 +61,11 @@
             </label>
             <label>
                 Group rows by
-                <select @bind="_groupFieldValue">
-                    <option value="">No grouping</option>
-                    @foreach (RecordTypeField field in _fields)
-                    {
-                        <option value="@field.Definition.Id">@FieldLabel(field)</option>
-                    }
-                </select>
+                <SearchableSelect TValue="string" @bind-Value="_groupFieldValue" Options="GroupFieldOptions" AriaLabel="Group rows by" />
             </label>
             <label>
                 Sort rows by
-                <select @bind="_sortFieldValue">
-                    <option value="">Display name</option>
-                    @foreach (RecordTypeField field in _fields)
-                    {
-                        <option value="@field.Definition.Id">@FieldLabel(field)</option>
-                    }
-                </select>
+                <SearchableSelect TValue="string" @bind-Value="_sortFieldValue" Options="SortFieldOptions" AriaLabel="Sort rows by" />
             </label>
             <label class="checkbox-label">
                 <input type="checkbox" @bind="_sortDescending" />
@@ -127,21 +109,11 @@
                     <div class="filter-row" @key="filter.Key">
                         <label>
                             Field
-                            <select @bind="filter.FieldValue">
-                                @foreach (RecordTypeField field in _fields)
-                                {
-                                    <option value="@field.Definition.Id">@FieldLabel(field)</option>
-                                }
-                            </select>
+                            <SearchableSelect TValue="string" @bind-Value="filter.FieldValue" Options="FieldOptions" AriaLabel="Filter field" />
                         </label>
                         <label>
                             Operator
-                            <select @bind="filter.OperatorValue">
-                                @foreach (FieldFilterOperator operation in Enum.GetValues<FieldFilterOperator>())
-                                {
-                                    <option value="@operation">@operation</option>
-                                }
-                            </select>
+                            <SearchableSelect TValue="string" @bind-Value="filter.OperatorValue" Options="OperatorOptions" AriaLabel="Filter operator" />
                         </label>
                         <label>
                             Value
@@ -189,15 +161,30 @@
     private string? _message;
     private bool _isError;
 
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "Select a type"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> FieldOptions =>
+        [.. _fields.Select(item => new ComboboxOption<string>(item.Definition.Id.ToString(), FieldLabel(item)))];
+
+    private IReadOnlyList<ComboboxOption<string>> GroupFieldOptions =>
+        [new ComboboxOption<string>(string.Empty, "No grouping"), .. FieldOptions];
+
+    private IReadOnlyList<ComboboxOption<string>> SortFieldOptions =>
+        [new ComboboxOption<string>(string.Empty, "Display name"), .. FieldOptions];
+
+    private static IReadOnlyList<ComboboxOption<string>> OperatorOptions { get; } =
+        [.. Enum.GetValues<FieldFilterOperator>().Select(operation => new ComboboxOption<string>(operation.ToString(), operation.ToString()))];
+
     protected override async Task OnInitializedAsync()
     {
         _types = await Records.ListRecordTypesAsync();
         await ReloadViewsAsync();
     }
 
-    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    private async Task RecordTypeChangedAsync(string value)
     {
-        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _recordTypeValue = value;
         await LoadFieldsAsync();
         _selectedColumns.Clear();
         _filters.Clear();

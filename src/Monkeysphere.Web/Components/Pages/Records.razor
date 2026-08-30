@@ -26,13 +26,7 @@
 <section class="panel saved-view-picker">
     <label>
         Saved view
-        <select @bind="_savedViewValue">
-            <option value="">Ad hoc search</option>
-            @foreach (SavedView view in _savedViews)
-            {
-                <option value="@view.Id">@view.Name</option>
-            }
-        </select>
+        <SearchableSelect TValue="string" @bind-Value="_savedViewValue" Options="SavedViewOptions" AriaLabel="Saved view" />
     </label>
     <button class="button" type="button" @onclick="ApplySavedViewAsync">Apply view</button>
     @if (_activeView is not null)
@@ -51,32 +45,15 @@
         </label>
         <label>
             Record type
-            <select @bind="_recordTypeValue" disabled="@(_activeView is not null)">
-                <option value="">All types</option>
-                @foreach (RecordType type in _types)
-                {
-                    <option value="@type.Id">@type.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" @bind-Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" Disabled="@(_activeView is not null)" />
         </label>
         <label>
             Additional field filter
-            <select @bind="_fieldValue">
-                <option value="">No additional filter</option>
-                @foreach (RecordTypeField field in _filterFields)
-                {
-                    <option value="@field.Definition.Id">@field.Definition.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" @bind-Value="_fieldValue" Options="FieldOptions" AriaLabel="Additional field filter" />
         </label>
         <label>
             Operator
-            <select @bind="_operatorValue">
-                @foreach (FieldFilterOperator operation in Enum.GetValues<FieldFilterOperator>())
-                {
-                    <option value="@operation">@operation</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" @bind-Value="_operatorValue" Options="OperatorOptions" AriaLabel="Operator" />
         </label>
         <label>
             Filter value
@@ -167,6 +144,18 @@
     private string _operatorValue = FieldFilterOperator.Equals.ToString();
     private string _filterValue = string.Empty;
     private string? _message;
+
+    private IReadOnlyList<ComboboxOption<string>> SavedViewOptions =>
+        [new ComboboxOption<string>(string.Empty, "Ad hoc search"), .. _savedViews.Select(view => new ComboboxOption<string>(view.Id.ToString(), view.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "All types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> FieldOptions =>
+        [new ComboboxOption<string>(string.Empty, "No additional filter"), .. _filterFields.Select(item => new ComboboxOption<string>(item.Definition.Id.ToString(), item.Definition.Name))];
+
+    private static IReadOnlyList<ComboboxOption<string>> OperatorOptions { get; } =
+        [.. Enum.GetValues<FieldFilterOperator>().Select(operation => new ComboboxOption<string>(operation.ToString(), operation.ToString()))];
 
     protected override async Task OnInitializedAsync()
     {

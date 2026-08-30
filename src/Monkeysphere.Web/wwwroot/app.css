@@ -497,6 +497,98 @@ input[type="checkbox"] {
     accent-color: var(--accent);
 }
 
+.combobox {
+    min-width: 0;
+    position: relative;
+}
+
+.combobox::after {
+    width: .55rem;
+    height: .55rem;
+    position: absolute;
+    top: 50%;
+    right: .9rem;
+    border-right: 2px solid var(--accent-dark);
+    border-bottom: 2px solid var(--accent-dark);
+    content: "";
+    pointer-events: none;
+    transform: translateY(-68%) rotate(45deg);
+}
+
+.combobox:focus-within::after {
+    transform: translateY(-30%) rotate(225deg);
+}
+
+.combobox.disabled::after {
+    opacity: .4;
+}
+
+.combobox-input {
+    padding-right: 2.4rem;
+    cursor: pointer;
+}
+
+.combobox-input:focus {
+    cursor: text;
+}
+
+.combobox-list {
+    width: 100%;
+    max-height: min(20rem, 45vh);
+    position: absolute;
+    top: calc(100% + .35rem);
+    left: 0;
+    z-index: 40;
+    padding: .35rem;
+    overflow-y: auto;
+    border: 1px solid var(--line-strong);
+    border-radius: .65rem;
+    background: #fffaf0;
+    box-shadow: 0 16px 38px rgba(78, 48, 12, .2);
+}
+
+.combobox-option,
+.combobox-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .55rem .65rem;
+    border-radius: .4rem;
+}
+
+.combobox-option {
+    color: var(--ink-soft);
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.combobox-option:hover,
+.combobox-option.active {
+    color: var(--accent-dark);
+    background: var(--accent-soft);
+}
+
+.combobox-option.selected {
+    color: var(--accent-dark);
+    font-weight: 750;
+}
+
+.combobox-option.disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.combobox-check {
+    color: var(--accent);
+    font-weight: 900;
+}
+
+.combobox-empty {
+    color: var(--muted);
+    font-style: italic;
+}
+
 .checkbox-label {
     display: flex;
     align-items: center;

@@ -1,0 +1,235 @@
+@typeparam TValue
+
+<div class="combobox @(Disabled ? "disabled" : null)" @onfocusout="CloseAsync">
+    <input id="@ControlId"
+           class="combobox-input"
+           type="text"
+           role="combobox"
+           value="@InputValue"
+           placeholder="@InputPlaceholder"
+           autocomplete="off"
+           aria-label="@AriaLabel"
+           aria-autocomplete="list"
+           aria-haspopup="listbox"
+           aria-expanded="@(_open ? "true" : "false")"
+           aria-controls="@_listboxId"
+           aria-activedescendant="@ActiveDescendant"
+           disabled="@Disabled"
+           required="@Required"
+           @onfocus="OpenAsync"
+           @onclick="OpenAsync"
+           @oninput="FilterAsync"
+           @onkeydown="HandleKeyAsync" />
+    <div class="combobox-list" id="@_listboxId" role="listbox" aria-label="@ListLabel" hidden="@(!_open || Disabled)">
+        @if (FilteredOptions.Count == 0)
+        {
+            <div class="combobox-empty">No matches</div>
+        }
+        else
+        {
+            @for (int index = 0; index < FilteredOptions.Count; index++)
+            {
+                int optionIndex = index;
+                ComboboxOption<TValue> option = FilteredOptions[index];
+                bool selected = EqualityComparer<TValue>.Default.Equals(option.Value, Value);
+                <div id="@OptionId(optionIndex)"
+                     class="combobox-option @(optionIndex == _activeIndex ? "active" : null) @(selected ? "selected" : null) @(option.Disabled ? "disabled" : null)"
+                     role="option"
+                     aria-selected="@(selected ? "true" : "false")"
+                     aria-disabled="@(option.Disabled ? "true" : "false")"
+                     @onmousedown="() => SelectAsync(option)"
+                     @onmousedown:preventDefault>
+                    <span>@option.Label</span>
+                    @if (selected)
+                    {
+                        <span class="combobox-check" aria-hidden="true">✓</span>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? Id { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ComboboxOption<TValue>> Options { get; set; } = [];
+
+    [Parameter]
+    public TValue Value { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<TValue> ValueChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue> OnSelected { get; set; }
+
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public bool Required { get; set; }
+
+    [Parameter]
+    public bool AllowCustomValue { get; set; }
+
+    private readonly string _generatedId = $"combobox-{Guid.NewGuid():N}";
+    private bool _open;
+    private string _query = string.Empty;
+    private int _activeIndex;
+
+    private string ControlId => string.IsNullOrWhiteSpace(Id) ? _generatedId : Id;
+    private string _listboxId => $"{ControlId}-listbox";
+    private string ListLabel => AriaLabel ?? "Options";
+    private bool HasDefaultValue => EqualityComparer<TValue>.Default.Equals(Value, default!);
+    private string InputValue => Required && HasDefaultValue ? string.Empty : _query;
+    private string? InputPlaceholder => Required && HasDefaultValue ? SelectedOption()?.Label ?? Placeholder : Placeholder;
+    private string DisplayValue => SelectedOption()?.Label ??
+        (AllowCustomValue && typeof(TValue) == typeof(string) ? Value?.ToString() ?? string.Empty : string.Empty);
+    private string? ActiveDescendant => _open && FilteredOptions.Count > 0 ? OptionId(_activeIndex) : null;
+    private IReadOnlyList<ComboboxOption<TValue>> FilteredOptions => string.IsNullOrWhiteSpace(_query) || SelectedOption()?.Label == _query
+        ? Options
+        : Options.Where(option => option.Label.Contains(_query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+
+    protected override void OnParametersSet()
+    {
+        if (!_open)
+        {
+            _query = DisplayValue;
+        }
+    }
+
+    private Task OpenAsync()
+    {
+        if (!Disabled)
+        {
+            _open = true;
+            _activeIndex = Math.Max(0, IndexOfValue(FilteredOptions, Value));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task FilterAsync(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        _open = true;
+        _activeIndex = FirstEnabledIndex(FilteredOptions, 0, 1);
+        return Task.CompletedTask;
+    }
+
+    private async Task CloseAsync()
+    {
+        bool committedCustomValue = false;
+        if (AllowCustomValue && typeof(TValue) == typeof(string) && SelectedOption()?.Label != _query)
+        {
+            await CommitCustomValueAsync();
+            committedCustomValue = true;
+        }
+
+        _open = false;
+        if (!committedCustomValue)
+        {
+            _query = DisplayValue;
+        }
+    }
+
+    private async Task HandleKeyAsync(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "ArrowDown":
+                _open = true;
+                _activeIndex = FirstEnabledIndex(FilteredOptions, _activeIndex + 1, 1);
+                break;
+            case "ArrowUp":
+                _open = true;
+                _activeIndex = FirstEnabledIndex(FilteredOptions, _activeIndex - 1, -1);
+                break;
+            case "Enter" when _open && FilteredOptions.Count > 0:
+                await SelectAsync(FilteredOptions[_activeIndex]);
+                break;
+            case "Enter" when _open && AllowCustomValue:
+                await CommitCustomValueAsync();
+                _open = false;
+                break;
+            case "Escape":
+                _open = false;
+                _query = DisplayValue;
+                break;
+        }
+    }
+
+    private async Task SelectAsync(ComboboxOption<TValue> option)
+    {
+        if (option.Disabled)
+        {
+            return;
+        }
+
+        _query = option.Label;
+        _open = false;
+        await ValueChanged.InvokeAsync(option.Value);
+        await OnSelected.InvokeAsync(option.Value);
+    }
+
+    private async Task CommitCustomValueAsync()
+    {
+        if (typeof(TValue) != typeof(string))
+        {
+            return;
+        }
+
+        TValue customValue = (TValue)(object)_query;
+        await ValueChanged.InvokeAsync(customValue);
+        await OnSelected.InvokeAsync(customValue);
+    }
+
+    private ComboboxOption<TValue>? SelectedOption() =>
+        Options.FirstOrDefault(option => EqualityComparer<TValue>.Default.Equals(option.Value, Value));
+
+    private string OptionId(int index) => $"{_listboxId}-option-{index}";
+
+    private static int IndexOfValue(IReadOnlyList<ComboboxOption<TValue>> options, TValue value)
+    {
+        for (int index = 0; index < options.Count; index++)
+        {
+            if (EqualityComparer<TValue>.Default.Equals(options[index].Value, value))
+            {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    private static int FirstEnabledIndex(IReadOnlyList<ComboboxOption<TValue>> options, int start, int direction)
+    {
+        if (options.Count == 0)
+        {
+            return 0;
+        }
+
+        int index = Math.Clamp(start, 0, options.Count - 1);
+        while (options[index].Disabled)
+        {
+            int next = index + direction;
+            if (next < 0 || next >= options.Count)
+            {
+                return Math.Clamp(start - direction, 0, options.Count - 1);
+            }
+
+            index = next;
+        }
+
+        return index;
+    }
+}

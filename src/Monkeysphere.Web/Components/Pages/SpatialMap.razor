@@ -18,13 +18,7 @@
     <div class="form-grid">
         <label>
             Record type
-            <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
-                <option value="">All record types</option>
-                @foreach (RecordType type in _types)
-                {
-                    <option value="@type.Id">@type.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" OnSelected="RecordTypeChangedAsync" />
         </label>
         <fieldset class="map-layer-picker">
             <legend>Location layers <span class="muted">(none selected shows all)</span></legend>
@@ -74,6 +68,9 @@
     private readonly HashSet<Guid> _selectedFields = [];
     private int _page = 1;
 
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "All record types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
     protected override async Task OnInitializedAsync()
     {
         _types = await Records.ListRecordTypesAsync();
@@ -81,9 +78,9 @@
         await ReloadAsync();
     }
 
-    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    private async Task RecordTypeChangedAsync(string value)
     {
-        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _recordTypeValue = value;
         _selectedFields.Clear();
         _page = 1;
         await LoadLocationFieldsAsync();

@@ -61,27 +61,14 @@
                         <div class="form-grid">
                             <label>
                                 Action
-                                <select @bind="editor.Action">
-                                    <option value="@VCardImportAction.CreateSeparately">Create separately</option>
-                                    <option value="@VCardImportAction.Skip">Skip</option>
-                                    @if (contact.DuplicateCandidates.Count > 0)
-                                    {
-                                        <option value="@VCardImportAction.MergeNonConflicting">Merge non-conflicting values</option>
-                                        <option value="@VCardImportAction.ReplaceMappedValues">Replace mapped values</option>
-                                    }
-                                </select>
+                                <SearchableSelect TValue="VCardImportAction" @bind-Value="editor.Action" Options="ImportActionOptions(contact)" AriaLabel="Import action" />
                                 <small>@ActionExplanation(editor.Action)</small>
                             </label>
                             @if (editor.Action is VCardImportAction.MergeNonConflicting or VCardImportAction.ReplaceMappedValues)
                             {
                                 <label>
                                     Existing contact
-                                    <select @bind="editor.ExistingRecordValue">
-                                        @foreach (VCardDuplicateCandidate candidate in contact.DuplicateCandidates)
-                                        {
-                                            <option value="@candidate.RecordId">@candidate.DisplayName — @string.Join(", ", candidate.Reasons)</option>
-                                        }
-                                    </select>
+                                    <SearchableSelect TValue="string" @bind-Value="editor.ExistingRecordValue" Options="DuplicateOptions(contact)" AriaLabel="Existing contact" />
                                 </label>
                             }
                         </div>
@@ -153,6 +140,25 @@
     private readonly HashSet<Guid> _selectedExports = [];
     private string? _message;
     private bool _isError;
+
+    private static IReadOnlyList<ComboboxOption<VCardImportAction>> ImportActionOptions(VCardContactPreview contact)
+    {
+        List<ComboboxOption<VCardImportAction>> options =
+        [
+            new(VCardImportAction.CreateSeparately, "Create separately"),
+            new(VCardImportAction.Skip, "Skip"),
+        ];
+        if (contact.DuplicateCandidates.Count > 0)
+        {
+            options.Add(new(VCardImportAction.MergeNonConflicting, "Merge non-conflicting values"));
+            options.Add(new(VCardImportAction.ReplaceMappedValues, "Replace mapped values"));
+        }
+
+        return options;
+    }
+
+    private static IReadOnlyList<ComboboxOption<string>> DuplicateOptions(VCardContactPreview contact) =>
+        [.. contact.DuplicateCandidates.Select(candidate => new ComboboxOption<string>(candidate.RecordId.ToString(), $"{candidate.DisplayName} — {string.Join(", ", candidate.Reasons)}"))];
 
     protected override Task OnInitializedAsync() => ReloadPeopleAsync();
 

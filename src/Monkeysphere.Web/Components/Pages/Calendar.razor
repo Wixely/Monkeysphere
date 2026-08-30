@@ -26,23 +26,11 @@
     <div class="form-grid">
         <label>
             Record type
-            <select value="@_recordTypeValue" @onchange="RecordTypeChangedAsync">
-                <option value="">All record types</option>
-                @foreach (RecordType type in _types)
-                {
-                    <option value="@type.Id">@type.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" OnSelected="RecordTypeChangedAsync" />
         </label>
         <label>
             Date field
-            <select value="@_fieldValue" @onchange="FieldChangedAsync">
-                <option value="">All date fields</option>
-                @foreach (FieldDefinition field in _dateFields)
-                {
-                    <option value="@field.Id">@field.Name</option>
-                }
-            </select>
+            <SearchableSelect TValue="string" Value="_fieldValue" Options="DateFieldOptions" AriaLabel="Date field" OnSelected="FieldChangedAsync" />
         </label>
     </div>
 </section>
@@ -133,12 +121,7 @@
                             <td>@entry.FieldName</td>
                             <td>@entry.RecordTypeName</td>
                             <td class="reminder-action">
-                                <select @bind="_leadDays[entry.FieldValueId]" aria-label="Reminder lead time">
-                                    <option value="0">On the day</option>
-                                    <option value="1">1 day before</option>
-                                    <option value="7">1 week before</option>
-                                    <option value="30">30 days before</option>
-                                </select>
+                                <SearchableSelect TValue="int" @bind-Value="_leadDays[entry.FieldValueId]" Options="ReminderLeadOptions" AriaLabel="Reminder lead time" />
                                 <button class="button" type="button" @onclick="() => AddReminderAsync(entry)">Remind me</button>
                             </td>
                         </tr>
@@ -164,6 +147,15 @@
     private string? _message;
     private bool _isError;
 
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "All record types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> DateFieldOptions =>
+        [new ComboboxOption<string>(string.Empty, "All date fields"), .. _dateFields.Select(item => new ComboboxOption<string>(item.Id.ToString(), item.Name))];
+
+    private static IReadOnlyList<ComboboxOption<int>> ReminderLeadOptions { get; } =
+        [new(0, "On the day"), new(1, "1 day before"), new(7, "1 week before"), new(30, "30 days before")];
+
     protected override async Task OnInitializedAsync()
     {
         _today = DateOnly.FromDateTime(TimeProvider.GetLocalNow().DateTime);
@@ -173,17 +165,17 @@
         await ReloadAsync();
     }
 
-    private async Task RecordTypeChangedAsync(ChangeEventArgs eventArgs)
+    private async Task RecordTypeChangedAsync(string value)
     {
-        _recordTypeValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _recordTypeValue = value;
         _fieldValue = string.Empty;
         await LoadDateFieldsAsync();
         await ReloadAsync();
     }
 
-    private async Task FieldChangedAsync(ChangeEventArgs eventArgs)
+    private async Task FieldChangedAsync(string value)
     {
-        _fieldValue = eventArgs.Value?.ToString() ?? string.Empty;
+        _fieldValue = value;
         await ReloadAsync();
     }
 

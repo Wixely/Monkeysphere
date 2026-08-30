@@ -27,10 +27,7 @@
         </label>
         <label>
             Direction
-            <select @bind="_directionality">
-                <option value="@RelationshipDirectionality.Directional">Directional</option>
-                <option value="@RelationshipDirectionality.Symmetric">Symmetric</option>
-            </select>
+            <SearchableSelect TValue="RelationshipDirectionality" @bind-Value="_directionality" Options="DirectionalityOptions" AriaLabel="Direction" />
         </label>
         @if (_directionality == RelationshipDirectionality.Directional)
         {
@@ -100,6 +97,9 @@
     private string? _message;
     private readonly Dictionary<Guid, string> _names = [];
     private readonly Dictionary<Guid, string> _inverseNames = [];
+
+    private static IReadOnlyList<ComboboxOption<RelationshipDirectionality>> DirectionalityOptions { get; } =
+        [new(RelationshipDirectionality.Directional, "Directional"), new(RelationshipDirectionality.Symmetric, "Symmetric")];
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 

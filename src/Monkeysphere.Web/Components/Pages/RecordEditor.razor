@@ -46,13 +46,7 @@ else
             <div class="form-grid">
                 <label>
                     Record type
-                    <select value="@_selectedTypeValue" @onchange="TypeChangedAsync" disabled="@RecordId.HasValue">
-                        <option value="">Select a type</option>
-                        @foreach (RecordType type in _types)
-                        {
-                            <option value="@type.Id">@type.Name</option>
-                        }
-                    </select>
+                    <SearchableSelect TValue="string" Value="_selectedTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" Disabled="@RecordId.HasValue" OnSelected="TypeChangedAsync" />
                 </label>
                 <label>
                     Display name
@@ -94,24 +88,13 @@ else
                                         <input type="date" value="@editor.Scalar" @onchange="args => SetScalar(editor, args)" />
                                         break;
                                     case FieldTypes.Choice:
-                                        <select @bind="editor.Scalar">
-                                            <option value="">Choose…</option>
-                                            @foreach (string choice in FieldTypes.ChoiceOptions(editor.Field.Definition))
-                                            {
-                                                <option value="@choice">@choice</option>
-                                            }
-                                        </select>
+                                        <SearchableSelect TValue="string" @bind-Value="editor.Scalar" Options="ChoiceOptions(editor)" AriaLabel="@editor.Field.Definition.Name" />
                                         break;
                                     case FieldTypes.Tags:
                                         <input @bind="editor.Tags" placeholder="Comma-separated tags" />
                                         break;
                                     case FieldTypes.Temporal:
-                                        <select @bind="editor.TemporalPrecision">
-                                            @foreach (TemporalPrecision precision in Enum.GetValues<TemporalPrecision>())
-                                            {
-                                                <option value="@precision">@precision</option>
-                                            }
-                                        </select>
+                                        <SearchableSelect TValue="TemporalPrecision" @bind-Value="editor.TemporalPrecision" Options="TemporalPrecisionOptions" AriaLabel="Temporal precision" />
                                         <input @bind="editor.Scalar" placeholder="@TemporalValues.InputHint(editor.TemporalPrecision)" />
                                         <span class="checkbox-label">
                                             <input type="checkbox" @bind="editor.IsApproximate" />
@@ -289,13 +272,7 @@ else
                     <div class="form-grid">
                         <label>
                             Relationship
-                            <select @bind="_relationshipTypeValue">
-                                <option value="">Choose…</option>
-                                @foreach (RelationshipType type in _activeRelationshipTypes)
-                                {
-                                    <option value="@type.Id">@type.Name</option>
-                                }
-                            </select>
+                            <SearchableSelect TValue="string" @bind-Value="_relationshipTypeValue" Options="RelationshipTypeOptions" AriaLabel="Relationship" />
                         </label>
                         <label>
                             Find a record
@@ -303,13 +280,7 @@ else
                         </label>
                         <label>
                             Related record
-                            <select @bind="_relatedRecordValue">
-                                <option value="">Choose…</option>
-                                @foreach (RecordSummary candidate in _relatedCandidates)
-                                {
-                                    <option value="@candidate.Id">@candidate.DisplayName (@candidate.RecordTypeName)</option>
-                                }
-                            </select>
+                            <SearchableSelect TValue="string" @bind-Value="_relatedRecordValue" Options="RelatedRecordOptions" AriaLabel="Related record" />
                         </label>
                         <label>
                             Note
@@ -363,6 +334,21 @@ else
     private List<ImageEditor> _imageEditors = [];
     private bool _uploading;
 
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "Select a type"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> RelationshipTypeOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose…"), .. _activeRelationshipTypes.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+
+    private IReadOnlyList<ComboboxOption<string>> RelatedRecordOptions =>
+        [new ComboboxOption<string>(string.Empty, "Choose…"), .. _relatedCandidates.Select(candidate => new ComboboxOption<string>(candidate.Id.ToString(), $"{candidate.DisplayName} ({candidate.RecordTypeName})"))];
+
+    private static IReadOnlyList<ComboboxOption<TemporalPrecision>> TemporalPrecisionOptions { get; } =
+        [.. Enum.GetValues<TemporalPrecision>().Select(precision => new ComboboxOption<TemporalPrecision>(precision, precision.ToString()))];
+
+    private static IReadOnlyList<ComboboxOption<string>> ChoiceOptions(EditorField editor) =>
+        [new ComboboxOption<string>(string.Empty, "Choose…"), .. FieldTypes.ChoiceOptions(editor.Field.Definition).Select(choice => new ComboboxOption<string>(choice, choice))];
+
     protected override async Task OnParametersSetAsync()
     {
         _types = await Service.ListRecordTypesAsync();
@@ -395,9 +381,9 @@ else
         _loading = false;
     }
 
-    private async Task TypeChangedAsync(ChangeEventArgs args)
+    private async Task TypeChangedAsync(string value)
     {
-        _selectedTypeValue = args.Value?.ToString() ?? string.Empty;
+        _selectedTypeValue = value;
         _selectedType = Guid.TryParse(_selectedTypeValue, out Guid typeId)
             ? await Service.GetRecordTypeAsync(typeId)
             : null;

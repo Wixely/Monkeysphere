@@ -31,6 +31,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage ready = await client.GetAsync("/health/ready");
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
+        HttpResponseMessage comboboxBehavior = await client.GetAsync("/combobox.js");
         HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
@@ -52,6 +53,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
         Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);
         Assert.True((await graphLibrary.Content.ReadAsByteArrayAsync()).Length > 400_000);
+        Assert.Equal(HttpStatusCode.OK, comboboxBehavior.StatusCode);
+        Assert.Contains("combobox-input", await comboboxBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -186,6 +189,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
+        Assert.Contains("role=\"combobox\"", recordsHtml, StringComparison.Ordinal);
+        Assert.Contains("aria-autocomplete=\"list\"", recordsHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<select", recordsHtml, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Upcoming exact dates", calendarHtml, StringComparison.Ordinal);
         Assert.Contains("View type " + suffix, calendarHtml, StringComparison.Ordinal);
         Assert.Contains("Remind me", calendarHtml, StringComparison.Ordinal);
@@ -206,6 +212,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Preview type merge", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Preview merge", typeHtml, StringComparison.Ordinal);
         Assert.Contains("Preview conversion", typeHtml, StringComparison.Ordinal);
+        Assert.Contains("role=\"combobox\"", typeHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<datalist", typeHtml, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Aliases and nicknames", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Coordinate accuracy (metres)", editorHtml, StringComparison.Ordinal);
         Assert.Contains("Click the map to set coordinates", editorHtml, StringComparison.Ordinal);
