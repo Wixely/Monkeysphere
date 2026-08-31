@@ -191,6 +191,43 @@ h3 {
     padding: clamp(1.75rem, 4vw, 3rem) 0 4rem;
 }
 
+.section-tabs {
+    display: flex;
+    gap: .2rem;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0 1.35rem;
+    padding: .22rem;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: .65rem;
+    background: rgba(255, 250, 240, .72);
+    box-shadow: var(--shadow-small);
+}
+
+.section-tabs a {
+    padding: .48rem .72rem;
+    border: 1px solid transparent;
+    border-radius: .48rem;
+    color: var(--ink-soft);
+    font-size: .9rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.section-tabs a:hover {
+    color: var(--accent-dark);
+    background: var(--amber-50);
+}
+
+.section-tabs a.active {
+    border-color: var(--line-strong);
+    color: #fff8e9;
+    background: var(--accent-dark);
+    box-shadow: 0 3px 10px rgba(78, 48, 12, .14);
+}
+
 .lede {
     max-width: 48rem;
     margin-top: .3rem;
@@ -436,6 +473,33 @@ h3 {
 .preset-card h3 {
     margin: 0 0 .5rem;
     color: var(--accent-dark);
+}
+
+.title-with-symbol {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+}
+
+.type-symbol {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-grid;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    color: var(--ink);
+    background: var(--panel);
+    font-family: "Segoe UI Emoji", "Segoe UI Symbol", var(--font-sans);
+    font-size: .95rem;
+    line-height: 1;
+}
+
+.type-symbol.large {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.35rem;
 }
 
 .preset-card p {
@@ -1251,14 +1315,14 @@ dd {
     align-items: start;
 }
 
-.import-summary {
+.vcard-review {
+    min-width: 0;
+    margin-top: 1rem;
+}
+
+.vcard-review-actions {
     display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    margin: 1rem 0;
-    padding: .75rem;
-    border-radius: .5rem;
-    background: var(--accent-soft);
+    justify-content: flex-end;
 }
 
 .vcard-preview-list,
@@ -1269,6 +1333,7 @@ dd {
 }
 
 .vcard-preview {
+    min-width: 0;
     padding: .9rem;
     border: 1px solid var(--line);
     border-radius: .6rem;
@@ -1277,6 +1342,14 @@ dd {
 
 .vcard-preview h3 {
     margin: 0 0 .25rem;
+}
+
+.vcard-preview .compact-heading {
+    margin-top: 0;
+}
+
+.vcard-preview .compact-list li {
+    overflow-wrap: anywhere;
 }
 
 .compact-list {

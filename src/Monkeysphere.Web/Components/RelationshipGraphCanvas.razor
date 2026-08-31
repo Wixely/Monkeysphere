@@ -22,7 +22,7 @@
 
     protected override void OnParametersSet()
     {
-        string revision = string.Join('|', Graph.Nodes.Select(node => $"{node.RecordId}:{node.DisplayName}:{node.RecordTypeName}:{node.Distance}")) + ":" +
+        string revision = string.Join('|', Graph.Nodes.Select(node => $"{node.RecordId}:{node.DisplayName}:{node.RecordTypeName}:{node.Distance}:{node.ImageId}:{node.RecordTypeSymbol}")) + ":" +
             string.Join('|', Graph.Edges.Select(edge => $"{edge.RelationshipId}:{edge.SourceRecordId}:{edge.TargetRecordId}:{edge.Label}"));
         _needsUpdate = !string.Equals(revision, _revision, StringComparison.Ordinal);
         _revision = revision;

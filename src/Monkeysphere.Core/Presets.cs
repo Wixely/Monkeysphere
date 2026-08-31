@@ -14,7 +14,8 @@ public sealed record RecordTypePreset(
     string Category,
     string Description,
     IReadOnlyList<string> Examples,
-    IReadOnlyList<PresetField> Fields);
+    IReadOnlyList<PresetField> Fields,
+    string? Symbol = null);
 
 public sealed record RelationshipTypePreset(
     string Key,
@@ -237,9 +238,28 @@ public static class PresetCatalog
     ];
 
     private static RecordTypePreset Type(string key, string name, string category, string description, IReadOnlyList<string> examples, params PresetField[] fields) =>
-        new(key, 1, name, category, description, examples, fields);
+        new(key, 1, name, category, description, examples, fields, SymbolFor(key));
     private static RecordTypePreset TypeV2(string key, string name, string category, string description, IReadOnlyList<string> examples, params PresetField[] fields) =>
-        new(key, 2, name, category, description, examples, fields);
+        new(key, 2, name, category, description, examples, fields, SymbolFor(key));
+    private static string SymbolFor(string key) => key switch
+    {
+        Person => "👤",
+        Cat => "🐈",
+        Dog => "🐕",
+        SmallPet => "🐹",
+        Vehicle => "🚗",
+        VideoGame => "🎮",
+        BoardGame => "🎲",
+        Book => "📚",
+        FilmSeries => "🎬",
+        Plant => "🌿",
+        Home => "🏠",
+        Workplace => "💼",
+        FavouritePlace => "📍",
+        Trip => "✈️",
+        Event => "📅",
+        _ => "•",
+    };
     private static PresetField Field(string preset, string key, string name, string type, bool required = false, IReadOnlyList<string>? options = null) =>
         new($"{preset}.{key}", name, type, required, options);
     private static PresetField Text(string preset, string key, string name, bool required = false) => Field(preset, key, name, FieldTypes.Text, required);

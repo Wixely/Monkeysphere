@@ -1,10 +1,13 @@
 @page "/record-types"
+@page "/structures"
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
 @inject IPresetService Presets
 
 <PageTitle>Record types · Monkeysphere</PageTitle>
+
+<StructureTabs Active="record-types" />
 
 <div class="page-heading">
     <div>
@@ -24,11 +27,19 @@
     <p class="muted">Use a blank type when none of the premade definitions fits.</p>
     <EditForm Model="_model" OnValidSubmit="CreateAsync">
         <DataAnnotationsValidator />
-        <label>
-            Name
-            <InputText @bind-Value="_model.Name" placeholder="Organisation, recipe, project…" />
-            <ValidationMessage For="() => _model.Name" />
-        </label>
+        <div class="form-grid">
+            <label>
+                Name
+                <InputText @bind-Value="_model.Name" placeholder="Organisation, recipe, project…" />
+                <ValidationMessage For="() => _model.Name" />
+            </label>
+            <label>
+                Symbol <span class="muted">(optional, recommended)</span>
+                <InputText @bind-Value="_model.Symbol" maxlength="32" placeholder="For example, 🧭 or RPG" />
+                <small>Up to four visible characters or emoji. Used as a visual type marker.</small>
+                <ValidationMessage For="() => _model.Symbol" />
+            </label>
+        </div>
         <button class="button primary" type="submit">Create blank type</button>
     </EditForm>
 </section>
@@ -51,13 +62,13 @@
                 bool installed = _installedPresetKeys.Contains(preset.Key);
                 <article class="preset-card">
                     <div>
-                        <h3>@preset.Name</h3>
+                        <h3 class="title-with-symbol"><span class="type-symbol" aria-hidden="true">@preset.Symbol</span><span>@preset.Name</span></h3>
                         <p>@preset.Description</p>
                         <p class="preset-examples"><strong>Examples:</strong> @string.Join(", ", preset.Examples)</p>
                         <p class="preset-fields"><strong>Fields:</strong> @string.Join(", ", preset.Fields.Select(field => field.Name))</p>
                     </div>
                     <div class="preset-card-footer">
-                        <span class="muted">@preset.Fields.Count fields · v@preset.Version</span>
+                        <span class="muted">@($"{preset.Fields.Count} fields · v{preset.Version}")</span>
                         <button class="button @(installed ? "" : "primary")" type="button" disabled="@(installed || _busy)" @onclick="() => InstallPresetAsync(preset)">
                             @(installed ? "Installed" : "Install preset")
                         </button>
@@ -80,10 +91,14 @@
             @foreach (RecordType type in _types)
             {
                 <li>
-                    <a href="/record-types/@type.Id">@type.Name</a>
+                    @if (type.Symbol is not null)
+                    {
+                        <span class="type-symbol" title="Record type symbol" aria-hidden="true">@type.Symbol</span>
+                    }
+                    <a href="/structures/record-types/@type.Id">@type.Name</a>
                     @if (type.PresetKey is not null)
                     {
-                        <span class="pill">preset v@type.PresetVersion</span>
+                        <span class="pill">@($"preset v{type.PresetVersion}")</span>
                     }
                     @if (type.Lifecycle == RecordTypeLifecycle.Retired)
                     {
@@ -110,8 +125,9 @@
     {
         await RunAsync(async () =>
         {
-            RecordType created = await Service.CreateRecordTypeAsync(_model.Name);
+            RecordType created = await Service.CreateRecordTypeAsync(_model.Name, _model.Symbol);
             _model.Name = string.Empty;
+            _model.Symbol = string.Empty;
             _message = $"Created {created.Name}.";
         });
     }
@@ -152,5 +168,8 @@
     {
         [Required, StringLength(200)]
         public string Name { get; set; } = string.Empty;
+
+        [StringLength(32)]
+        public string Symbol { get; set; } = string.Empty;
     }
 }

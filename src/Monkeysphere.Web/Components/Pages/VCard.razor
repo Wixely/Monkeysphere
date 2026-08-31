@@ -1,10 +1,14 @@
 @page "/vcard"
+@page "/settings"
+@page "/settings/import-export"
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IVCardService VCards
 @inject IMonkeysphereService Records
 
 <PageTitle>Import and export · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="import-export" />
 
 <div class="page-heading">
     <div>
@@ -23,60 +27,11 @@
     <section class="panel">
         <p class="eyebrow">Import</p>
         <h2>Preview a contact file</h2>
-        <p>The Person preset must be installed. Files are read in memory, limited to 5 MiB and 1,000 contacts, and are not applied until you confirm every row.</p>
+        <p>The Person preset must be installed. Files are read in memory, limited to 5 MiB and 1,000 contacts, and are not applied until you confirm every row. Possible duplicates are checked against saved people and earlier contacts in the file.</p>
         <label>
             vCard file
             <InputFile OnChange="PreviewAsync" accept=".vcf,text/vcard,text/x-vcard" />
         </label>
-        @if (_preview is not null)
-        {
-            <div class="import-summary">
-                <strong>@_preview.Contacts.Count contact(s)</strong>
-                <span>Target: @_preview.RecordTypeName</span>
-            </div>
-            <div class="vcard-preview-list">
-                @foreach (ImportEditor editor in _importEditors)
-                {
-                    VCardContactPreview contact = editor.Contact;
-                    <article class="vcard-preview">
-                        <div class="section-heading compact-heading">
-                            <div>
-                                <h3>@contact.DisplayName</h3>
-                                <small>@contact.FieldMappings.Count mapped field(s) · @contact.OpaquePropertyIndexes.Count preserved property/properties</small>
-                            </div>
-                            @if (contact.DuplicateCandidates.Count > 0)
-                            {
-                                <span class="pill">@contact.DuplicateCandidates.Count possible duplicate(s)</span>
-                            }
-                        </div>
-                        @if (contact.FieldMappings.Count > 0)
-                        {
-                            <ul class="compact-list">
-                                @foreach (VCardFieldMapping mapping in contact.FieldMappings)
-                                {
-                                    <li>@mapping.FieldName: @MappingDisplay(mapping)</li>
-                                }
-                            </ul>
-                        }
-                        <div class="form-grid">
-                            <label>
-                                Action
-                                <SearchableSelect TValue="VCardImportAction" @bind-Value="editor.Action" Options="ImportActionOptions(contact)" AriaLabel="Import action" />
-                                <small>@ActionExplanation(editor.Action)</small>
-                            </label>
-                            @if (editor.Action is VCardImportAction.MergeNonConflicting or VCardImportAction.ReplaceMappedValues)
-                            {
-                                <label>
-                                    Existing contact
-                                    <SearchableSelect TValue="string" @bind-Value="editor.ExistingRecordValue" Options="DuplicateOptions(contact)" AriaLabel="Existing contact" />
-                                </label>
-                            }
-                        </div>
-                    </article>
-                }
-            </div>
-            <button class="button primary" type="button" @onclick="ApplyAsync">Apply all choices transactionally</button>
-        }
     </section>
 
     <section class="panel">
@@ -130,6 +85,76 @@
     </section>
 </div>
 
+@if (_preview is not null)
+{
+    <section class="panel vcard-review">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Import review</p>
+                <h2>Review @_preview.Contacts.Count contact(s)</h2>
+                <p class="muted">Confirm an action for every contact before applying the whole import in one transaction.</p>
+            </div>
+            <span class="pill">Target: @_preview.RecordTypeName</span>
+        </div>
+        <div class="vcard-preview-list">
+            @foreach (ImportEditor editor in _importEditors)
+            {
+                VCardContactPreview contact = editor.Contact;
+                <article class="vcard-preview">
+                    <div class="section-heading compact-heading">
+                        <div>
+                            <h3>@contact.DisplayName</h3>
+                            <small>@contact.FieldMappings.Count mapped field(s) · @contact.OpaquePropertyIndexes.Count preserved property/properties</small>
+                        </div>
+                        @if (DuplicateCount(contact) > 0)
+                        {
+                            <span class="pill">@DuplicateCount(contact) possible duplicate(s)</span>
+                        }
+                    </div>
+                    @if (contact.ImportDuplicateCandidates.Count > 0)
+                    {
+                        <div class="notice">
+                            <strong>May duplicate an earlier contact in this file</strong>
+                            <ul class="compact-list">
+                                @foreach (VCardImportDuplicateCandidate candidate in contact.ImportDuplicateCandidates)
+                                {
+                                    <li>Contact @(candidate.ContactIndex + 1), @candidate.DisplayName: @string.Join(", ", candidate.Reasons)</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                    @if (contact.FieldMappings.Count > 0)
+                    {
+                        <ul class="compact-list">
+                            @foreach (VCardFieldMapping mapping in contact.FieldMappings)
+                            {
+                                <li>@mapping.FieldName: @MappingDisplay(mapping)</li>
+                            }
+                        </ul>
+                    }
+                    <div class="form-grid">
+                        <label>
+                            Action
+                            <SearchableSelect TValue="VCardImportAction" @bind-Value="editor.Action" Options="ImportActionOptions(contact)" AriaLabel="Import action" />
+                            <small>@ActionExplanation(editor.Action)</small>
+                        </label>
+                        @if (editor.Action is VCardImportAction.MergeNonConflicting or VCardImportAction.ReplaceMappedValues)
+                        {
+                            <label>
+                                Existing contact
+                                <SearchableSelect TValue="string" @bind-Value="editor.ExistingRecordValue" Options="DuplicateOptions(contact)" AriaLabel="Existing contact" />
+                            </label>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+        <div class="vcard-review-actions">
+            <button class="button primary" type="button" @onclick="ApplyAsync">Apply all choices transactionally</button>
+        </div>
+    </section>
+}
+
 @code {
     private VCardImportPreview? _preview;
     private readonly List<ImportEditor> _importEditors = [];
@@ -156,6 +181,9 @@
 
         return options;
     }
+
+    private static int DuplicateCount(VCardContactPreview contact) =>
+        contact.DuplicateCandidates.Count + contact.ImportDuplicateCandidates.Count;
 
     private static IReadOnlyList<ComboboxOption<string>> DuplicateOptions(VCardContactPreview contact) =>
         [.. contact.DuplicateCandidates.Select(candidate => new ComboboxOption<string>(candidate.RecordId.ToString(), $"{candidate.DisplayName} — {string.Join(", ", candidate.Reasons)}"))];

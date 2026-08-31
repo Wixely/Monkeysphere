@@ -19,7 +19,8 @@ public sealed record RecordType(
     DateTimeOffset UpdatedAtUtc,
     string? PresetKey = null,
     int? PresetVersion = null,
-    RecordTypeLifecycle Lifecycle = RecordTypeLifecycle.Active);
+    RecordTypeLifecycle Lifecycle = RecordTypeLifecycle.Active,
+    string? Symbol = null);
 
 public sealed record RecordTypeRetirementPreview(
     RecordType RecordType,

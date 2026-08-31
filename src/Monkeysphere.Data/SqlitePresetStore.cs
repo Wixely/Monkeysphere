@@ -62,12 +62,13 @@ public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections,
             foreach (RecordTypePresetInstallation type in installation.RecordTypes)
             {
                 await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO RecordTypes (Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion)
-                    VALUES (@Id, @Name, @Now, @Now, @PresetKey, @PresetVersion);
+                    INSERT INTO RecordTypes (Id, Name, Symbol, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion)
+                    VALUES (@Id, @Name, @Symbol, @Now, @Now, @PresetKey, @PresetVersion);
                     """, new
                 {
                     Id = Key(type.Id),
                     type.Preset.Name,
+                    type.Preset.Symbol,
                     Now = now,
                     PresetKey = type.Preset.Key,
                     PresetVersion = type.Preset.Version,

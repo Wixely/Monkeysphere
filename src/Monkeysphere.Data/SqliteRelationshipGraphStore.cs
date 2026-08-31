@@ -44,8 +44,14 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             SELECT record.Id AS RecordId,
                    record.RecordTypeId,
                    type.Name AS RecordTypeName,
+                   type.Symbol AS RecordTypeSymbol,
                    record.DisplayName,
-                   selected.Distance
+                   selected.Distance,
+                   (SELECT image.Id
+                    FROM RecordImages image
+                    WHERE image.RecordId = record.Id
+                    ORDER BY image.IsCover DESC, image.Ordinal, image.Id
+                    LIMIT 1) AS ImageId
             FROM selected
             INNER JOIN Records record ON record.Id = selected.Id
             INNER JOIN RecordTypes type ON type.Id = record.RecordTypeId
@@ -106,7 +112,9 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             Guid.ParseExact(row.RecordTypeId, "D"),
             row.RecordTypeName,
             row.DisplayName,
-            row.Distance)).ToArray();
+            row.Distance,
+            row.ImageId is null ? null : Guid.ParseExact(row.ImageId, "D"),
+            row.RecordTypeSymbol)).ToArray();
         return new(nodes, edges, nodesTruncated, edgesTruncated);
     }
 
@@ -119,8 +127,10 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
         public required string RecordId { get; init; }
         public required string RecordTypeId { get; init; }
         public required string RecordTypeName { get; init; }
+        public string? RecordTypeSymbol { get; init; }
         public required string DisplayName { get; init; }
         public int Distance { get; init; }
+        public string? ImageId { get; init; }
     }
 
     private sealed class GraphEdgeRow

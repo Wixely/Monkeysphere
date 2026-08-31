@@ -13,7 +13,9 @@ public sealed record RelationshipGraphNode(
     Guid RecordTypeId,
     string RecordTypeName,
     string DisplayName,
-    int Distance);
+    int Distance,
+    Guid? ImageId = null,
+    string? RecordTypeSymbol = null);
 
 public sealed record RelationshipGraphEdge(
     Guid RelationshipId,

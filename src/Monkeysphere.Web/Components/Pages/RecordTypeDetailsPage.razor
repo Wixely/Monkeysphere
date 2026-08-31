@@ -1,9 +1,12 @@
 @page "/record-types/{Id:guid}"
+@page "/structures/record-types/{Id:guid}"
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
 
 <PageTitle>@(_details?.RecordType.Name ?? "Record type") · Monkeysphere</PageTitle>
+
+<StructureTabs Active="record-types" />
 
 @if (_loading)
 {
@@ -12,14 +15,20 @@
 else if (_details is null)
 {
     <h1>Record type not found</h1>
-    <p><a href="/record-types">Return to record types</a></p>
+    <p><a href="/structures">Return to record types</a></p>
 }
 else
 {
     <div class="page-heading">
         <div>
             <p class="eyebrow">Record type</p>
-            <h1>@_details.RecordType.Name</h1>
+            <h1 class="title-with-symbol">
+                @if (_details.RecordType.Symbol is not null)
+                {
+                    <span class="type-symbol large" aria-hidden="true">@_details.RecordType.Symbol</span>
+                }
+                <span>@_details.RecordType.Name</span>
+            </h1>
             <p class="muted">Stable ID @_details.RecordType.Id - @_details.RecordType.Lifecycle</p>
         </div>
         @if (_details.RecordType.Lifecycle == RecordTypeLifecycle.Active)
@@ -96,15 +105,23 @@ else
     </section>
 
     <section class="panel">
-        <h2>Rename type</h2>
+        <h2>Name and symbol</h2>
         <EditForm Model="_rename" OnValidSubmit="RenameAsync">
             <DataAnnotationsValidator />
-            <label>
-                Name
-                <InputText @bind-Value="_rename.Name" />
-                <ValidationMessage For="() => _rename.Name" />
-            </label>
-            <button class="button" type="submit">Save name</button>
+            <div class="form-grid">
+                <label>
+                    Name
+                    <InputText @bind-Value="_rename.Name" />
+                    <ValidationMessage For="() => _rename.Name" />
+                </label>
+                <label>
+                    Symbol <span class="muted">(optional, recommended)</span>
+                    <InputText @bind-Value="_rename.Symbol" maxlength="32" placeholder="For example, 🧭 or RPG" />
+                    <small>Shown as a type badge on the relationship graph.</small>
+                    <ValidationMessage For="() => _rename.Symbol" />
+                </label>
+            </div>
+            <button class="button" type="submit">Save type details</button>
         </EditForm>
     </section>
 
@@ -381,8 +398,8 @@ else
 
     private async Task RenameAsync() => await RunAsync(async () =>
     {
-        await Service.RenameRecordTypeAsync(Id, _rename.Name);
-        _message = "Record type renamed.";
+        await Service.UpdateRecordTypeAsync(Id, _rename.Name, _rename.Symbol);
+        _message = "Record type details updated.";
         await ReloadAsync(preserveMessage: true);
     });
 
@@ -551,6 +568,7 @@ else
         if (_details is not null)
         {
             _rename.Name = _details.RecordType.Name;
+            _rename.Symbol = _details.RecordType.Symbol ?? string.Empty;
             foreach (RecordTypeField field in _details.Fields)
             {
                 _fieldNames[field.Definition.Id] = field.Definition.Name;
@@ -626,6 +644,9 @@ else
     {
         [Required, StringLength(200)]
         public string Name { get; set; } = string.Empty;
+
+        [StringLength(32)]
+        public string Symbol { get; set; } = string.Empty;
     }
 
     private sealed class NewFieldModel

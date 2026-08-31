@@ -31,6 +31,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage ready = await client.GetAsync("/health/ready");
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
+        HttpResponseMessage graphBehavior = await client.GetAsync("/relationship-graph.js");
         HttpResponseMessage comboboxBehavior = await client.GetAsync("/combobox.js");
         HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
 
@@ -53,6 +54,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
         Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);
         Assert.True((await graphLibrary.Content.ReadAsByteArrayAsync()).Length > 400_000);
+        Assert.Equal(HttpStatusCode.OK, graphBehavior.StatusCode);
+        string graphScript = await graphBehavior.Content.ReadAsStringAsync();
+        Assert.Contains("/thumbnail", graphScript, StringComparison.Ordinal);
+        Assert.Contains("'background-image': 'data(imageUrl)'", graphScript, StringComparison.Ordinal);
+        Assert.Contains("badgeFor", graphScript, StringComparison.Ordinal);
+        Assert.Contains("positionBadge", graphScript, StringComparison.Ordinal);
+        Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
+        Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, comboboxBehavior.StatusCode);
         Assert.Contains("combobox-input", await comboboxBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
@@ -107,6 +116,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
     [Theory]
     [InlineData("/")]
+    [InlineData("/structures")]
+    [InlineData("/structures/relationship-types")]
+    [InlineData("/structures/saved-views")]
+    [InlineData("/settings")]
+    [InlineData("/settings/backups")]
+    [InlineData("/settings/remote-access")]
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
     [InlineData("/map")]
@@ -174,20 +189,28 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
             ["username"] = "admin",
             ["password"] = AdministratorPassword,
-            ["returnUrl"] = "/saved-views",
+            ["returnUrl"] = "/structures/saved-views",
         });
         Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
 
-        string viewsHtml = await client.GetStringAsync("/saved-views");
+        string viewsHtml = await client.GetStringAsync("/structures/saved-views");
+        string structuresHtml = await client.GetStringAsync("/structures");
         string recordsHtml = await client.GetStringAsync("/records");
         string calendarHtml = await client.GetStringAsync("/calendar");
         string mapHtml = await client.GetStringAsync("/map");
         string graphHtml = await client.GetStringAsync("/graph");
         HttpResponseMessage calendarExport = await client.GetAsync("/calendar/export.ics?from=2026-09-01&to=2026-09-30");
-        string typeHtml = await client.GetStringAsync($"/record-types/{typeId}");
+        string typeHtml = await client.GetStringAsync($"/structures/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Structure sections\"", structuresHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"/structures/relationship-types\"", structuresHtml, StringComparison.Ordinal);
+        Assert.Contains(">Structures</a>", structuresHtml, StringComparison.Ordinal);
+        string decodedStructuresHtml = WebUtility.HtmlDecode(structuresHtml);
+        Assert.Matches(@"\d+ fields · v\d+", decodedStructuresHtml);
+        Assert.DoesNotContain("@preset", decodedStructuresHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("@type", decodedStructuresHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("role=\"combobox\"", recordsHtml, StringComparison.Ordinal);
         Assert.Contains("aria-autocomplete=\"list\"", recordsHtml, StringComparison.Ordinal);
@@ -375,13 +398,16 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
             ["username"] = "admin",
             ["password"] = AdministratorPassword,
-            ["returnUrl"] = "/vcard",
+            ["returnUrl"] = "/settings",
         });
         Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
 
-        string page = await client.GetStringAsync("/vcard");
+        string page = await client.GetStringAsync("/settings");
         Assert.Contains("Preview a contact file", page, StringComparison.Ordinal);
         Assert.Contains("Web Export Person", page, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Settings sections\"", page, StringComparison.Ordinal);
+        Assert.Contains("href=\"/settings/backups\"", page, StringComparison.Ordinal);
+        Assert.Contains(">Settings</a>", page, StringComparison.Ordinal);
         HttpResponseMessage export = await client.GetAsync($"/vcard/export.vcf?ids={recordId:D}");
         Assert.Equal(HttpStatusCode.OK, export.StatusCode);
         Assert.Equal("text/vcard", export.Content.Headers.ContentType?.MediaType);

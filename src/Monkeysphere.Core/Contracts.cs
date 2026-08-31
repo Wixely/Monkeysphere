@@ -8,9 +8,11 @@ public interface IMonkeysphereStore
 
     Task<IReadOnlyList<FieldDefinition>> ListFieldDefinitionsAsync(CancellationToken cancellationToken = default);
 
-    Task<RecordType> CreateRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordType> CreateRecordTypeAsync(Guid id, string name, string? symbol, DateTimeOffset now, CancellationToken cancellationToken = default);
 
     Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
+
+    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, DateTimeOffset now, CancellationToken cancellationToken = default);
 
     Task<RecordTypeRetirementPreview?> PreviewRecordTypeRetirementAsync(
         Guid id,
@@ -138,9 +140,11 @@ public interface IMonkeysphereService
 
     Task<IReadOnlyList<FieldDefinition>> ListFieldDefinitionsAsync(CancellationToken cancellationToken = default);
 
-    Task<RecordType> CreateRecordTypeAsync(string name, CancellationToken cancellationToken = default);
+    Task<RecordType> CreateRecordTypeAsync(string name, string? symbol = null, CancellationToken cancellationToken = default);
 
     Task RenameRecordTypeAsync(Guid id, string name, CancellationToken cancellationToken = default);
+
+    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, CancellationToken cancellationToken = default);
 
     Task<RecordTypeRetirementPreview> PreviewRecordTypeRetirementAsync(
         Guid id,

@@ -15,7 +15,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RecordTypeRow> rows = await connection.QueryAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(MapRecordType).ToArray();
     }
@@ -25,7 +25,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RecordTypeRow? type = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle FROM RecordTypes WHERE Id = @Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol FROM RecordTypes WHERE Id = @Id;",
                 new { Id = Key(id) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (type is null)
@@ -53,6 +53,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
     public async Task<RecordType> CreateRecordTypeAsync(
         Guid id,
         string name,
+        string? symbol,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
@@ -61,8 +62,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         try
         {
             await connection.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO RecordTypes (Id, Name, CreatedAtUtc, UpdatedAtUtc) VALUES (@Id, @Name, @Now, @Now);",
-                new { Id = Key(id), Name = name, Now = timestamp },
+                "INSERT INTO RecordTypes (Id, Name, Symbol, CreatedAtUtc, UpdatedAtUtc) VALUES (@Id, @Name, @Symbol, @Now, @Now);",
+                new { Id = Key(id), Name = name, Symbol = symbol, Now = timestamp },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsUniqueConstraint(exception))
@@ -70,7 +71,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             throw new DomainValidationException("A record type with that name already exists.", exception);
         }
 
-        return new RecordType(id, name, now, now);
+        return new RecordType(id, name, now, now, Symbol: symbol);
     }
 
     public async Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -82,6 +83,30 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             changed = await connection.ExecuteAsync(new CommandDefinition(
                 "UPDATE RecordTypes SET Name = @Name, UpdatedAtUtc = @Now WHERE Id = @Id;",
                 new { Id = Key(id), Name = name, Now = Timestamp(now) },
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (SqliteException exception) when (IsUniqueConstraint(exception))
+        {
+            throw new DomainValidationException("A record type with that name already exists.", exception);
+        }
+
+        RequireChanged(changed, "Record type was not found.");
+    }
+
+    public async Task UpdateRecordTypeAsync(
+        Guid id,
+        string name,
+        string? symbol,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        int changed;
+        try
+        {
+            changed = await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE RecordTypes SET Name = @Name, Symbol = @Symbol, UpdatedAtUtc = @Now WHERE Id = @Id;",
+                new { Id = Key(id), Name = name, Symbol = symbol, Now = Timestamp(now) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsUniqueConstraint(exception))
@@ -1484,7 +1509,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         CancellationToken cancellationToken)
     {
         RecordTypeRow? row = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle
+            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol
             FROM RecordTypes
             WHERE Id = @Id;
             """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -1501,7 +1526,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         IEnumerable<string> rows = await connection.QueryAsync<string>(new CommandDefinition("""
             SELECT Snapshot
             FROM (
-                SELECT 'type|' || Id || '|' || Name || '|' || Lifecycle || '|' ||
+                SELECT 'type|' || Id || '|' || Name || '|' || COALESCE(Symbol, '') || '|' || Lifecycle || '|' ||
                        COALESCE(PresetKey, '') || '|' || COALESCE(PresetVersion, '') || '|' || UpdatedAtUtc AS Snapshot
                 FROM RecordTypes WHERE Id IN @Ids
                 UNION ALL
@@ -1659,7 +1684,8 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             ParseTimestamp(row.UpdatedAtUtc),
             row.PresetKey,
             row.PresetVersion,
-            (RecordTypeLifecycle)row.Lifecycle);
+            (RecordTypeLifecycle)row.Lifecycle,
+            row.Symbol);
 
     private static FieldDefinition MapField(FieldRow row) =>
         new(
@@ -1707,6 +1733,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
         public string? PresetKey { get; init; }
         public int? PresetVersion { get; init; }
         public int Lifecycle { get; init; }
+        public string? Symbol { get; init; }
     }
 
     private sealed class FieldRow

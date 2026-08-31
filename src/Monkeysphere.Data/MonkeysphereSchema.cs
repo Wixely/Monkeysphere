@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 13,
+        currentVersion: 14,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -446,6 +446,31 @@ public static class MonkeysphereSchema
                     FROM FieldValueLocationSpatialKeys keys
                     WHERE keys.FieldValueId = NEW.FieldValueId AND NEW.Latitude IS NOT NULL;
                 END;
+                """),
+            DnaXMigration.Sql(14, "record-type-symbols", "Add optional visual symbols to record types", """
+                ALTER TABLE RecordTypes ADD COLUMN Symbol TEXT NULL
+                    CHECK (Symbol IS NULL OR length(Symbol) BETWEEN 1 AND 32);
+
+                UPDATE RecordTypes
+                SET Symbol = CASE PresetKey
+                    WHEN 'monkeysphere.person' THEN '👤'
+                    WHEN 'monkeysphere.cat' THEN '🐈'
+                    WHEN 'monkeysphere.dog' THEN '🐕'
+                    WHEN 'monkeysphere.small-pet' THEN '🐹'
+                    WHEN 'monkeysphere.vehicle' THEN '🚗'
+                    WHEN 'monkeysphere.video-game' THEN '🎮'
+                    WHEN 'monkeysphere.board-game' THEN '🎲'
+                    WHEN 'monkeysphere.book' THEN '📚'
+                    WHEN 'monkeysphere.film-series' THEN '🎬'
+                    WHEN 'monkeysphere.plant' THEN '🌿'
+                    WHEN 'monkeysphere.home' THEN '🏠'
+                    WHEN 'monkeysphere.workplace' THEN '💼'
+                    WHEN 'monkeysphere.favourite-place' THEN '📍'
+                    WHEN 'monkeysphere.trip' THEN '✈️'
+                    WHEN 'monkeysphere.event' THEN '📅'
+                    ELSE Symbol
+                END
+                WHERE PresetKey IS NOT NULL;
                 """),
         ]);
 }

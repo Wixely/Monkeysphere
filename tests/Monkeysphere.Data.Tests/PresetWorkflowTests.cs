@@ -16,6 +16,7 @@ public sealed class PresetWorkflowTests
 
         Assert.False((await presets.GetSetupStatusAsync()).IsComplete);
         Assert.Equal(15, presets.RecordTypes.Count);
+        Assert.All(presets.RecordTypes, preset => Assert.False(string.IsNullOrWhiteSpace(preset.Symbol)));
         Assert.DoesNotContain(presets.RecordTypes, item => item.Name == "Thing");
         RecordTypePreset homePreset = Assert.Single(presets.RecordTypes, item => item.Key == "monkeysphere.home");
         Assert.Equal(2, homePreset.Version);
@@ -38,6 +39,7 @@ public sealed class PresetWorkflowTests
         Assert.Equal(["Person", "Vehicle", "Video Game"], installed.Select(item => item.Name).Order());
         RecordType videoGame = Assert.Single(installed, item => item.PresetKey == "monkeysphere.video-game");
         Assert.Equal(1, videoGame.PresetVersion);
+        Assert.Equal("🎮", videoGame.Symbol);
         RecordTypeDetails details = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(videoGame.Id));
         Assert.All(details.Fields, field =>
         {
@@ -80,8 +82,11 @@ public sealed class PresetWorkflowTests
         RecordType book = Assert.Single(await records.ListRecordTypesAsync());
         Assert.Equal("Book", book.Name);
         Assert.Equal("monkeysphere.book", book.PresetKey);
+        Assert.Equal("📚", book.Symbol);
         await records.RenameRecordTypeAsync(book.Id, "My Library");
-        Assert.Equal("My Library", (await records.GetRecordTypeAsync(book.Id))?.RecordType.Name);
+        RecordType renamed = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(book.Id)).RecordType;
+        Assert.Equal("My Library", renamed.Name);
+        Assert.Equal("📚", renamed.Symbol);
         await Assert.ThrowsAsync<DomainValidationException>(() => presets.InstallPresetAsync("monkeysphere.book"));
     }
 
@@ -219,5 +224,67 @@ public sealed class PresetWorkflowTests
             new(adaContact.Index, VCardImportAction.MergeNonConflicting, adaCandidate.RecordId),
         ]));
         Assert.Empty((await records.SearchRecordsAsync(new("New Contact", preview.RecordTypeId))).Items);
+    }
+
+    [Fact]
+    public async Task VCardPreviewDetectsDuplicatesWithinTheImportAndNormalizesPhoneNumbers()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IPresetService presets = application.Services.GetRequiredService<IPresetService>();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IVCardService vcards = application.Services.GetRequiredService<IVCardService>();
+        await presets.InstallPresetAsync("monkeysphere.person");
+
+        VCardImportPreview preview = await vcards.PreviewAsync(Encoding.UTF8.GetBytes("""
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Sam Example
+            EMAIL:sam@example.test
+            TEL:+44 1234 567890
+            END:VCARD
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Sam Example
+            EMAIL:sam@example.test
+            TEL:+44 1234 567890
+            END:VCARD
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Sam Example
+            END:VCARD
+            """));
+
+        Assert.Empty(preview.Contacts[0].ImportDuplicateCandidates);
+        VCardImportDuplicateCandidate exact = Assert.Single(preview.Contacts[1].ImportDuplicateCandidates);
+        Assert.True(exact.IsExactCard);
+        Assert.True(exact.IsStrongMatch);
+        Assert.Equal(0, exact.ContactIndex);
+        Assert.Equal(VCardImportAction.Skip, preview.Contacts[1].RecommendedAction);
+
+        VCardImportDuplicateCandidate[] nameOnly = preview.Contacts[2].ImportDuplicateCandidates.ToArray();
+        Assert.Equal(2, nameOnly.Length);
+        Assert.All(nameOnly, candidate => Assert.False(candidate.IsStrongMatch));
+        Assert.Equal(VCardImportAction.CreateSeparately, preview.Contacts[2].RecommendedAction);
+
+        VCardImportResult result = await vcards.ApplyAsync(preview, [
+            new(0, preview.Contacts[0].RecommendedAction),
+            new(1, preview.Contacts[1].RecommendedAction),
+            new(2, preview.Contacts[2].RecommendedAction),
+        ]);
+        Assert.Equal(2, result.Created);
+        Assert.Equal(1, result.Skipped);
+
+        VCardImportPreview normalizedPhone = await vcards.PreviewAsync(Encoding.UTF8.GetBytes("""
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Different Display Name
+            TEL:+44-1234-567890
+            END:VCARD
+            """));
+        VCardContactPreview normalizedContact = Assert.Single(normalizedPhone.Contacts);
+        VCardDuplicateCandidate phoneCandidate = Assert.Single(normalizedContact.DuplicateCandidates);
+        Assert.Contains(phoneCandidate.Reasons, reason => reason.StartsWith("matching ", StringComparison.Ordinal));
+        Assert.Equal(VCardImportAction.MergeNonConflicting, normalizedContact.RecommendedAction);
+        Assert.Equal(2, (await records.SearchRecordsAsync(new("Sam Example", preview.RecordTypeId))).TotalCount);
     }
 }

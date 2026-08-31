@@ -68,7 +68,7 @@ else
                         <label class="setup-preset-choice">
                             <input type="checkbox" checked="@_selectedPresetKeys.Contains(preset.Key)" @onchange="eventArgs => TogglePreset(preset.Key, eventArgs)" />
                             <span>
-                                <strong>@preset.Name</strong>
+                                <strong class="title-with-symbol"><span class="type-symbol" aria-hidden="true">@preset.Symbol</span><span>@preset.Name</span></strong>
                                 <small>@preset.Description</small>
                                 <small><b>Fields:</b> @string.Join(", ", preset.Fields.Select(field => field.Name))</small>
                             </span>

@@ -29,6 +29,13 @@ public sealed record VCardDuplicateCandidate(
     IReadOnlyList<string> Reasons,
     bool IsExactPriorImport);
 
+public sealed record VCardImportDuplicateCandidate(
+    int ContactIndex,
+    string DisplayName,
+    IReadOnlyList<string> Reasons,
+    bool IsExactCard,
+    bool IsStrongMatch);
+
 public sealed record VCardContactPreview(
     int Index,
     VCard Card,
@@ -37,7 +44,10 @@ public sealed record VCardContactPreview(
     IReadOnlyList<VCardFieldMapping> FieldMappings,
     IReadOnlyList<int> OpaquePropertyIndexes,
     IReadOnlyList<VCardDuplicateCandidate> DuplicateCandidates,
-    VCardImportAction RecommendedAction);
+    VCardImportAction RecommendedAction)
+{
+    public IReadOnlyList<VCardImportDuplicateCandidate> ImportDuplicateCandidates { get; init; } = [];
+}
 
 public sealed record VCardImportPreview(
     Guid RecordTypeId,
@@ -137,6 +147,22 @@ public sealed class VCardService(
         IReadOnlyList<VCardExistingContact> existing = await store.ListExistingAsync(person.Id, cancellationToken).ConfigureAwait(false);
 
         VCardContactPreview[] contacts = cards.Select((card, index) => PreviewCard(index, card, fields, existing)).ToArray();
+        for (int index = 0; index < contacts.Length; index++)
+        {
+            VCardImportDuplicateCandidate[] importDuplicates = contacts[..index]
+                .Select(previous => CompareImportedContacts(contacts[index], previous))
+                .Where(candidate => candidate is not null)
+                .Cast<VCardImportDuplicateCandidate>()
+                .ToArray();
+            bool shouldSkip = importDuplicates.Any(candidate => candidate.IsExactCard) ||
+                              importDuplicates.Count(candidate => candidate.IsStrongMatch) == 1;
+            contacts[index] = contacts[index] with
+            {
+                ImportDuplicateCandidates = importDuplicates,
+                RecommendedAction = shouldSkip ? VCardImportAction.Skip : contacts[index].RecommendedAction,
+            };
+        }
+
         return new(person.Id, person.Name, contacts);
     }
 
@@ -264,7 +290,7 @@ public sealed class VCardService(
             }
 
             if (candidate.Aliases.Append(candidate.DisplayName).Any(name =>
-                aliases.Append(displayName).Contains(name, StringComparer.OrdinalIgnoreCase)))
+                aliases.Append(displayName).Any(importedName => NamesEqual(name, importedName))))
             {
                 reasons.Add("matching name or alias");
             }
@@ -272,7 +298,8 @@ public sealed class VCardService(
             foreach (VCardFieldMapping mapping in mappings)
             {
                 string? value = MappingValue(mapping.Input);
-                if (value is not null && candidate.CanonicalValues.GetValueOrDefault(mapping.CanonicalKey, []).Contains(value, StringComparer.OrdinalIgnoreCase))
+                if (value is not null && candidate.CanonicalValues.GetValueOrDefault(mapping.CanonicalKey, [])
+                    .Any(existingValue => ValuesEqual(mapping.CanonicalKey, value, existingValue)))
                 {
                     reasons.Add($"matching {mapping.FieldName}");
                 }
@@ -290,6 +317,73 @@ public sealed class VCardService(
                 ? VCardImportAction.MergeNonConflicting
                 : VCardImportAction.CreateSeparately;
         return new(index, card, displayName, aliases, mappings, opaque.Order().ToArray(), duplicates, recommended);
+    }
+
+    private static VCardImportDuplicateCandidate? CompareImportedContacts(
+        VCardContactPreview contact,
+        VCardContactPreview previous)
+    {
+        List<string> reasons = [];
+        bool exact = string.Equals(contact.Card.Fingerprint, previous.Card.Fingerprint, StringComparison.Ordinal);
+        if (exact)
+        {
+            reasons.Add("same vCard appears earlier in this file");
+        }
+
+        if (previous.Aliases.Append(previous.DisplayName).Any(previousName =>
+            contact.Aliases.Append(contact.DisplayName).Any(name => NamesEqual(previousName, name))))
+        {
+            reasons.Add("matching name or alias");
+        }
+
+        bool strong = exact;
+        foreach (VCardFieldMapping mapping in contact.FieldMappings)
+        {
+            string? value = MappingValue(mapping.Input);
+            if (value is null || !previous.FieldMappings.Any(previousMapping =>
+                    string.Equals(previousMapping.CanonicalKey, mapping.CanonicalKey, StringComparison.Ordinal) &&
+                    MappingValue(previousMapping.Input) is string previousValue &&
+                    ValuesEqual(mapping.CanonicalKey, value, previousValue)))
+            {
+                continue;
+            }
+
+            reasons.Add($"matching {mapping.FieldName}");
+            strong |= mapping.CanonicalKey is "monkeysphere.person.email" or "monkeysphere.person.phone";
+        }
+
+        return reasons.Count == 0
+            ? null
+            : new(previous.Index, previous.DisplayName, reasons.Distinct().ToArray(), exact, strong);
+    }
+
+    private static bool NamesEqual(string left, string right) =>
+        string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static bool ValuesEqual(string canonicalKey, string left, string right)
+    {
+        string normalizedLeft = NormalizeComparableValue(canonicalKey, left);
+        string normalizedRight = NormalizeComparableValue(canonicalKey, right);
+        return normalizedLeft.Length > 0 &&
+               string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeComparableValue(string canonicalKey, string value)
+    {
+        string trimmed = value.Trim();
+        if (canonicalKey == "monkeysphere.person.email")
+        {
+            return trimmed.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? trimmed[7..].Trim() : trimmed;
+        }
+
+        if (canonicalKey == "monkeysphere.person.phone")
+        {
+            bool international = trimmed.StartsWith('+');
+            string digits = new(trimmed.Where(char.IsDigit).ToArray());
+            return international && digits.Length > 0 ? $"+{digits}" : digits;
+        }
+
+        return trimmed;
     }
 
     private static bool TryInput(FieldDefinition field, VCardProperty property, out FieldValueInput input)

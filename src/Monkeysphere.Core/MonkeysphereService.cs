@@ -13,10 +13,11 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
     public Task<IReadOnlyList<FieldDefinition>> ListFieldDefinitionsAsync(CancellationToken cancellationToken = default) =>
         store.ListFieldDefinitionsAsync(cancellationToken);
 
-    public Task<RecordType> CreateRecordTypeAsync(string name, CancellationToken cancellationToken = default) =>
+    public Task<RecordType> CreateRecordTypeAsync(string name, string? symbol = null, CancellationToken cancellationToken = default) =>
         store.CreateRecordTypeAsync(
             Guid.CreateVersion7(),
             FieldTypes.Required(name, "Record type name", 200),
+            NormalizeRecordTypeSymbol(symbol),
             timeProvider.GetUtcNow(),
             cancellationToken);
 
@@ -26,6 +27,36 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             FieldTypes.Required(name, "Record type name", 200),
             timeProvider.GetUtcNow(),
             cancellationToken);
+
+    public Task UpdateRecordTypeAsync(
+        Guid id,
+        string name,
+        string? symbol,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateRecordTypeAsync(
+            id,
+            FieldTypes.Required(name, "Record type name", 200),
+            NormalizeRecordTypeSymbol(symbol),
+            timeProvider.GetUtcNow(),
+            cancellationToken);
+
+    private static string? NormalizeRecordTypeSymbol(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return null;
+        }
+
+        string normalized = symbol.Trim();
+        if (normalized.Length > 32 ||
+            StringInfo.ParseCombiningCharacters(normalized).Length > 4 ||
+            normalized.Any(char.IsControl))
+        {
+            throw new DomainValidationException("Record type symbol must contain at most four visible characters or emoji.");
+        }
+
+        return normalized;
+    }
 
     public async Task<RecordTypeRetirementPreview> PreviewRecordTypeRetirementAsync(
         Guid id,

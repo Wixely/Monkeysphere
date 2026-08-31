@@ -79,13 +79,17 @@ public sealed class RelationshipWorkflowTests
     {
         await using TestApplication application = await TestApplication.CreateAsync();
         IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordImageService images = application.Services.GetRequiredService<IRecordImageService>();
         IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
         IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
-        RecordType person = await records.CreateRecordTypeAsync("Graph person");
+        RecordType person = await records.CreateRecordTypeAsync("Graph person", "👤");
         RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", [], ["Enchantress"]);
         RecordDetails charles = await records.CreateRecordAsync(person.Id, "Charles", []);
         RecordDetails mary = await records.CreateRecordAsync(person.Id, "Mary", []);
         RecordDetails unrelated = await records.CreateRecordAsync(person.Id, "Unrelated", []);
+        byte[] png = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        RecordImage adaImage = await images.AddAsync(ada.Record.Id, new MemoryStream(png), "ada.png");
         RelationshipType knows = await relationships.CreateTypeAsync(new("knows", RelationshipDirectionality.Symmetric));
         RelationshipType inspired = await relationships.CreateTypeAsync(new("inspired", RelationshipDirectionality.Directional, "inspired by"));
         _ = await relationships.CreateAsync(knows.Id, ada.Record.Id, charles.Record.Id);
@@ -93,11 +97,15 @@ public sealed class RelationshipWorkflowTests
         _ = await relationships.CreateAsync(knows.Id, mary.Record.Id, unrelated.Record.Id);
 
         RelationshipGraphResult search = await graph.QueryAsync(new(Search: "Enchantress"));
-        Assert.Equal(ada.Record.Id, Assert.Single(search.Nodes).RecordId);
+        RelationshipGraphNode searchNode = Assert.Single(search.Nodes);
+        Assert.Equal(ada.Record.Id, searchNode.RecordId);
+        Assert.Equal(adaImage.Id, searchNode.ImageId);
+        Assert.Equal("👤", searchNode.RecordTypeSymbol);
         Assert.Empty(search.Edges);
 
         RelationshipGraphResult depthOne = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id, Depth: 1));
         Assert.Equal([ada.Record.Id, charles.Record.Id], depthOne.Nodes.Select(node => node.RecordId));
+        Assert.Null(Assert.Single(depthOne.Nodes, node => node.RecordId == charles.Record.Id).ImageId);
         Assert.Single(depthOne.Edges);
 
         RelationshipGraphResult filtered = await graph.QueryAsync(new(

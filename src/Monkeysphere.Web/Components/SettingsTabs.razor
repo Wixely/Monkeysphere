@@ -1,0 +1,16 @@
+<nav class="section-tabs" aria-label="Settings sections">
+    <a class="@(Active == "import-export" ? "active" : null)"
+       aria-current="@(Active == "import-export" ? "page" : null)"
+       href="/settings">Import/export</a>
+    <a class="@(Active == "backups" ? "active" : null)"
+       aria-current="@(Active == "backups" ? "page" : null)"
+       href="/settings/backups">Backups</a>
+    <a class="@(Active == "remote-access" ? "active" : null)"
+       aria-current="@(Active == "remote-access" ? "page" : null)"
+       href="/settings/remote-access">Remote access</a>
+</nav>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Active { get; set; } = string.Empty;
+}

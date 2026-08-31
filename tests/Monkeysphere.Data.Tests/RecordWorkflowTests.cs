@@ -538,11 +538,18 @@ public sealed class RecordWorkflowTests
     {
         await using TestApplication application = await TestApplication.CreateAsync();
         IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
-        RecordType person = await service.CreateRecordTypeAsync("Person");
+        RecordType person = await service.CreateRecordTypeAsync("Person", "👤");
         RecordType pet = await service.CreateRecordTypeAsync("Pet");
 
+        Assert.Equal("👤", person.Symbol);
+        await service.UpdateRecordTypeAsync(pet.Id, "Pet", "🐾");
+        Assert.Equal("🐾", (await service.GetRecordTypeAsync(pet.Id))?.RecordType.Symbol);
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.UpdateRecordTypeAsync(pet.Id, "Pet", "ABCDE"));
         await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateRecordTypeAsync("person"));
         await Assert.ThrowsAsync<DomainValidationException>(() => service.RenameRecordTypeAsync(pet.Id, person.Name));
+        await service.RenameRecordTypeAsync(pet.Id, "Companion");
+        Assert.Equal("🐾", (await service.GetRecordTypeAsync(pet.Id))?.RecordType.Symbol);
     }
 
     [Fact]
