@@ -21,6 +21,13 @@
                 <NavLink href="/graph">Graph</NavLink>
                 <NavLink href="/settings">Settings</NavLink>
             </nav>
+        </Authorized>
+    </AuthorizeView>
+    <button type="button" class="theme-toggle" data-theme-toggle aria-label="Use dark theme" aria-pressed="false" title="Use dark theme">
+        <span data-theme-icon aria-hidden="true">☾</span>
+    </button>
+    <AuthorizeView>
+        <Authorized>
             <form method="post" action="/auth/logout" class="logout-form">
                 <AntiforgeryToken />
                 <button type="submit" class="button-link">Sign out</button>

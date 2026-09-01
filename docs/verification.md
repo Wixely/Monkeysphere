@@ -12,6 +12,7 @@ Last verified: 2026-08-30
 - An offline restore integration test changes live data after backup, restores the earlier package with rollback retention, restarts against the restored data root, and verifies database rollback plus lazy image-derivative regeneration.
 - Schedule tests cover daily, weekly, and end-of-month recurrence calculations; scheduling remains off by default in the application and Docker configuration.
 - Core, SQLite integration, and authenticated rendering tests cover graph limits, alias search, relationship-type filtering, neighbour depth, cover-image and record-type-symbol selection, deterministic node truncation, private route protection, and vendored Cytoscape.js delivery.
+- Web rendering checks cover delivery of the early theme initializer, its local-storage persistence contract, the accessible header toggle, and live graph-theme integration.
 - A production-path scale regression creates 10,000 records and 50,000 relationships, completes a one-hop focused query under a 10-second cancellation deadline, and proves simultaneous 500-node and 2,000-edge truncation. This verifies the accepted boundary, not a latency SLA.
 - Application tests verify the global anti-framing, no-referrer, MIME-sniffing, permissions, base-URI, and object-embedding response headers.
 - `eng/VerifySupplyChain.ps1 -AuditVulnerabilities` reported no known direct or transitive NuGet vulnerability from the configured sources on 2026-08-29. The audit is time-sensitive and is not treated as permanent evidence.

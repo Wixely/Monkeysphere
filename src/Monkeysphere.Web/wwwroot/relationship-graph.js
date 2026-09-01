@@ -1,5 +1,106 @@
 const graphs = new globalThis.Map();
 
+function themeColor(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function graphStyles() {
+    const ink = themeColor('--ink', '#2d2418');
+    const panel = themeColor('--panel', '#fffaf0');
+    const node = themeColor('--graph-node', '#a95508');
+    const focusedNode = themeColor('--graph-node-focus', '#713703');
+    const edge = themeColor('--graph-edge', '#c78a45');
+    const edgeLabel = themeColor('--graph-label', '#713703');
+    const selected = themeColor('--accent-bright', '#e9a23b');
+
+    return [
+        {
+            selector: 'node',
+            style: {
+                'background-color': node,
+                'border-color': panel,
+                'border-width': 3,
+                'label': 'data(label)',
+                'color': ink,
+                'font-size': 12,
+                'font-weight': 600,
+                'text-wrap': 'wrap',
+                'text-max-width': 110,
+                'text-valign': 'bottom',
+                'text-margin-y': 8,
+                'active-bg-opacity': 0,
+                'overlay-opacity': 0,
+                'width': 30,
+                'height': 30
+            }
+        },
+        {
+            selector: 'node[distance = 0]',
+            style: { 'background-color': focusedNode, 'width': 42, 'height': 42 }
+        },
+        {
+            selector: 'node[imageUrl]',
+            style: {
+                'background-image': 'data(imageUrl)',
+                'background-fit': 'cover',
+                'background-clip': 'node',
+                'width': 46,
+                'height': 46
+            }
+        },
+        {
+            selector: 'node[imageUrl][distance = 0]',
+            style: { 'width': 54, 'height': 54 }
+        },
+        {
+            selector: 'node[badgeFor]',
+            style: {
+                'background-color': panel,
+                'border-color': ink,
+                'border-width': 2,
+                'label': 'data(label)',
+                'color': ink,
+                'font-family': '"Segoe UI Emoji", "Segoe UI Symbol", sans-serif',
+                'font-size': 12,
+                'font-weight': 700,
+                'text-wrap': 'none',
+                'text-halign': 'center',
+                'text-valign': 'center',
+                'text-margin-x': 0,
+                'text-margin-y': 0,
+                'width': 18,
+                'height': 18,
+                'events': 'no',
+                'z-index': 20
+            }
+        },
+        {
+            selector: 'node:selected',
+            style: { 'border-color': selected, 'border-width': 6 }
+        },
+        {
+            selector: 'edge',
+            style: {
+                'curve-style': 'bezier',
+                'line-color': edge,
+                'width': 2,
+                'label': 'data(label)',
+                'font-size': 9,
+                'color': edgeLabel,
+                'text-background-color': panel,
+                'text-background-opacity': 0.85,
+                'text-background-padding': 2,
+                'target-arrow-color': node,
+                'target-arrow-shape': 'none'
+            }
+        },
+        {
+            selector: 'edge[directional = true]',
+            style: { 'target-arrow-shape': 'triangle' }
+        }
+    ];
+}
+
 function elements(graph) {
     return [
         ...graph.nodes.flatMap(node => {
@@ -89,92 +190,7 @@ export function create(element, callback, graph) {
         minZoom: 0.15,
         maxZoom: 3,
         wheelSensitivity: 0.25,
-        style: [
-            {
-                selector: 'node',
-                style: {
-                    'background-color': '#a95508',
-                    'border-color': '#fffaf0',
-                    'border-width': 3,
-                    'label': 'data(label)',
-                    'color': '#3d2108',
-                    'font-size': 12,
-                    'font-weight': 600,
-                    'text-wrap': 'wrap',
-                    'text-max-width': 110,
-                    'text-valign': 'bottom',
-                    'text-margin-y': 8,
-                    'active-bg-opacity': 0,
-                    'overlay-opacity': 0,
-                    'width': 30,
-                    'height': 30
-                }
-            },
-            {
-                selector: 'node[distance = 0]',
-                style: { 'background-color': '#713703', 'width': 42, 'height': 42 }
-            },
-            {
-                selector: 'node[imageUrl]',
-                style: {
-                    'background-image': 'data(imageUrl)',
-                    'background-fit': 'cover',
-                    'background-clip': 'node',
-                    'width': 46,
-                    'height': 46
-                }
-            },
-            {
-                selector: 'node[imageUrl][distance = 0]',
-                style: { 'width': 54, 'height': 54 }
-            },
-            {
-                selector: 'node[badgeFor]',
-                style: {
-                    'background-color': '#fffaf0',
-                    'border-color': '#2d2418',
-                    'border-width': 2,
-                    'label': 'data(label)',
-                    'color': '#2d2418',
-                    'font-family': '"Segoe UI Emoji", "Segoe UI Symbol", sans-serif',
-                    'font-size': 12,
-                    'font-weight': 700,
-                    'text-wrap': 'none',
-                    'text-halign': 'center',
-                    'text-valign': 'center',
-                    'text-margin-x': 0,
-                    'text-margin-y': 0,
-                    'width': 18,
-                    'height': 18,
-                    'events': 'no',
-                    'z-index': 20
-                }
-            },
-            {
-                selector: 'node:selected',
-                style: { 'border-color': '#e9a23b', 'border-width': 6 }
-            },
-            {
-                selector: 'edge',
-                style: {
-                    'curve-style': 'bezier',
-                    'line-color': '#c78a45',
-                    'width': 2,
-                    'label': 'data(label)',
-                    'font-size': 9,
-                    'color': '#713703',
-                    'text-background-color': '#fffaf0',
-                    'text-background-opacity': 0.85,
-                    'text-background-padding': 2,
-                    'target-arrow-color': '#a95508',
-                    'target-arrow-shape': 'none'
-                }
-            },
-            {
-                selector: 'edge[directional = true]',
-                style: { 'target-arrow-shape': 'triangle' }
-            }
-        ]
+        style: graphStyles()
     });
     cy.on('position', 'node', event => {
         if (!event.target.data('badgeFor')) {
@@ -209,3 +225,7 @@ export function dispose(element) {
         graphs.delete(element);
     }
 }
+
+globalThis.addEventListener('monkeysphere:themechanged', () => {
+    graphs.forEach(cy => cy.style().fromJson(graphStyles()).update());
+});

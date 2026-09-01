@@ -32,6 +32,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
         HttpResponseMessage graphBehavior = await client.GetAsync("/relationship-graph.js");
+        HttpResponseMessage themeBehavior = await client.GetAsync("/theme.js");
         HttpResponseMessage comboboxBehavior = await client.GetAsync("/combobox.js");
         HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
 
@@ -62,6 +63,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("positionBadge", graphScript, StringComparison.Ordinal);
         Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
+        Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.OK, themeBehavior.StatusCode);
+        string themeScript = await themeBehavior.Content.ReadAsStringAsync();
+        Assert.Contains("monkeysphere.theme", themeScript, StringComparison.Ordinal);
+        Assert.Contains("localStorage.setItem", themeScript, StringComparison.Ordinal);
+        Assert.Contains("Blazor?.addEventListener('enhancedload'", themeScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, comboboxBehavior.StatusCode);
         Assert.Contains("combobox-input", await comboboxBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
@@ -226,6 +233,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Graph connection " + suffix, graphHtml, StringComparison.Ordinal);
         Assert.Contains("Select a displayed record", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("data-theme-toggle", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("theme.js", graphHtml, StringComparison.Ordinal);
         Assert.Equal("text/calendar", calendarExport.Content.Headers.ContentType?.MediaType);
         Assert.Equal("monkeysphere-calendar.ics", calendarExport.Content.Headers.ContentDisposition?.FileName);
         Assert.Contains("View record " + suffix, await calendarExport.Content.ReadAsStringAsync(), StringComparison.Ordinal);
