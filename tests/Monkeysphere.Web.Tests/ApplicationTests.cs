@@ -36,6 +36,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage recordMapBehavior = await client.GetAsync("/record-map.js");
         HttpResponseMessage themeBehavior = await client.GetAsync("/theme.js");
         HttpResponseMessage comboboxBehavior = await client.GetAsync("/combobox.js");
+        string css = await client.GetStringAsync("/app.css");
         HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
 
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
@@ -61,11 +62,15 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string graphScript = await graphBehavior.Content.ReadAsStringAsync();
         Assert.Contains("/thumbnail", graphScript, StringComparison.Ordinal);
         Assert.Contains("'background-image': 'data(imageUrl)'", graphScript, StringComparison.Ordinal);
+        Assert.Contains("selector: 'edge[?directional]'", graphScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("wheelSensitivity", graphScript, StringComparison.Ordinal);
         Assert.Contains("badgeFor", graphScript, StringComparison.Ordinal);
         Assert.Contains("positionBadge", graphScript, StringComparison.Ordinal);
         Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
+        Assert.Contains(".relationship-graph", css, StringComparison.Ordinal);
+        Assert.Contains("background: var(--graph-background);", css, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", await mapEditorBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", await recordMapBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, themeBehavior.StatusCode);
@@ -75,6 +80,37 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Blazor?.addEventListener('enhancedload'", themeScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, comboboxBehavior.StatusCode);
         Assert.Contains("combobox-input", await comboboxBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ThemePalettesMaintainReadableTextAndControlContrast()
+    {
+        using HttpClient client = CreateClient();
+        string css = await client.GetStringAsync("/app.css");
+        Dictionary<string, string> light = ReadHexPalette(css, @":root\s*\{(?<body>.*?)\}");
+        Dictionary<string, string> dark = ReadHexPalette(css, @":root\[data-theme=""dark""\]\s*\{(?<body>.*?)\}");
+        (string Foreground, string Background, double Minimum)[] checks =
+        [
+            ("ink", "paper", 4.5),
+            ("ink-soft", "panel", 4.5),
+            ("muted", "panel", 4.5),
+            ("muted", "panel-warm", 4.5),
+            ("muted", "accent-soft", 4.5),
+            ("accent", "paper", 4.5),
+            ("accent", "panel", 4.5),
+            ("accent-dark", "panel", 4.5),
+            ("accent-dark", "accent-soft", 4.5),
+            ("on-accent", "accent", 4.5),
+            ("on-accent", "accent-dark", 4.5),
+            ("on-danger", "danger", 4.5),
+            ("danger-dark", "danger-soft", 4.5),
+            ("success", "success-soft", 4.5),
+            ("focus-ring", "panel", 3),
+            ("line-strong", "input-background", 3),
+        ];
+
+        AssertPaletteContrast("light", light, checks);
+        AssertPaletteContrast("dark", dark, checks);
     }
 
     [Fact]
@@ -504,6 +540,49 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             RegexOptions.CultureInvariant);
         Assert.True(match.Success, "The login form did not contain an antiforgery token.");
         return WebUtility.HtmlDecode(match.Groups[1].Value);
+    }
+
+    private static Dictionary<string, string> ReadHexPalette(string css, string blockPattern)
+    {
+        Match block = Regex.Match(css, blockPattern, RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        Assert.True(block.Success, "The expected theme palette was not found.");
+        return Regex.Matches(
+                block.Groups["body"].Value,
+                @"--(?<name>[a-z0-9-]+):\s*(?<value>#[0-9a-f]{6})\s*;",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .ToDictionary(match => match.Groups["name"].Value, match => match.Groups["value"].Value, StringComparer.Ordinal);
+    }
+
+    private static void AssertPaletteContrast(
+        string theme,
+        Dictionary<string, string> palette,
+        IReadOnlyList<(string Foreground, string Background, double Minimum)> checks)
+    {
+        foreach ((string foreground, string background, double minimum) in checks)
+        {
+            double ratio = ContrastRatio(palette[foreground], palette[background]);
+            Assert.True(
+                ratio >= minimum,
+                $"{theme} theme {foreground} on {background} has {ratio:F2}:1 contrast; expected at least {minimum:F1}:1.");
+        }
+    }
+
+    private static double ContrastRatio(string first, string second)
+    {
+        double brighter = Math.Max(RelativeLuminance(first), RelativeLuminance(second));
+        double darker = Math.Min(RelativeLuminance(first), RelativeLuminance(second));
+        return (brighter + 0.05) / (darker + 0.05);
+    }
+
+    private static double RelativeLuminance(string color)
+    {
+        double Channel(int offset)
+        {
+            double value = Convert.ToInt32(color.Substring(offset, 2), 16) / 255d;
+            return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Channel(1) + 0.7152 * Channel(3) + 0.0722 * Channel(5);
     }
 }
 

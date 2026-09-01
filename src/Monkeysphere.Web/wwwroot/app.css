@@ -3,17 +3,20 @@
     --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     --ink: #2d2418;
     --ink-soft: #4c3d2a;
-    --muted: #756752;
+    --muted: #6f604b;
     --paper: #f4ecdc;
     --paper-deep: #eadcc2;
     --panel: #fffaf0;
     --panel-warm: #fbf2df;
     --line: #dcc9a6;
-    --line-strong: #c5a977;
-    --accent: #a95508;
+    --line-strong: #a98652;
+    --accent: #9d4c05;
     --accent-dark: #713703;
     --accent-bright: #e79521;
     --accent-soft: #f4ddb1;
+    --on-accent: #fffaf0;
+    --on-danger: #ffffff;
+    --focus-ring: #8f4300;
     --amber-50: #fff7e7;
     --amber-500: #d8780c;
     --header: #2a1b0c;
@@ -64,11 +67,14 @@
     --panel: #221a12;
     --panel-warm: #2a2015;
     --line: #493927;
-    --line-strong: #705738;
+    --line-strong: #806442;
     --accent: #e79521;
     --accent-dark: #f2b65a;
     --accent-bright: #ffbd59;
     --accent-soft: #4a3015;
+    --on-accent: #221a12;
+    --on-danger: #221a12;
+    --focus-ring: #ffbd59;
     --amber-50: #362412;
     --amber-500: #ed941f;
     --header: #100b07;
@@ -321,7 +327,7 @@ h3 {
 
 .section-tabs a.active {
     border-color: var(--line-strong);
-    color: #fff8e9;
+    color: var(--on-accent);
     background: var(--accent-dark);
     box-shadow: 0 3px 10px rgba(78, 48, 12, .14);
 }
@@ -514,13 +520,14 @@ h3 {
     right: 1rem;
     border: 1px solid var(--line-strong);
     border-radius: 50%;
-    color: white;
+    color: transparent;
     background: var(--panel);
     font-weight: 900;
 }
 
 .setup-tier.selected .setup-tier-check {
     border-color: var(--accent-dark);
+    color: var(--on-accent);
     background: var(--accent);
 }
 
@@ -648,9 +655,24 @@ textarea:focus,
 select:focus,
 button:focus-visible,
 a:focus-visible {
-    outline: 3px solid rgba(231, 149, 33, .42);
+    outline: 3px solid var(--focus-ring);
     outline-offset: 2px;
     border-color: var(--accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--muted);
+    opacity: 1;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+    color: var(--muted);
+    background: var(--panel-warm);
+    opacity: 1;
+    cursor: not-allowed;
 }
 
 input[type="checkbox"] {
@@ -737,7 +759,8 @@ input[type="checkbox"] {
 }
 
 .combobox-option.disabled {
-    opacity: .45;
+    color: var(--muted);
+    opacity: 1;
     cursor: not-allowed;
 }
 
@@ -887,7 +910,7 @@ input[type="checkbox"] {
 .button.primary {
     border-color: var(--accent-dark);
     color: white;
-    background: linear-gradient(180deg, #b8600c, #914403);
+    background: linear-gradient(180deg, #b55e0b, #914403);
     box-shadow: 0 4px 12px rgba(113, 55, 3, .20), inset 0 1px 0 rgba(255, 255, 255, .25);
 }
 
@@ -899,7 +922,7 @@ input[type="checkbox"] {
 
 .button.danger {
     border-color: var(--danger-dark);
-    color: white;
+    color: var(--on-danger);
     background: var(--danger);
 }
 
@@ -909,7 +932,9 @@ input[type="checkbox"] {
 }
 
 .button:disabled {
-    opacity: .45;
+    color: var(--muted);
+    background: var(--panel-warm);
+    opacity: 1;
     cursor: not-allowed;
     transform: none;
 }
@@ -1100,9 +1125,7 @@ input[type="checkbox"] {
     min-height: 28rem;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background:
-        radial-gradient(circle at 20% 15%, rgba(233, 162, 59, .16), transparent 30%),
-        #fffaf0;
+    background: var(--graph-background);
 }
 
 .graph-selection {
@@ -1130,7 +1153,7 @@ input[type="checkbox"] {
 }
 
 .location-map .ol-control button {
-    color: #fffaf0;
+    color: var(--on-accent);
     background: var(--accent-dark);
 }
 
@@ -1338,7 +1361,7 @@ dd {
 
 .calendar-day.today > time {
     border-radius: 50%;
-    color: #fffaf0;
+    color: var(--on-accent);
     background: var(--accent);
 }
 

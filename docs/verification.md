@@ -4,7 +4,7 @@ Last verified: 2026-09-01
 
 ## Verified evidence
 
-- `eng/Build.ps1` verified strict UTF-8 text decoding, mojibake and invisible-control exclusions, vendored dependency hashes, and browser egress boundaries; restored in locked mode; built Release with zero warnings; and passed 103 tests.
+- `eng/Build.ps1` verified strict UTF-8 text decoding, mojibake and invisible-control exclusions, vendored dependency hashes, and browser egress boundaries; restored in locked mode; built Release with zero warnings; and passed 104 tests.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
 - Authenticated editor rendering and static-asset tests cover the private map-pin control and vendored OpenLayers delivery.
 - Core, SQLite integration, and authenticated rendering tests cover map-query bounds, single and multi-field filters, pagination, R-tree migration history, approximation-radius viewport intersection, structured location summaries, and private map access.
@@ -29,6 +29,7 @@ Last verified: 2026-09-01
 - A separate Release process smoke test applied DnaX migration 5 to a fresh SQLite data root, accepted the default administrator login, and served the authenticated four-tier wizard and its examples successfully.
 - A focused Chromium accessibility review covered desktop and 390 by 844 mobile layouts, keyboard access to the skip link, setup selection state, mobile navigation wrapping, and the accessibility tree. Graph and map visualizations now expose bounded standard-control or HTML-list alternatives.
 - A Chromium visual and rendering sweep covered the first-run wizard and every primary authenticated route at desktop and 390 by 844 mobile sizes. It confirmed the sans-serif stack, compact spacing, zero document overflow, correct Unicode rendering, no visible Blazor error UI, and successful delivery of the fingerprinted favicon.
+- An MCPHub Playwright contrast sweep covered login plus the overview, structures, records, calendar, record editor, graph, and settings surfaces in both themes, with representative authenticated routes repeated at 390 by 844. It caught and verified the fix for a light graph canvas paired with dark-theme labels; a clean graph reload then produced only normal Blazor connection messages and successful asset, data, and image responses. The map route had no coordinate records to render, so live pin and graticule contrast remains covered by its theme-aware implementation and automated assertions rather than populated-map visual evidence.
 - A Chromium combobox sweep covered every route that previously rendered a native select or datalist. It confirmed HTML/CSS listboxes with visible type filtering, mouse and Enter selection, outside-click closing, open custom field-type identifiers, no native select remnants, zero mobile overflow, and clean console/network logs. Authenticated rendering tests assert the combobox semantics and behavior asset.
 
 ## Not yet verified

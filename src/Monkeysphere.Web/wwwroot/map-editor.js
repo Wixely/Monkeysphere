@@ -15,8 +15,15 @@ function pinStyle() {
 }
 
 function graticule() {
+    const labelStyle = new ol.style.Text({
+        font: '12px system-ui',
+        fill: new ol.style.Fill({ color: themeColor('--ink-soft', '#4c3d2a') }),
+        stroke: new ol.style.Stroke({ color: themeColor('--panel', '#fffaf0'), width: 3 })
+    });
     return new ol.layer.Graticule({
         strokeStyle: new ol.style.Stroke({ color: themeColor('--map-grid', 'rgba(113, 55, 3, .35)'), width: 1 }),
+        lonLabelStyle: labelStyle,
+        latLabelStyle: labelStyle,
         showLabels: true,
         wrapX: true
     });

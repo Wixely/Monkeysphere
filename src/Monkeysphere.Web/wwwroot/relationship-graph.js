@@ -95,7 +95,7 @@ function graphStyles() {
             }
         },
         {
-            selector: 'edge[directional = true]',
+            selector: 'edge[?directional]',
             style: { 'target-arrow-shape': 'triangle' }
         }
     ];
@@ -112,9 +112,9 @@ function elements(graph) {
                     label: node.displayName,
                     type: node.recordTypeName,
                     distance: node.distance,
-                    imageUrl: node.imageId
-                        ? `/records/${encodeURIComponent(node.recordId)}/images/${encodeURIComponent(node.imageId)}/thumbnail`
-                        : null
+                    ...(node.imageId
+                        ? { imageUrl: `/records/${encodeURIComponent(node.recordId)}/images/${encodeURIComponent(node.imageId)}/thumbnail` }
+                        : {})
                 }
             }];
             if (node.recordTypeSymbol) {
@@ -189,7 +189,6 @@ export function create(element, callback, graph) {
         elements: elements(graph),
         minZoom: 0.15,
         maxZoom: 3,
-        wheelSensitivity: 0.25,
         style: graphStyles()
     });
     cy.on('position', 'node', event => {
