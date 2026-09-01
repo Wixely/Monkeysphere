@@ -26,7 +26,16 @@ public static class VCardEndpoints
                     return Results.BadRequest("Every exported record identifier must be a UUID.");
                 }
 
-                byte[] content = await vcards.ExportAsync(recordIds, cancellationToken).ConfigureAwait(false);
+                byte[] content;
+                try
+                {
+                    content = await vcards.ExportAsync(recordIds, cancellationToken).ConfigureAwait(false);
+                }
+                catch (DomainValidationException exception)
+                {
+                    return Results.BadRequest(exception.Message);
+                }
+
                 context.Response.Headers.CacheControl = "private, no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 return Results.File(content, "text/vcard; charset=utf-8", "monkeysphere-contacts.vcf");

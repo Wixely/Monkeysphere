@@ -1,8 +1,8 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<div class="location-map" @ref="_element" role="img" aria-label="Coordinate map editor visualization"></div>
-<span class="muted">Click the map to set coordinates. This local graticule does not contact a tile or geocoding service.</span>
+<div class="location-map" @ref="_element" role="img" aria-label="Coordinate map editor visualization" aria-describedby="@_helpId"></div>
+<span id="@_helpId" class="muted">Click the map to set coordinates. This local graticule does not contact a tile or geocoding service.</span>
 
 @code {
     [Parameter]
@@ -15,6 +15,7 @@
     public EventCallback<LocationPin> OnPinChanged { get; set; }
 
     private ElementReference _element;
+    private readonly string _helpId = $"location-map-help-{Guid.NewGuid():N}";
     private IJSObjectReference? _module;
     private DotNetObjectReference<LocationMapEditor>? _reference;
 

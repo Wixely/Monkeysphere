@@ -1,16 +1,43 @@
 const maps = new globalThis.Map();
 
+function themeColor(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function graticule() {
+    return new ol.layer.Graticule({
+        strokeStyle: new ol.style.Stroke({ color: themeColor('--map-grid', 'rgba(113, 55, 3, .35)'), width: 1 }),
+        showLabels: true,
+        wrapX: true
+    });
+}
+
+function radiusStyle() {
+    return new ol.style.Style({
+        fill: new ol.style.Fill({ color: themeColor('--map-radius-fill', 'rgba(221, 132, 20, .13)') }),
+        stroke: new ol.style.Stroke({
+            color: themeColor('--map-radius-stroke', 'rgba(169, 85, 8, .65)'),
+            width: 2,
+            lineDash: [6, 5]
+        })
+    });
+}
+
 function markerStyle(feature) {
     const count = feature.get('features').length;
     return new ol.style.Style({
         image: new ol.style.Circle({
             radius: count > 1 ? 13 : 8,
-            fill: new ol.style.Fill({ color: count > 1 ? '#713703' : '#a95508' }),
-            stroke: new ol.style.Stroke({ color: '#fffaf0', width: 3 })
+            fill: new ol.style.Fill({
+                color: count > 1
+                    ? themeColor('--accent-dark', '#713703')
+                    : themeColor('--accent', '#a95508')
+            }),
+            stroke: new ol.style.Stroke({ color: themeColor('--panel', '#fffaf0'), width: 3 })
         }),
         text: count > 1 ? new ol.style.Text({
             text: String(count),
-            fill: new ol.style.Fill({ color: '#fffaf0' }),
+            fill: new ol.style.Fill({ color: themeColor('--panel', '#fffaf0') }),
             font: '600 12px system-ui'
         }) : undefined
     });
@@ -47,17 +74,10 @@ export function create(element, callback, entries) {
     const map = new ol.Map({
         target: element,
         layers: [
-            new ol.layer.Graticule({
-                strokeStyle: new ol.style.Stroke({ color: 'rgba(113, 55, 3, .35)', width: 1 }),
-                showLabels: true,
-                wrapX: true
-            }),
+            graticule(),
             new ol.layer.Vector({
                 source: radiusSource,
-                style: new ol.style.Style({
-                    fill: new ol.style.Fill({ color: 'rgba(221, 132, 20, .13)' }),
-                    stroke: new ol.style.Stroke({ color: 'rgba(169, 85, 8, .65)', width: 2, lineDash: [6, 5] })
-                })
+                style: radiusStyle()
             }),
             new ol.layer.Vector({ source: clusters, style: markerStyle })
         ],
@@ -94,3 +114,11 @@ export function dispose(element) {
     state.map.setTarget(undefined);
     maps.delete(element);
 }
+
+globalThis.addEventListener('monkeysphere:themechanged', () => {
+    for (const state of maps.values()) {
+        state.map.getLayers().setAt(0, graticule());
+        state.map.getLayers().item(1).setStyle(radiusStyle());
+        state.map.getLayers().item(2).setStyle(markerStyle);
+    }
+});

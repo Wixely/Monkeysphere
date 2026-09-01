@@ -32,6 +32,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
         HttpResponseMessage graphBehavior = await client.GetAsync("/relationship-graph.js");
+        HttpResponseMessage mapEditorBehavior = await client.GetAsync("/map-editor.js");
+        HttpResponseMessage recordMapBehavior = await client.GetAsync("/record-map.js");
         HttpResponseMessage themeBehavior = await client.GetAsync("/theme.js");
         HttpResponseMessage comboboxBehavior = await client.GetAsync("/combobox.js");
         HttpResponseMessage missing = await client.GetAsync("/missing-browser-asset.js");
@@ -64,6 +66,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
+        Assert.Contains("monkeysphere:themechanged", await mapEditorBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("monkeysphere:themechanged", await recordMapBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, themeBehavior.StatusCode);
         string themeScript = await themeBehavior.Content.ReadAsStringAsync();
         Assert.Contains("monkeysphere.theme", themeScript, StringComparison.Ordinal);
@@ -229,6 +233,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("1 location", mapHtml, StringComparison.Ordinal);
         Assert.Contains("Map location " + suffix, mapHtml, StringComparison.Ordinal);
         Assert.Contains("Browse locations as a list", mapHtml, StringComparison.Ordinal);
+        Assert.Contains("aria-describedby=\"location-map-help-", editorHtml, StringComparison.Ordinal);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.GetAsync("/calendar/export.ics?from=2026-09-30&to=2026-09-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/vcard/export.vcf?ids=")).StatusCode);
         Assert.Contains("Bounded private view", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Graph connection " + suffix, graphHtml, StringComparison.Ordinal);
         Assert.Contains("Select a displayed record", graphHtml, StringComparison.Ordinal);
@@ -805,6 +814,16 @@ public sealed class RemoteAccessApplicationTests
         string mcpBody = await mcpResponse.Content.ReadAsStringAsync();
         Assert.True(mcpResponse.IsSuccessStatusCode, mcpBody);
         Assert.Contains("Ada Lovelace", mcpBody, StringComparison.Ordinal);
+
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            Monkeysphere.Web.Remote.MonkeysphereRemoteQueries queries =
+                scope.ServiceProvider.GetRequiredService<Monkeysphere.Web.Remote.MonkeysphereRemoteQueries>();
+            await Assert.ThrowsAsync<DomainValidationException>(() =>
+                Monkeysphere.Web.Remote.MonkeysphereRemoteTools.SearchRecordsAsync(
+                    queries,
+                    recordTypeId: "not-a-uuid"));
+        }
 
         IReadOnlyList<DnaXRemoteAuditRecord> audit = await administration.GetRecentActivityAsync(20);
         Assert.Contains(audit, item => item.Event.Action == "records.search" && item.Event.Result == DnaXRemoteAuditResult.Allowed);

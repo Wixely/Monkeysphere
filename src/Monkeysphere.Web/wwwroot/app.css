@@ -45,6 +45,9 @@
     --graph-node-focus: #713703;
     --graph-edge: #c78a45;
     --graph-label: #713703;
+    --map-grid: rgba(113, 55, 3, .35);
+    --map-radius-fill: rgba(221, 132, 20, .13);
+    --map-radius-stroke: rgba(169, 85, 8, .65);
     --shadow: 0 18px 45px rgba(78, 48, 12, .10);
     --shadow-small: 0 7px 20px rgba(78, 48, 12, .08);
     --radius: .7rem;
@@ -97,6 +100,9 @@
     --graph-node-focus: #e79521;
     --graph-edge: #d99343;
     --graph-label: #f4e9d7;
+    --map-grid: rgba(242, 182, 90, .42);
+    --map-radius-fill: rgba(231, 149, 33, .18);
+    --map-radius-stroke: rgba(255, 189, 89, .75);
     --shadow: 0 18px 45px rgba(0, 0, 0, .28);
     --shadow-small: 0 7px 20px rgba(0, 0, 0, .22);
 }

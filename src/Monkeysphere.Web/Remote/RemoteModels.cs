@@ -251,10 +251,22 @@ public sealed class MonkeysphereRemoteTools
         CancellationToken cancellationToken = default) =>
         queries.SearchRecordsAsync(
             query,
-            Guid.TryParse(recordTypeId, out Guid parsedTypeId) ? parsedTypeId : null,
+            ParseOptionalGuid(recordTypeId, "recordTypeId"),
             page,
             pageSize,
             cancellationToken);
+
+    private static Guid? ParseOptionalGuid(string? value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Guid.TryParse(value, out Guid parsed)
+            ? parsed
+            : throw new DomainValidationException($"{parameterName} must be a UUID.");
+    }
 
     [McpServerTool(Name = "get_record", UseStructuredContent = true)]
     [Description("Gets one Monkeysphere record and its values.")]

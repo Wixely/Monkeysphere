@@ -41,7 +41,7 @@
     <div class="form-grid">
         <label>
             Search
-            <input @bind="_query" placeholder="Name or field value" />
+            <input @bind="_query" maxlength="@MonkeysphereService.MaximumSearchLength" placeholder="Name or field value" />
         </label>
         <label>
             Record type
@@ -57,7 +57,7 @@
         </label>
         <label>
             Filter value
-            <input @bind="_filterValue" />
+            <input @bind="_filterValue" maxlength="@MonkeysphereService.MaximumFilterLength" />
         </label>
     </div>
     <button class="button primary" type="button" @onclick="SearchAsync">Search</button>

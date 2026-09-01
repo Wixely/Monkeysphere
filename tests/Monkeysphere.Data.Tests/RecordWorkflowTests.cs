@@ -12,6 +12,26 @@ namespace Monkeysphere.Data.Tests;
 public sealed class RecordWorkflowTests
 {
     [Fact]
+    public async Task RecordSearchRejectsUnboundedInput()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        Guid fieldId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.SearchRecordsAsync(
+            new RecordSearch(Query: new string('q', MonkeysphereService.MaximumSearchLength + 1))));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.SearchRecordsAsync(
+            new RecordSearch(
+                FieldDefinitionId: fieldId,
+                Operator: FieldFilterOperator.Contains,
+                FilterValue: new string('f', MonkeysphereService.MaximumFilterLength + 1))));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.SearchRecordsAsync(
+            new RecordSearch(Filters: [new(fieldId, FieldFilterOperator.Contains, new string('f', MonkeysphereService.MaximumFilterLength + 1))])));
+        await Assert.ThrowsAsync<DomainValidationException>(() => service.SearchRecordsAsync(
+            new RecordSearch(Page: MonkeysphereService.MaximumSearchPage + 1)));
+    }
+
+    [Fact]
     public async Task ConfigurableRecordRoundTripsSearchesUpdatesAndDeletes()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

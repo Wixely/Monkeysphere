@@ -4,6 +4,10 @@ namespace Monkeysphere.Core;
 
 public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider timeProvider) : IMonkeysphereService
 {
+    public const int MaximumSearchLength = 500;
+    public const int MaximumFilterLength = 2_000;
+    public const int MaximumSearchPage = 10_000;
+
     public Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default) =>
         store.ListRecordTypesAsync(cancellationToken);
 
@@ -342,14 +346,24 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
 
     public Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default)
     {
-        if (search.Page < 1)
+        if (search.Page is < 1 or > MaximumSearchPage)
         {
-            throw new DomainValidationException("Page must be at least one.");
+            throw new DomainValidationException($"Page must be between 1 and {MaximumSearchPage:N0}.");
         }
 
         if (search.PageSize is < 1 or > 100)
         {
             throw new DomainValidationException("Page size must be between 1 and 100.");
+        }
+
+        if (search.Query?.Trim().Length > MaximumSearchLength)
+        {
+            throw new DomainValidationException($"Search text cannot exceed {MaximumSearchLength:N0} characters.");
+        }
+
+        if (search.FilterValue?.Trim().Length > MaximumFilterLength)
+        {
+            throw new DomainValidationException($"Filter values cannot exceed {MaximumFilterLength:N0} characters.");
         }
 
         if (search.FieldDefinitionId.HasValue != search.Operator.HasValue ||
@@ -364,9 +378,21 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         }
 
         RecordFilter[] filters = (search.Filters ?? [])
-            .Select(filter => string.IsNullOrWhiteSpace(filter.Value)
-                ? throw new DomainValidationException("Typed filters require a non-blank value.")
-                : filter with { Value = filter.Value.Trim() })
+            .Select(filter =>
+            {
+                string value = filter.Value?.Trim() ?? string.Empty;
+                if (value.Length == 0)
+                {
+                    throw new DomainValidationException("Typed filters require a non-blank value.");
+                }
+
+                if (value.Length > MaximumFilterLength)
+                {
+                    throw new DomainValidationException($"Filter values cannot exceed {MaximumFilterLength:N0} characters.");
+                }
+
+                return filter with { Value = value };
+            })
             .ToArray();
 
         return store.SearchRecordsAsync(search with

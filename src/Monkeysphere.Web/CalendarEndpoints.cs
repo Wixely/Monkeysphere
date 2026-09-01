@@ -18,9 +18,18 @@ public static class CalendarEndpoints
                 HttpContext context,
                 CancellationToken cancellationToken) =>
             {
-                IReadOnlyList<CalendarEntry> entries = await calendar.QueryAsync(
-                    new(from, to, recordTypeId, fieldDefinitionId, Limit: 1_000),
-                    cancellationToken).ConfigureAwait(false);
+                IReadOnlyList<CalendarEntry> entries;
+                try
+                {
+                    entries = await calendar.QueryAsync(
+                        new(from, to, recordTypeId, fieldDefinitionId, Limit: 1_000),
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (DomainValidationException exception)
+                {
+                    return Results.BadRequest(exception.Message);
+                }
+
                 context.Response.Headers.CacheControl = "private, no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 return Results.File(

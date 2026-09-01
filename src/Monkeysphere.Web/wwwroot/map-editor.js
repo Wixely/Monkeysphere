@@ -1,5 +1,27 @@
 const editors = new globalThis.Map();
 
+function themeColor(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function pinStyle() {
+    return new ol.style.Style({
+        image: new ol.style.Circle({
+            radius: 8,
+            fill: new ol.style.Fill({ color: themeColor('--accent', '#a95508') }),
+            stroke: new ol.style.Stroke({ color: themeColor('--panel', '#fffaf0'), width: 3 })
+        })
+    });
+}
+
+function graticule() {
+    return new ol.layer.Graticule({
+        strokeStyle: new ol.style.Stroke({ color: themeColor('--map-grid', 'rgba(113, 55, 3, .35)'), width: 1 }),
+        showLabels: true,
+        wrapX: true
+    });
+}
+
 export function create(element, callback, latitude, longitude) {
     if (!globalThis.ol || editors.has(element)) {
         return;
@@ -7,13 +29,7 @@ export function create(element, callback, latitude, longitude) {
 
     const hasPin = Number.isFinite(latitude) && Number.isFinite(longitude);
     const feature = new ol.Feature();
-    feature.setStyle(new ol.style.Style({
-        image: new ol.style.Circle({
-            radius: 8,
-            fill: new ol.style.Fill({ color: '#a95508' }),
-            stroke: new ol.style.Stroke({ color: '#fffaf0', width: 3 })
-        })
-    }));
+    feature.setStyle(pinStyle());
     if (hasPin) {
         feature.setGeometry(new ol.geom.Point(ol.proj.fromLonLat([longitude, latitude])));
     }
@@ -22,11 +38,7 @@ export function create(element, callback, latitude, longitude) {
     const map = new ol.Map({
         target: element,
         layers: [
-            new ol.layer.Graticule({
-                strokeStyle: new ol.style.Stroke({ color: 'rgba(113, 55, 3, .35)', width: 1 }),
-                showLabels: true,
-                wrapX: true
-            }),
+            graticule(),
             new ol.layer.Vector({ source })
         ],
         view: new ol.View({
@@ -70,3 +82,10 @@ export function dispose(element) {
     editor.map.setTarget(undefined);
     editors.delete(element);
 }
+
+globalThis.addEventListener('monkeysphere:themechanged', () => {
+    for (const editor of editors.values()) {
+        editor.feature.setStyle(pinStyle());
+        editor.map.getLayers().setAt(0, graticule());
+    }
+});
