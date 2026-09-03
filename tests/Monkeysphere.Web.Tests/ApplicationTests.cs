@@ -763,29 +763,7 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
             return;
         }
 
-        SqliteConnection.ClearAllPools();
-        string allowedRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests"));
-        string ownedRoot = Path.GetFullPath(_dataRoot);
-        if (ownedRoot.StartsWith(Path.TrimEndingDirectorySeparator(allowedRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
-            Directory.Exists(ownedRoot))
-        {
-            DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
-            while (Directory.Exists(ownedRoot))
-            {
-                try
-                {
-                    Directory.Delete(ownedRoot, recursive: true);
-                }
-                catch (IOException) when (DateTimeOffset.UtcNow < deadline)
-                {
-                    Thread.Sleep(50);
-                }
-                catch (UnauthorizedAccessException) when (DateTimeOffset.UtcNow < deadline)
-                {
-                    Thread.Sleep(50);
-                }
-            }
-        }
+        TestDataRoot.DeleteWhenReleased(_dataRoot);
     }
 
     private const string AdministratorPasswordForFactory = "test-only-LongPassword-2048!";
@@ -860,20 +838,46 @@ public sealed class RestartPersistenceTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
-            string allowedRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests"));
-            string ownedRoot = Path.GetFullPath(dataRoot);
-            if (ownedRoot.StartsWith(Path.TrimEndingDirectorySeparator(allowedRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
-                Directory.Exists(ownedRoot))
-            {
-                Directory.Delete(ownedRoot, recursive: true);
-            }
+            TestDataRoot.DeleteWhenReleased(dataRoot);
         }
     }
 }
 
 public sealed class PersistentApplicationFactory(string dataRoot)
     : MonkeysphereApplicationFactory(dataRoot, deleteDataRoot: false);
+
+internal static class TestDataRoot
+{
+    public static void DeleteWhenReleased(string dataRoot)
+    {
+        SqliteConnection.ClearAllPools();
+        string allowedRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests"));
+        string ownedRoot = Path.GetFullPath(dataRoot);
+        if (!ownedRoot.StartsWith(
+                Path.TrimEndingDirectorySeparator(allowedRoot) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (Directory.Exists(ownedRoot))
+        {
+            try
+            {
+                Directory.Delete(ownedRoot, recursive: true);
+            }
+            catch (IOException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+            }
+            catch (UnauthorizedAccessException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+}
 
 public sealed class RemoteAccessApplicationTests
 {
