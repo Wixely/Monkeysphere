@@ -373,6 +373,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             (await client.GetAsync("/calendar/export.ics?from=2026-09-30&to=2026-09-01")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/vcard/export.vcf?ids=")).StatusCode);
         Assert.Contains("Record name or alias", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Saved graph view", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Default view (unsaved)", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Graph view " + suffix, graphHtml, StringComparison.Ordinal);
         Assert.Contains("Show all", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Show connected", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Show isolated", graphHtml, StringComparison.Ordinal);

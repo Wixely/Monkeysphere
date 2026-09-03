@@ -1655,6 +1655,23 @@ input[type="checkbox"] {
     gap: 1rem;
 }
 
+.graph-view-selector {
+    width: min(22rem, 100%);
+    flex: 0 0 min(22rem, 100%);
+}
+
+.graph-view-selector label {
+    display: grid;
+    gap: .35rem;
+    font-weight: 750;
+}
+
+.graph-view-selector small {
+    display: block;
+    margin-top: .35rem;
+    color: var(--muted);
+}
+
 .graph-search {
     position: relative;
 }

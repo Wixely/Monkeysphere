@@ -17,6 +17,17 @@
         <h1>Relationship graph</h1>
         <p>Browse everything, follow the connections around selected records, or compare only a chosen set.</p>
     </div>
+    <div class="graph-view-selector">
+        <label>
+            Saved graph view
+            <SearchableSelect TValue="string"
+                              Value="CurrentGraphViewValue"
+                              Options="GraphViewOptions"
+                              AriaLabel="Saved graph view"
+                              OnSelected="ChangeGraphViewAsync" />
+        </label>
+        <small>Select a saved filter and layout, or return to the default view.</small>
+    </div>
 </div>
 
 <section class="panel graph-filters" aria-label="Graph filters">
@@ -279,6 +290,7 @@
     public Guid? ViewId { get; set; }
 
     private IReadOnlyList<RecordType> _recordTypes = [];
+    private IReadOnlyList<GraphView> _graphViews = [];
     private RelationshipGraphResult _graph = new([], [], false, false);
     private RelationshipGraphNode? _selected;
     private readonly List<RecordSummary> _selectedRecords = [];
@@ -307,11 +319,19 @@
     private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
 
+    private string CurrentGraphViewValue => _editingGraphViewId?.ToString("D") ?? string.Empty;
+
+    private IReadOnlyList<ComboboxOption<string>> GraphViewOptions =>
+        [new(string.Empty, "Default view (unsaved)"), .. _graphViews
+            .OrderBy(view => view.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(view => new ComboboxOption<string>(view.Id.ToString("D"), view.Name))];
+
     protected override async Task OnInitializedAsync()
     {
         _recordTypes = (await Records.ListRecordTypesAsync())
             .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
             .ToArray();
+        _graphViews = await GraphViews.ListAsync();
         if (ViewId is Guid viewId)
         {
             await LoadGraphViewAsync(viewId);
@@ -322,6 +342,15 @@
         }
 
         await ReloadAsync();
+    }
+
+    private Task ChangeGraphViewAsync(string value)
+    {
+        string destination = Guid.TryParse(value, out Guid viewId)
+            ? $"/graph?viewId={viewId:D}"
+            : "/graph";
+        Navigation.NavigateTo(destination, forceLoad: true);
+        return Task.CompletedTask;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -697,6 +726,7 @@
             _editingGraphViewId = saved.Id;
             _graphViewName = saved.Name;
             _nodePositions = saved.NodePositions;
+            _graphViews = await GraphViews.ListAsync();
             _saveMessage = $"Saved {saved.Name}.";
             _saveError = false;
             _confirmDeleteGraphView = false;
@@ -730,6 +760,7 @@
         _editingGraphViewId = null;
         _graphViewName = string.Empty;
         _confirmDeleteGraphView = false;
+        _graphViews = await GraphViews.ListAsync();
         _saveMessage = "Deleted graph view.";
         _saveError = false;
         Navigation.NavigateTo("/graph", replace: true);
