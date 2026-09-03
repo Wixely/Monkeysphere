@@ -8,7 +8,7 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix>alpha.1</VersionSuffix>
+    <VersionSuffix>alpha.2</VersionSuffix>
     <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
     <RepositoryUrl>https://github.com/Wixely/Monkeysphere</RepositoryUrl>
   </PropertyGroup>

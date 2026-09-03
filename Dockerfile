@@ -1,13 +1,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0.400@sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c AS build
-ARG MONKEYSPHERE_VERSION=0.1.0-alpha.1
+ARG MONKEYSPHERE_VERSION=0.1.0-alpha.2
 ARG MONKEYSPHERE_REVISION=unknown
 WORKDIR /src
 COPY . .
 RUN dotnet restore Monkeysphere.slnx --locked-mode -p:RuntimeFrameworkVersion=10.0.8
-RUN dotnet publish src/Monkeysphere.Web/Monkeysphere.Web.csproj --configuration Release --no-restore --output /app/publish -p:RuntimeFrameworkVersion=10.0.8 -p:Version=$MONKEYSPHERE_VERSION -p:SourceRevisionId=$MONKEYSPHERE_REVISION
+RUN dotnet publish src/Monkeysphere.Web/Monkeysphere.Web.csproj --configuration Release --runtime linux-x64 --self-contained false --no-restore --output /app/publish -p:RuntimeFrameworkVersion=10.0.8 -p:Version=$MONKEYSPHERE_VERSION -p:SourceRevisionId=$MONKEYSPHERE_REVISION \
+    && find /app/publish -type f -name '*.pdb' -delete
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.11@sha256:a4556ed033fa96f984bb7a8d348851cb2d36b1281dd2420070045f664fbb5f94 AS runtime
-ARG MONKEYSPHERE_VERSION=0.1.0-alpha.1
+ARG MONKEYSPHERE_VERSION=0.1.0-alpha.2
 ARG MONKEYSPHERE_REVISION=unknown
 LABEL org.opencontainers.image.title="Monkeysphere" \
       org.opencontainers.image.description="Private, self-hosted relationship memory" \
