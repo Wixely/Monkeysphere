@@ -123,7 +123,7 @@
     }
     else
     {
-        <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Search above or use the accessible selector below to centre a record.</p>
+        <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images, or use the accessible selector below to centre a record.</p>
         <RelationshipGraphCanvas @ref="_graphCanvas"
                                  Graph="_graph"
                                  NodePositions="_nodePositions"
@@ -147,6 +147,96 @@
         </div>
         <a class="button primary" href="/records/@_selected.RecordId">Open record</a>
     </section>
+}
+
+@if (_galleryOpen && _selected is not null)
+{
+    <div class="graph-gallery-overlay" @onclick="CloseGallery">
+        <section class="graph-image-gallery"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="graph-gallery-title"
+                 @onclick:stopPropagation
+                 @onkeydown="HandleGalleryKeyDown">
+            <div class="graph-gallery-heading">
+                <div>
+                    <p class="eyebrow">Record images</p>
+                    <h2 id="graph-gallery-title">@_selected.DisplayName</h2>
+                </div>
+                <button class="icon-button"
+                        type="button"
+                        aria-label="Close image gallery"
+                        title="Close image gallery"
+                        autofocus
+                        @onclick="CloseGallery">&#x2715;</button>
+            </div>
+
+            @if (_galleryLoading)
+            {
+                <p class="empty-state" role="status">Loading images...</p>
+            }
+            else if (_galleryRecord is null || _galleryRecord.Images.Count == 0)
+            {
+                <div class="graph-gallery-empty">
+                    <div class="record-image-placeholder" aria-hidden="true">@_selected.RecordTypeSymbol</div>
+                    <p>No images are attached to this record.</p>
+                </div>
+            }
+            else
+            {
+                RecordImage currentImage = _galleryRecord.Images[_galleryIndex];
+                <figure class="graph-gallery-figure">
+                    <div class="graph-gallery-stage">
+                        @if (_galleryRecord.Images.Count > 1)
+                        {
+                            <button class="graph-gallery-step previous"
+                                    type="button"
+                                    aria-label="Previous image"
+                                    @onclick="PreviousGalleryImage">&#x2039;</button>
+                        }
+                        <img src="/records/@currentImage.RecordId/images/@currentImage.Id/preview"
+                             alt="@GalleryImageAlt(currentImage)" />
+                        @if (_galleryRecord.Images.Count > 1)
+                        {
+                            <button class="graph-gallery-step next"
+                                    type="button"
+                                    aria-label="Next image"
+                                    @onclick="NextGalleryImage">&#x203A;</button>
+                        }
+                    </div>
+                    <figcaption>
+                        <span>@(currentImage.Caption ?? currentImage.OriginalFileName)</span>
+                        <small>Image @(_galleryIndex + 1) of @_galleryRecord.Images.Count</small>
+                    </figcaption>
+                </figure>
+
+                @if (_galleryRecord.Images.Count > 1)
+                {
+                    <div class="graph-gallery-thumbnails" aria-label="Choose an image">
+                        @for (int index = 0; index < _galleryRecord.Images.Count; index++)
+                        {
+                            int imageIndex = index;
+                            RecordImage image = _galleryRecord.Images[imageIndex];
+                            <button type="button"
+                                    class="@(_galleryIndex == imageIndex ? "selected" : null)"
+                                    aria-label="Show image @(imageIndex + 1)"
+                                    aria-current="@(_galleryIndex == imageIndex ? "true" : null)"
+                                    @onclick="() => ShowGalleryImage(imageIndex)">
+                                <img src="/records/@image.RecordId/images/@image.Id/thumbnail"
+                                     alt=""
+                                     loading="lazy" />
+                            </button>
+                        }
+                    </div>
+                }
+            }
+
+            <div class="action-row graph-gallery-actions">
+                <a class="button primary" href="/records/@_selected.RecordId">Open record</a>
+                <button class="button" type="button" @onclick="CloseGallery">Close</button>
+            </div>
+        </section>
+    </div>
 }
 
 <section class="panel graph-save-view">
@@ -208,6 +298,11 @@
     private bool _confirmDeleteGraphView;
     private RelationshipGraphCanvas? _graphCanvas;
     private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
+    private RecordDetails? _galleryRecord;
+    private bool _galleryOpen;
+    private bool _galleryLoading;
+    private int _galleryIndex;
+    private long _galleryRevision;
 
     private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
@@ -433,11 +528,86 @@
         }
     }
 
-    private Task SelectNode(Guid recordId)
+    private async Task SelectNode(Guid recordId)
     {
         _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
-        return Task.CompletedTask;
+        if (_selected is null)
+        {
+            return;
+        }
+
+        long revision = ++_galleryRevision;
+        _galleryOpen = true;
+        _galleryLoading = true;
+        _galleryRecord = null;
+        _galleryIndex = 0;
+
+        RecordDetails? details = await Records.GetRecordAsync(recordId);
+        if (revision != _galleryRevision || !_galleryOpen)
+        {
+            return;
+        }
+
+        _galleryRecord = details;
+        _galleryLoading = false;
+        if (details is not null)
+        {
+            int coverIndex = details.Images.ToList().FindIndex(image => image.IsCover);
+            _galleryIndex = Math.Max(0, coverIndex);
+        }
     }
+
+    private void CloseGallery()
+    {
+        _galleryRevision++;
+        _galleryOpen = false;
+        _galleryLoading = false;
+        _galleryRecord = null;
+        _galleryIndex = 0;
+    }
+
+    private void PreviousGalleryImage()
+    {
+        if (_galleryRecord is not null && _galleryRecord.Images.Count > 0)
+        {
+            _galleryIndex = (_galleryIndex - 1 + _galleryRecord.Images.Count) % _galleryRecord.Images.Count;
+        }
+    }
+
+    private void NextGalleryImage()
+    {
+        if (_galleryRecord is not null && _galleryRecord.Images.Count > 0)
+        {
+            _galleryIndex = (_galleryIndex + 1) % _galleryRecord.Images.Count;
+        }
+    }
+
+    private void ShowGalleryImage(int index)
+    {
+        if (_galleryRecord is not null && index >= 0 && index < _galleryRecord.Images.Count)
+        {
+            _galleryIndex = index;
+        }
+    }
+
+    private void HandleGalleryKeyDown(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "Escape":
+                CloseGallery();
+                break;
+            case "ArrowLeft":
+                PreviousGalleryImage();
+                break;
+            case "ArrowRight":
+                NextGalleryImage();
+                break;
+        }
+    }
+
+    private string GalleryImageAlt(RecordImage image) =>
+        image.Caption ?? $"Image of {_selected?.DisplayName ?? "record"}";
 
     private async Task SelectNodeFromListAsync(string value)
     {
