@@ -6,14 +6,18 @@ public sealed record GraphView(
     RelationshipGraphDisplayMode DisplayMode,
     IReadOnlyList<Guid> RecordIds,
     IReadOnlyList<Guid> RecordTypeIds,
+    IReadOnlyList<GraphViewNodePosition> NodePositions,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record GraphViewNodePosition(Guid RecordId, double X, double Y);
 
 public sealed record SaveGraphViewRequest(
     string Name,
     RelationshipGraphDisplayMode DisplayMode,
     IReadOnlyList<Guid> RecordIds,
-    IReadOnlyList<Guid> RecordTypeIds);
+    IReadOnlyList<Guid> RecordTypeIds,
+    IReadOnlyList<GraphViewNodePosition>? NodePositions = null);
 
 public interface IGraphViewStore
 {
@@ -71,6 +75,7 @@ public sealed class GraphViewService(
 
         Guid[] recordIds = request.RecordIds.Distinct().ToArray();
         Guid[] recordTypeIds = request.RecordTypeIds.Distinct().ToArray();
+        GraphViewNodePosition[] positions = (request.NodePositions ?? []).ToArray();
         if (recordIds.Length > RelationshipGraphService.MaximumSelectedRecords)
         {
             throw new DomainValidationException($"A graph view cannot contain more than {RelationshipGraphService.MaximumSelectedRecords} selected records.");
@@ -79,6 +84,18 @@ public sealed class GraphViewService(
         if (recordTypeIds.Length > RelationshipGraphService.MaximumRecordTypes)
         {
             throw new DomainValidationException($"A graph view cannot contain more than {RelationshipGraphService.MaximumRecordTypes} record types.");
+        }
+
+        if (positions.Length > RelationshipGraphService.MaximumNodes)
+        {
+            throw new DomainValidationException($"A graph view cannot contain more than {RelationshipGraphService.MaximumNodes} node positions.");
+        }
+
+        if (positions.Select(position => position.RecordId).Distinct().Count() != positions.Length ||
+            positions.Any(position => !double.IsFinite(position.X) || !double.IsFinite(position.Y) ||
+                Math.Abs(position.X) > 1_000_000 || Math.Abs(position.Y) > 1_000_000))
+        {
+            throw new DomainValidationException("Graph view node positions are invalid.");
         }
 
         if (request.DisplayMode != RelationshipGraphDisplayMode.All && recordIds.Length == 0)
@@ -95,13 +112,31 @@ public sealed class GraphViewService(
         }
 
         HashSet<Guid> selectedTypes = recordTypeIds.ToHashSet();
+        Dictionary<Guid, RecordDetails> availableRecords = [];
         foreach (Guid recordId in recordIds)
         {
             RecordDetails record = await records.GetRecordAsync(recordId, cancellationToken).ConfigureAwait(false)
                 ?? throw new DomainValidationException("A selected graph record was not found.");
+            availableRecords[recordId] = record;
             if (!selectedTypes.Contains(record.Record.RecordTypeId))
             {
                 throw new DomainValidationException("Selected graph records must belong to a visible record type.");
+            }
+        }
+
+
+        foreach (GraphViewNodePosition position in positions)
+        {
+            if (!availableRecords.TryGetValue(position.RecordId, out RecordDetails? record))
+            {
+                record = await records.GetRecordAsync(position.RecordId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new DomainValidationException("A positioned graph record was not found.");
+                availableRecords[position.RecordId] = record;
+            }
+
+            if (!selectedTypes.Contains(record.Record.RecordTypeId))
+            {
+                throw new DomainValidationException("Positioned graph records must belong to a visible record type.");
             }
         }
 
@@ -110,6 +145,7 @@ public sealed class GraphViewService(
             Name = name,
             RecordIds = recordIds,
             RecordTypeIds = recordTypeIds,
+            NodePositions = positions,
         };
     }
 }

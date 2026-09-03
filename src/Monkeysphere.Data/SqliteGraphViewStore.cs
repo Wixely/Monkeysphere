@@ -92,6 +92,7 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
                 await connection.ExecuteAsync(new CommandDefinition("""
                     DELETE FROM GraphViewRecords WHERE GraphViewId = @Id;
                     DELETE FROM GraphViewRecordTypes WHERE GraphViewId = @Id;
+                    DELETE FROM GraphViewNodePositions WHERE GraphViewId = @Id;
                     """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
             else
@@ -116,6 +117,14 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
                     INSERT INTO GraphViewRecordTypes (GraphViewId, RecordTypeId, SortOrder)
                     VALUES (@GraphViewId, @RecordTypeId, @SortOrder);
                     """, new { GraphViewId = Key(id), RecordTypeId = Key(request.RecordTypeIds[index]), SortOrder = index }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+
+            foreach (GraphViewNodePosition position in request.NodePositions ?? [])
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO GraphViewNodePositions (GraphViewId, RecordId, X, Y)
+                    VALUES (@GraphViewId, @RecordId, @X, @Y);
+                    """, new { GraphViewId = Key(id), RecordId = Key(position.RecordId), position.X, position.Y }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -146,12 +155,17 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
             SELECT RecordTypeId FROM GraphViewRecordTypes
             WHERE GraphViewId = @Id ORDER BY SortOrder;
             """, new { row.Id }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        GraphViewPositionRow[] positions = (await connection.QueryAsync<GraphViewPositionRow>(new CommandDefinition("""
+            SELECT RecordId, X, Y FROM GraphViewNodePositions
+            WHERE GraphViewId = @Id ORDER BY RecordId;
+            """, new { row.Id }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         return new(
             ParseGuid(row.Id),
             row.Name,
             (RelationshipGraphDisplayMode)row.DisplayMode,
             recordIds.Select(ParseGuid).ToArray(),
             recordTypeIds.Select(ParseGuid).ToArray(),
+            positions.Select(position => new GraphViewNodePosition(ParseGuid(position.RecordId), position.X, position.Y)).ToArray(),
             ParseTimestamp(row.CreatedAtUtc),
             ParseTimestamp(row.UpdatedAtUtc));
     }
@@ -168,5 +182,12 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
         public int DisplayMode { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
+    }
+
+    private sealed class GraphViewPositionRow
+    {
+        public required string RecordId { get; init; }
+        public double X { get; init; }
+        public double Y { get; init; }
     }
 }

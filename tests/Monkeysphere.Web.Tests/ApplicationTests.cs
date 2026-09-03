@@ -76,6 +76,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
         Assert.Contains("centerOn", graphScript, StringComparison.Ordinal);
+        Assert.Contains("getPositions", graphScript, StringComparison.Ordinal);
+        Assert.Contains("minimumNodeDistance", graphScript, StringComparison.Ordinal);
+        Assert.Contains("cy.on('dragfree', 'node'", graphScript, StringComparison.Ordinal);
+        Assert.Contains("preservedPositions", graphScript, StringComparison.Ordinal);
         Assert.Contains("ResizeObserver", graphScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, graphPreferences.StatusCode);
         Assert.Contains("monkeysphere.graph.record-types", await graphPreferences.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -375,6 +379,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Record types", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Centre a displayed record", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Save graph view", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("record positions", graphHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("Relationship type", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
         Assert.Contains("data-theme-toggle", graphHtml, StringComparison.Ordinal);

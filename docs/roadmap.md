@@ -37,3 +37,12 @@ Domains let one deployment hold independent spheres such as Personal friends, On
 
 - Produce a clean DnaX package release whose compiled assemblies do not contain local build paths, then update Monkeysphere before the next public prerelease. Owner: Wixely / Agent; approval required for the separate DnaX repository.
 - Complete live privileged Windows Service and installed-systemd lifecycle verification. Owner: Wixely / Agent.
+
+## Saved graph layouts
+
+Status: Implemented on `feature/domains`; pending review and merge.
+
+- Saved graph views persist bounded coordinates for every displayed record through DnaX migration 19.
+- Existing nodes retain their saved or current coordinates when filters refresh or new matching records appear.
+- Initial layout, newly introduced nodes, and drag completion enforce deterministic minimum spacing so nodes do not overlap.
+- Later consideration: user-configurable spacing and an explicit automatic relayout action. Owner: TBD; review date: 2026-10-01.

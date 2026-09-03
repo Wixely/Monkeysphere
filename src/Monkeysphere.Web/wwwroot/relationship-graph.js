@@ -1,4 +1,5 @@
 const graphs = new globalThis.Map();
+const minimumNodeDistance = 130;
 
 function themeColor(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -79,10 +80,22 @@ function graphStyles() {
     ];
 }
 
-function elements(graph) {
+function positionMap(positions) {
+    const result = new globalThis.Map();
+    (positions || []).forEach(position => {
+        if (position?.recordId && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+            result.set(position.recordId, { x: position.x, y: position.y });
+        }
+    });
+    return result;
+}
+
+function elements(graph, positions) {
+    const saved = positionMap(positions);
     return [
         ...graph.nodes.map(node => ({
             group: 'nodes',
+            ...(saved.has(node.recordId) ? { position: saved.get(node.recordId) } : {}),
             data: {
                 id: node.recordId,
                 recordId: node.recordId,
@@ -150,18 +163,134 @@ function queueBadgePositions(cy, badgeState) {
     badgeState.frame = requestAnimationFrame(() => positionBadges(cy, badgeState));
 }
 
-function runLayout(cy, badgeState) {
-    cy.elements().layout({
-        name: 'cose',
-        animate: false,
-        fit: false,
-        padding: 36,
-        nodeRepulsion: () => 7000,
-        idealEdgeLength: () => 100,
-        randomize: true
-    }).run();
+function capturePositionMap(cy) {
+    const result = new globalThis.Map();
+    cy.nodes().forEach(node => {
+        const position = node.position();
+        if (Number.isFinite(position.x) && Number.isFinite(position.y)) {
+            result.set(node.id(), { x: position.x, y: position.y });
+        }
+    });
+    return result;
+}
+
+function isPositionFree(position, occupied) {
+    const minimumSquared = minimumNodeDistance * minimumNodeDistance;
+    return occupied.every(other => {
+        const dx = position.x - other.x;
+        const dy = position.y - other.y;
+        return (dx * dx) + (dy * dy) >= minimumSquared;
+    });
+}
+
+function angleOffset(id) {
+    let hash = 2166136261;
+    for (let index = 0; index < id.length; index++) {
+        hash ^= id.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return ((hash >>> 0) % 360) * Math.PI / 180;
+}
+
+function findFreePosition(origin, occupied, id) {
+    if (isPositionFree(origin, occupied)) {
+        return origin;
+    }
+
+    const offset = angleOffset(id);
+    for (let ring = 1; ring <= 80; ring++) {
+        const candidates = Math.max(12, ring * 12);
+        const radius = minimumNodeDistance * ring;
+        for (let index = 0; index < candidates; index++) {
+            const angle = offset + (index * Math.PI * 2 / candidates);
+            const candidate = {
+                x: origin.x + Math.cos(angle) * radius,
+                y: origin.y + Math.sin(angle) * radius
+            };
+            if (isPositionFree(candidate, occupied)) {
+                return candidate;
+            }
+        }
+    }
+
+    return { x: origin.x + occupied.length * minimumNodeDistance, y: origin.y };
+}
+
+function averagePosition(positions) {
+    if (!positions.length) {
+        return { x: 0, y: 0 };
+    }
+
+    return {
+        x: positions.reduce((sum, position) => sum + position.x, 0) / positions.length,
+        y: positions.reduce((sum, position) => sum + position.y, 0) / positions.length
+    };
+}
+
+function normalizePositions(nodes, fixedPositions) {
+    const occupied = [];
+    const placed = new globalThis.Map();
+    const pending = [];
+
+    nodes.forEach(node => {
+        const preferred = fixedPositions.get(node.id());
+        if (!preferred) {
+            pending.push(node);
+            return;
+        }
+
+        const position = findFreePosition(preferred, occupied, node.id());
+        node.position(position);
+        occupied.push(position);
+        placed.set(node.id(), position);
+    });
+
+    pending.forEach(node => {
+        const neighbours = node.neighborhood('node').toArray()
+            .map(neighbour => placed.get(neighbour.id()))
+            .filter(Boolean);
+        const origin = neighbours.length ? averagePosition(neighbours) : averagePosition(occupied);
+        const position = findFreePosition(origin, occupied, node.id());
+        node.position(position);
+        occupied.push(position);
+        placed.set(node.id(), position);
+    });
+}
+
+function runLayout(cy, savedPositions, preservedPositions, badgeState) {
+    const fixedPositions = positionMap(savedPositions);
+    preservedPositions.forEach((position, id) => fixedPositions.set(id, position));
+    const nodes = cy.nodes().toArray().sort((left, right) => left.id().localeCompare(right.id()));
+    const hasDisplayedFixedPosition = nodes.some(node => fixedPositions.has(node.id()));
+
+    if (!hasDisplayedFixedPosition) {
+        cy.elements().layout({
+            name: 'cose',
+            animate: false,
+            fit: false,
+            padding: 36,
+            nodeRepulsion: () => 12000,
+            idealEdgeLength: () => 150,
+            randomize: true
+        }).run();
+        normalizePositions(nodes, capturePositionMap(cy));
+    } else {
+        normalizePositions(nodes, fixedPositions);
+    }
+
     cy.fit(cy.elements(), 36);
     queueBadgePositions(cy, badgeState);
+}
+
+function separateDraggedNode(cy, node) {
+    const occupied = cy.nodes().toArray()
+        .filter(other => other.id() !== node.id())
+        .map(other => other.position());
+    const current = node.position();
+    const position = findFreePosition(current, occupied, node.id());
+    if (position.x !== current.x || position.y !== current.y) {
+        node.animate({ position }, { duration: 180, easing: 'ease-out' });
+    }
 }
 
 function hideRecordMenu(menu) {
@@ -188,14 +317,15 @@ function showRecordMenu(element, menu, node, renderedPosition) {
     link.focus({ preventScroll: true });
 }
 
-export function create(element, callback, graph) {
+export function create(element, callback, graph, savedPositions) {
     if (!globalThis.cytoscape || graphs.has(element)) {
         return;
     }
 
     const cy = cytoscape({
         container: element,
-        elements: elements(graph),
+        elements: elements(graph, savedPositions),
+        layout: { name: 'preset', fit: false },
         minZoom: 0.15,
         maxZoom: 3,
         style: graphStyles()
@@ -224,6 +354,7 @@ export function create(element, callback, graph) {
         showRecordMenu(element, menu, node, event.renderedPosition);
     });
     cy.on('tap pan zoom drag', () => hideRecordMenu(menu));
+    cy.on('dragfree', 'node', event => separateDraggedNode(cy, event.target));
 
     const suppressContextMenu = event => event.preventDefault();
     const dismissMenu = event => {
@@ -265,20 +396,41 @@ export function create(element, callback, graph) {
     });
     observer.observe(element);
     graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState });
-    runLayout(cy, badgeState);
+    runLayout(cy, savedPositions, new globalThis.Map(), badgeState);
 }
 
-export function update(element, graph) {
+export function update(element, graph, savedPositions) {
     const instance = graphs.get(element);
     if (!instance) {
         return;
     }
 
     const { cy, badgeLayer, badgeState } = instance;
+    const preservedPositions = capturePositionMap(cy);
     cy.elements().remove();
-    cy.add(elements(graph));
+    cy.add(elements(graph, savedPositions));
     rebuildBadges(badgeLayer, graph, badgeState);
-    runLayout(cy, badgeState);
+    runLayout(cy, savedPositions, preservedPositions, badgeState);
+}
+
+export function getPositions(element) {
+    const graph = graphs.get(element);
+    if (!graph) {
+        return [];
+    }
+
+    const nodes = graph.cy.nodes().toArray().sort((left, right) => left.id().localeCompare(right.id()));
+    normalizePositions(nodes, capturePositionMap(graph.cy));
+    queueBadgePositions(graph.cy, graph.badgeState);
+    return nodes
+        .map(node => {
+            const position = node.position();
+            return {
+                recordId: node.id(),
+                x: Math.round(position.x * 1000) / 1000,
+                y: Math.round(position.y * 1000) / 1000
+            };
+        });
 }
 
 export function centerOn(element, recordId) {

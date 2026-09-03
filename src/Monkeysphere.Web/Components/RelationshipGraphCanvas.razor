@@ -19,6 +19,9 @@
     public RelationshipGraphResult Graph { get; set; } = new([], [], false, false);
 
     [Parameter]
+    public IReadOnlyList<GraphViewNodePosition> NodePositions { get; set; } = [];
+
+    [Parameter]
     public EventCallback<Guid> OnNodeSelected { get; set; }
 
     [Parameter]
@@ -37,7 +40,8 @@
     protected override void OnParametersSet()
     {
         string revision = string.Join('|', Graph.Nodes.Select(node => $"{node.RecordId}:{node.DisplayName}:{node.RecordTypeName}:{node.Distance}:{node.ImageId}:{node.RecordTypeSymbol}")) + ":" +
-            string.Join('|', Graph.Edges.Select(edge => $"{edge.RelationshipId}:{edge.SourceRecordId}:{edge.TargetRecordId}:{edge.Label}"));
+            string.Join('|', Graph.Edges.Select(edge => $"{edge.RelationshipId}:{edge.SourceRecordId}:{edge.TargetRecordId}:{edge.Label}")) + ":" +
+            string.Join('|', NodePositions.Select(position => $"{position.RecordId}:{position.X}:{position.Y}"));
         _needsUpdate = !string.Equals(revision, _revision, StringComparison.Ordinal);
         _revision = revision;
     }
@@ -48,12 +52,12 @@
         {
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./relationship-graph.js");
             _reference = DotNetObjectReference.Create(this);
-            await _module.InvokeVoidAsync("create", _element, _reference, Graph);
+            await _module.InvokeVoidAsync("create", _element, _reference, Graph, NodePositions);
             _needsUpdate = false;
         }
         else if (_needsUpdate && _module is not null)
         {
-            await _module.InvokeVoidAsync("update", _element, Graph);
+            await _module.InvokeVoidAsync("update", _element, Graph, NodePositions);
             _needsUpdate = false;
         }
 
@@ -69,6 +73,16 @@
         Guid.TryParse(recordId, out Guid parsed)
             ? OnNodeSelected.InvokeAsync(parsed)
             : Task.CompletedTask;
+
+    public async Task<IReadOnlyList<GraphViewNodePosition>> CaptureNodePositionsAsync()
+    {
+        if (_module is null)
+        {
+            return [];
+        }
+
+        return await _module.InvokeAsync<GraphViewNodePosition[]>("getPositions", _element);
+    }
 
     public async ValueTask DisposeAsync()
     {

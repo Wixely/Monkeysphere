@@ -124,7 +124,9 @@
     else
     {
         <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Search above or use the accessible selector below to centre a record.</p>
-        <RelationshipGraphCanvas Graph="_graph"
+        <RelationshipGraphCanvas @ref="_graphCanvas"
+                                 Graph="_graph"
+                                 NodePositions="_nodePositions"
                                  OnNodeSelected="SelectNode"
                                  CenterRecordId="_centreRecordId"
                                  CenterRequest="_centreRequest" />
@@ -151,7 +153,7 @@
     <div>
         <p class="eyebrow">Reusable graph filter</p>
         <h2>@(_editingGraphViewId.HasValue ? "Update graph view" : "Save graph view")</h2>
-        <p class="muted">Stores the display mode, chosen records, and visible record types. Canvas position is not stored.</p>
+        <p class="muted">Stores the display mode, chosen records, visible record types, and record positions. Drag records where you want them before saving.</p>
     </div>
     @if (!string.IsNullOrWhiteSpace(_saveMessage))
     {
@@ -204,6 +206,8 @@
     private string? _saveMessage;
     private bool _saveError;
     private bool _confirmDeleteGraphView;
+    private RelationshipGraphCanvas? _graphCanvas;
+    private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
 
     private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
@@ -492,6 +496,7 @@
         _editingGraphViewId = view.Id;
         _graphViewName = view.Name;
         _displayMode = view.DisplayMode;
+        _nodePositions = view.NodePositions;
         _selectedRecordTypeIds.UnionWith(view.RecordTypeIds.Where(availableTypeIds.Contains));
         foreach (Guid recordId in view.RecordIds)
         {
@@ -507,16 +512,21 @@
     {
         try
         {
+            IReadOnlyList<GraphViewNodePosition> positions = _graphCanvas is null
+                ? []
+                : await _graphCanvas.CaptureNodePositionsAsync();
             SaveGraphViewRequest request = new(
                 _graphViewName,
                 _displayMode,
                 _selectedRecords.Select(record => record.Id).ToArray(),
-                _selectedRecordTypeIds.ToArray());
+                _selectedRecordTypeIds.ToArray(),
+                positions);
             GraphView saved = _editingGraphViewId is Guid id
                 ? await GraphViews.UpdateAsync(id, request)
                 : await GraphViews.CreateAsync(request);
             _editingGraphViewId = saved.Id;
             _graphViewName = saved.Name;
+            _nodePositions = saved.NodePositions;
             _saveMessage = $"Saved {saved.Name}.";
             _saveError = false;
             _confirmDeleteGraphView = false;

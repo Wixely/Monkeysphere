@@ -167,22 +167,27 @@ public sealed class RelationshipWorkflowTests
             "Household",
             RelationshipGraphDisplayMode.Isolated,
             [ada.Record.Id, fido.Record.Id],
-            [person.Id, pet.Id]));
+            [person.Id, pet.Id],
+            [new(ada.Record.Id, 125.5, -40.25), new(fido.Record.Id, 400, 210)]));
 
         GraphView read = Assert.Single(await views.ListAsync());
         Assert.Equal(created.Id, read.Id);
         Assert.Equal([ada.Record.Id, fido.Record.Id], read.RecordIds);
         Assert.Equal([person.Id, pet.Id], read.RecordTypeIds);
         Assert.Equal(RelationshipGraphDisplayMode.Isolated, read.DisplayMode);
+        Assert.Equal(new GraphViewNodePosition(ada.Record.Id, 125.5, -40.25), Assert.Single(read.NodePositions, position => position.RecordId == ada.Record.Id));
+        Assert.Equal(new GraphViewNodePosition(fido.Record.Id, 400, 210), Assert.Single(read.NodePositions, position => position.RecordId == fido.Record.Id));
 
         GraphView updated = await views.UpdateAsync(created.Id, new(
             "Household connections",
             RelationshipGraphDisplayMode.Connected,
             [ada.Record.Id],
-            [person.Id]));
+            [person.Id],
+            [new(ada.Record.Id, -75, 88)]));
         Assert.Equal("Household connections", updated.Name);
         Assert.Equal([ada.Record.Id], updated.RecordIds);
         Assert.Equal([person.Id], updated.RecordTypeIds);
+        Assert.Equal(new GraphViewNodePosition(ada.Record.Id, -75, 88), Assert.Single(updated.NodePositions));
 
         await Assert.ThrowsAsync<DomainValidationException>(() => views.CreateAsync(new(
             "Hidden selection",
@@ -194,6 +199,18 @@ public sealed class RelationshipWorkflowTests
             RelationshipGraphDisplayMode.All,
             [],
             [person.Id])));
+        await Assert.ThrowsAsync<DomainValidationException>(() => views.CreateAsync(new(
+            "Invalid positioned type",
+            RelationshipGraphDisplayMode.All,
+            [],
+            [person.Id],
+            [new(fido.Record.Id, 0, 0)])));
+        await Assert.ThrowsAsync<DomainValidationException>(() => views.CreateAsync(new(
+            "Invalid coordinates",
+            RelationshipGraphDisplayMode.All,
+            [],
+            [person.Id],
+            [new(ada.Record.Id, double.NaN, 0)])));
 
         Assert.True(await views.DeleteAsync(created.Id));
         Assert.Empty(await views.ListAsync());

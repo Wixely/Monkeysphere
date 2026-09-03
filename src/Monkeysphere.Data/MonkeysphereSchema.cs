@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 18,
+        currentVersion: 19,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -540,6 +540,20 @@ public static class MonkeysphereSchema
 
                 INSERT INTO MapSettings (Singleton, ExternalTilesEnabled, UpdatedAtUtc)
                 VALUES (1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                """),
+            DnaXMigration.Sql(19, "saved-graph-node-positions", "Persist node positions in saved graph views", """
+                CREATE TABLE GraphViewNodePositions (
+                    GraphViewId TEXT NOT NULL,
+                    RecordId TEXT NOT NULL,
+                    X REAL NOT NULL CHECK (X BETWEEN -1000000 AND 1000000),
+                    Y REAL NOT NULL CHECK (Y BETWEEN -1000000 AND 1000000),
+                    PRIMARY KEY (GraphViewId, RecordId),
+                    FOREIGN KEY (GraphViewId) REFERENCES GraphViews(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_GraphViewNodePositions_RecordId
+                    ON GraphViewNodePositions (RecordId);
                 """),
         ]);
 }
