@@ -5,6 +5,7 @@
 @inject IRelationshipGraphService GraphService
 @inject IGraphViewService GraphViews
 @inject IMonkeysphereService Records
+@inject ICurrentDomain CurrentDomain
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 
@@ -238,7 +239,7 @@
             return;
         }
 
-        string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds");
+        string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds", CurrentDomain.Id.ToString("D"));
         if (savedIds is null)
         {
             return;
@@ -561,7 +562,7 @@
             string[] ids = _selectedRecordTypeIds.Select(id => id.ToString("D")).ToArray();
             await _preferencesModule.InvokeVoidAsync(
                 "saveRecordTypeIds",
-                new object?[] { ids });
+                new object?[] { CurrentDomain.Id.ToString("D"), ids });
         }
     }
 

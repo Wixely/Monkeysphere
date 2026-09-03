@@ -18,38 +18,45 @@ public static class MonkeysphereDataExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(new DebugResetAvailability(false));
-        services.AddSingleton<MonkeysphereConnectionFactory>();
-        services.AddSingleton<IMonkeysphereStore, SqliteMonkeysphereStore>();
-        services.AddSingleton<IMonkeysphereService, MonkeysphereService>();
-        services.AddSingleton<ICalendarStore, SqliteCalendarStore>();
-        services.AddSingleton<ICalendarService, CalendarService>();
-        services.AddSingleton<ISpatialMapStore, SqliteSpatialMapStore>();
-        services.AddSingleton<ISpatialMapService, SpatialMapService>();
-        services.AddSingleton<IReminderStore, SqliteReminderStore>();
-        services.AddSingleton<IReminderService, ReminderService>();
-        services.AddSingleton<IVCardStore, SqliteVCardStore>();
-        services.AddSingleton<IVCardService, VCardService>();
-        services.AddSingleton<IRecordImageService, RecordImageService>();
-        services.AddSingleton<IBackupService, BackupService>();
-        services.AddSingleton<IRelationshipStore, SqliteRelationshipStore>();
-        services.AddSingleton<IRelationshipService, RelationshipService>();
-        services.AddSingleton<IRelationshipGraphStore, SqliteRelationshipGraphStore>();
-        services.AddSingleton<IRelationshipGraphService, RelationshipGraphService>();
-        services.AddSingleton<ISavedViewStore, SqliteSavedViewStore>();
-        services.AddSingleton<ISavedViewService, SavedViewService>();
-        services.AddSingleton<IGraphViewStore, SqliteGraphViewStore>();
-        services.AddSingleton<IGraphViewService, GraphViewService>();
-        services.AddSingleton<IDashboardStore, SqliteDashboardStore>();
-        services.AddSingleton<IDashboardService, DashboardService>();
-        services.AddSingleton<IMapSettingsStore, SqliteMapSettingsStore>();
-        services.AddSingleton<IMapSettingsService, MapSettingsService>();
-        services.AddSingleton<IPresetStore, SqlitePresetStore>();
-        services.AddSingleton<IPresetService, PresetService>();
-        services.AddSingleton<IDebugDatabaseResetService, DebugDatabaseResetService>();
+        services.TryAddScoped<ICurrentDomainScope, DefaultCurrentDomain>();
+        services.TryAddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
+        services.AddSingleton<DomainRegistryConnectionFactory>();
+        services.AddSingleton<DomainMigrationTarget>();
+        services.AddSingleton<MonkeysphereMigrationConnectionFactory>();
+        services.AddSingleton<IDomainDatabaseMigrator, DomainDatabaseMigrator>();
+        services.AddSingleton<IDomainCatalog, DomainCatalog>();
+        services.AddScoped<MonkeysphereConnectionFactory>();
+        services.AddScoped<IMonkeysphereStore, SqliteMonkeysphereStore>();
+        services.AddScoped<IMonkeysphereService, MonkeysphereService>();
+        services.AddScoped<ICalendarStore, SqliteCalendarStore>();
+        services.AddScoped<ICalendarService, CalendarService>();
+        services.AddScoped<ISpatialMapStore, SqliteSpatialMapStore>();
+        services.AddScoped<ISpatialMapService, SpatialMapService>();
+        services.AddScoped<IReminderStore, SqliteReminderStore>();
+        services.AddScoped<IReminderService, ReminderService>();
+        services.AddScoped<IVCardStore, SqliteVCardStore>();
+        services.AddScoped<IVCardService, VCardService>();
+        services.AddScoped<IRecordImageService, RecordImageService>();
+        services.AddScoped<IBackupService, BackupService>();
+        services.AddScoped<IRelationshipStore, SqliteRelationshipStore>();
+        services.AddScoped<IRelationshipService, RelationshipService>();
+        services.AddScoped<IRelationshipGraphStore, SqliteRelationshipGraphStore>();
+        services.AddScoped<IRelationshipGraphService, RelationshipGraphService>();
+        services.AddScoped<ISavedViewStore, SqliteSavedViewStore>();
+        services.AddScoped<ISavedViewService, SavedViewService>();
+        services.AddScoped<IGraphViewStore, SqliteGraphViewStore>();
+        services.AddScoped<IGraphViewService, GraphViewService>();
+        services.AddScoped<IDashboardStore, SqliteDashboardStore>();
+        services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IMapSettingsStore, SqliteMapSettingsStore>();
+        services.AddScoped<IMapSettingsService, MapSettingsService>();
+        services.AddScoped<IPresetStore, SqlitePresetStore>();
+        services.AddScoped<IPresetService, PresetService>();
+        services.AddScoped<IDebugDatabaseResetService, DebugDatabaseResetService>();
         services.AddDnaXDataMigrations(DatabaseName, options =>
         {
             options.ConnectionFactory = provider =>
-                provider.GetRequiredService<MonkeysphereConnectionFactory>().CreateConnection();
+                provider.GetRequiredService<MonkeysphereMigrationConnectionFactory>().CreateConnection();
             options.Manifest = MonkeysphereSchema.Manifest;
             options.ApplicationVersion = typeof(MonkeysphereSchema).Assembly.GetName().Version?.ToString();
             options.UseSqlite(sqlite =>
@@ -60,7 +67,36 @@ public static class MonkeysphereDataExtensions
                 sqlite.LockTimeout = TimeSpan.FromSeconds(30);
             });
         });
+        services.AddDnaXDataMigrations(DomainRegistrySchema.DatabaseName, options =>
+        {
+            options.ConnectionFactory = provider =>
+                provider.GetRequiredService<DomainRegistryConnectionFactory>().CreateConnection();
+            options.Manifest = DomainRegistrySchema.Manifest;
+            options.ApplicationVersion = typeof(DomainRegistrySchema).Assembly.GetName().Version?.ToString();
+            options.UseSqlite(sqlite =>
+            {
+                sqlite.EnableWriteAheadLogging = true;
+                sqlite.EnforceForeignKeys = true;
+                sqlite.DeferForeignKeysDuringMigration = true;
+                sqlite.LockTimeout = TimeSpan.FromSeconds(30);
+            });
+        });
         return services;
+    }
+
+    public static async Task InitializeMonkeysphereDomainsAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        await services.MigrateDnaXDatabaseAsync(DomainRegistrySchema.DatabaseName, cancellationToken).ConfigureAwait(false);
+        IDomainCatalog catalog = services.GetRequiredService<IDomainCatalog>();
+        await catalog.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        IDomainDatabaseMigrator databases = services.GetRequiredService<IDomainDatabaseMigrator>();
+        foreach (MonkeysphereDomain domain in catalog.Snapshot)
+        {
+            await databases.MigrateAsync(domain.Id, cancellationToken).ConfigureAwait(false);
+        }
     }
 }
 
@@ -74,6 +110,7 @@ public sealed record DebugResetAvailability(bool Enabled);
 internal sealed class DebugDatabaseResetService(
     MonkeysphereConnectionFactory connections,
     IDnaXPaths paths,
+    ICurrentDomain currentDomain,
     DebugResetAvailability availability) : IDebugDatabaseResetService
 {
     public async Task ResetAsync(CancellationToken cancellationToken = default)
@@ -113,7 +150,7 @@ internal sealed class DebugDatabaseResetService(
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        string mediaRoot = Path.GetFullPath(paths.ResolveWritable(Path.Combine("media", "records")));
+        string mediaRoot = Path.GetFullPath(paths.ResolveWritable(DomainStoragePaths.MediaRelativeRoot(currentDomain.Id)));
         string writableRoot = Path.GetFullPath(paths.ResolveWritable("."));
         if (!mediaRoot.StartsWith(Path.TrimEndingDirectorySeparator(writableRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
@@ -126,11 +163,13 @@ internal sealed class DebugDatabaseResetService(
     }
 }
 
-public sealed class MonkeysphereConnectionFactory(IDnaXPaths paths)
+public sealed class MonkeysphereConnectionFactory(IDnaXPaths paths, ICurrentDomain currentDomain)
 {
+    public string DatabasePath => paths.ResolveWritable(DomainStoragePaths.DatabaseRelativePath(currentDomain.Id));
+
     public SqliteConnection CreateConnection()
     {
-        string databasePath = paths.ResolveWritable("monkeysphere.db");
+        string databasePath = DatabasePath;
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
         SqliteConnectionStringBuilder builder = new()
         {

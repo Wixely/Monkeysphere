@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DnaX.RemoteAccess;
 using Microsoft.AspNetCore.Hosting;
@@ -186,6 +187,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/structures/relationship-types")]
     [InlineData("/structures/saved-views")]
     [InlineData("/settings")]
+    [InlineData("/settings/domains")]
     [InlineData("/settings/dashboard")]
     [InlineData("/settings/map")]
     [InlineData("/settings/backups")]
@@ -399,6 +401,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     {
         await using MonkeysphereApplicationFactory factory = new();
         IBackupService backups;
+        Guid secondDomainId;
         using (IServiceScope scope = factory.Services.CreateScope())
         {
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
@@ -409,21 +412,33 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             byte[] png = Convert.FromBase64String(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
             _ = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
+
+            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Backup second domain");
+            secondDomainId = second.Id;
+            ICurrentDomainScope currentDomain = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>();
+            using (currentDomain.Use(second.Id))
+            {
+                RecordType secondType = await records.CreateRecordTypeAsync("Independent type");
+                RecordDetails secondRecord = await records.CreateRecordAsync(secondType.Id, "Independent record", []);
+                _ = await images.AddAsync(secondRecord.Record.Id, new MemoryStream(png), "second.png");
+            }
         }
 
         BackupInfo backup = await backups.CreateAsync();
         BackupValidation validation = await backups.ValidateAsync(backup.Id);
-        Assert.Equal(1, validation.FormatVersion);
+        Assert.Equal(2, validation.FormatVersion);
         Assert.Equal(Monkeysphere.Data.MonkeysphereSchema.Manifest.CurrentVersion, validation.ApplicationSchemaVersion);
-        Assert.Equal(1, validation.OriginalImageCount);
+        Assert.Equal(2, validation.OriginalImageCount);
 
         await using Stream content = Assert.IsAssignableFrom<Stream>(await backups.OpenAsync(backup.Id));
         using ZipArchive archive = new(content, ZipArchiveMode.Read);
         string[] paths = archive.Entries.Select(entry => entry.FullName).ToArray();
         Assert.Contains("manifest.json", paths);
-        Assert.Contains("databases/monkeysphere.db", paths);
+        Assert.Contains("databases/domains.db", paths);
         Assert.Contains("databases/remote-access.db", paths);
-        Assert.Single(paths, path => path.EndsWith(".original.png", StringComparison.Ordinal));
+        Assert.Contains($"domains/{MonkeysphereDomains.DefaultId:N}/monkeysphere.db", paths);
+        Assert.Contains($"domains/{secondDomainId:N}/monkeysphere.db", paths);
+        Assert.Equal(2, paths.Count(path => path.EndsWith(".original.png", StringComparison.Ordinal)));
         Assert.DoesNotContain(paths, path => path.Contains("preview", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, path => path.StartsWith("keys/", StringComparison.Ordinal));
     }
@@ -437,6 +452,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         {
             Guid recordId;
             Guid imageId;
+            Guid secondDomainId;
+            Guid secondRecordId;
             string packagePath;
             await using (PersistentApplicationFactory factory = new(dataRoot))
             {
@@ -450,9 +467,22 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                 byte[] png = Convert.FromBase64String(
                     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
                 RecordImage image = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
+                MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Restore second domain");
+                secondDomainId = second.Id;
+                ICurrentDomainScope currentDomain = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>();
+                using (currentDomain.Use(second.Id))
+                {
+                    RecordType secondType = await records.CreateRecordTypeAsync("Second restore type");
+                    RecordDetails secondRecord = await records.CreateRecordAsync(secondType.Id, "Second before backup", []);
+                    secondRecordId = secondRecord.Record.Id;
+                }
                 BackupInfo backup = await backups.CreateAsync();
                 packagePath = Path.Combine(dataRoot, "backups", backup.FileName);
                 _ = await records.UpdateRecordAsync(record.Record.Id, "After backup", []);
+                using (currentDomain.Use(second.Id))
+                {
+                    _ = await records.UpdateRecordAsync(secondRecordId, "Second after backup", []);
+                }
                 recordId = record.Record.Id;
                 imageId = image.Id;
             }
@@ -471,6 +501,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                 RecordImageFile preview = Assert.IsType<RecordImageFile>(
                     await images.OpenAsync(recordId, imageId, RecordImageVariant.Preview));
                 await preview.Content.DisposeAsync();
+                IDomainCatalog domains = scope.ServiceProvider.GetRequiredService<IDomainCatalog>();
+                Assert.True(domains.TryGet(secondDomainId, out MonkeysphereDomain? restoredDomain));
+                Assert.Equal("Restore second domain", restoredDomain?.Name);
+                using (scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(secondDomainId))
+                {
+                    Assert.Equal("Second before backup", (await records.GetRecordAsync(secondRecordId))?.Record.DisplayName);
+                    Assert.Null(await records.GetRecordAsync(recordId));
+                }
             }
         }
         finally
@@ -513,6 +551,70 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
         Assert.Equal("/login", logout.Headers.Location?.OriginalString);
         Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync("/")).StatusCode);
+    }
+
+    [Fact]
+    public async Task DomainSwitcherUsesProtectedCookieAndNewDomainRunsItsOwnSetup()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        MonkeysphereDomain second;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            RecordType type = await records.CreateRecordTypeAsync("Default-only type");
+            _ = await records.CreateRecordAsync(type.Id, "Default-only record", []);
+            second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Online friends");
+        }
+
+        using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true,
+        });
+        string loginHtml = await client.GetStringAsync("/login");
+        using FormUrlEncodedContent loginForm = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = "/settings/domains",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", loginForm)).StatusCode);
+
+        string domainsHtml = await client.GetStringAsync("/settings/domains");
+        Assert.Contains("Default", domainsHtml, StringComparison.Ordinal);
+        Assert.Contains("Online friends", domainsHtml, StringComparison.Ordinal);
+        Assert.Contains("Records, structures, relationships, views, calendar entries, maps, and media never appear outside their domain.", domainsHtml, StringComparison.Ordinal);
+        using FormUrlEncodedContent selectionForm = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(domainsHtml),
+            ["domainId"] = second.Id.ToString("D"),
+            ["returnUrl"] = "/setup",
+        });
+        HttpResponseMessage selected = await client.PostAsync("/domains/select", selectionForm);
+        Assert.Equal(HttpStatusCode.Redirect, selected.StatusCode);
+        string cookie = Assert.Single(selected.Headers.GetValues("Set-Cookie"), value =>
+            value.StartsWith("Monkeysphere.Domain=", StringComparison.Ordinal));
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", cookie, StringComparison.OrdinalIgnoreCase);
+
+        string setupHtml = await client.GetStringAsync("/setup");
+        Assert.Contains("What would you like to remember?", setupHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Default-only record", setupHtml, StringComparison.Ordinal);
+        HttpResponseMessage recordsResponse = await client.GetAsync("/records");
+        Assert.Equal(HttpStatusCode.Redirect, recordsResponse.StatusCode);
+        Assert.Equal("/setup", recordsResponse.Headers.Location?.AbsolutePath);
+
+        using FormUrlEncodedContent returnToDefaultForm = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(setupHtml),
+            ["domainId"] = MonkeysphereDomains.DefaultId.ToString("D"),
+            ["returnUrl"] = "/setup",
+        });
+        HttpResponseMessage returned = await client.PostAsync("/domains/select", returnToDefaultForm);
+        Assert.Equal(HttpStatusCode.Redirect, returned.StatusCode);
+        Assert.Equal("/", returned.Headers.Location?.OriginalString);
     }
 
     [Fact]
@@ -901,6 +1003,7 @@ public sealed class RemoteAccessApplicationTests
             BaseAddress = new Uri("https://localhost"),
         });
         Guid adaId;
+        Guid secondDomainId;
         using (IServiceScope scope = factory.Services.CreateScope())
         {
             IMonkeysphereService service = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
@@ -934,6 +1037,13 @@ public sealed class RemoteAccessApplicationTests
                 RelationshipDirectionality.Symmetric));
             await relationships.CreateAsync(collaborator.Id, ada.Record.Id, charles.Record.Id);
             adaId = ada.Record.Id;
+            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Remote test domain");
+            secondDomainId = second.Id;
+            using (scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(second.Id))
+            {
+                RecordType secondType = await service.CreateRecordTypeAsync("Online person");
+                _ = await service.CreateRecordAsync(secondType.Id, "Remote-domain record", [], ["Online-only"]);
+            }
         }
 
         IDnaXRemoteAccessAdministration administration =
@@ -955,6 +1065,32 @@ public sealed class RemoteAccessApplicationTests
         string firstBody = await firstResponse.Content.ReadAsStringAsync();
         Assert.True(firstResponse.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)firstResponse.StatusCode}: {firstBody}");
         Assert.Contains("Ada Lovelace", firstBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Remote-domain record", firstBody, StringComparison.Ordinal);
+        HttpResponseMessage domainsResponse = await SendAsync(
+            client,
+            firstRoute.EndpointPath + "/domains",
+            firstCredential.Secret);
+        string domainsBody = await domainsResponse.Content.ReadAsStringAsync();
+        Assert.True(domainsResponse.IsSuccessStatusCode, domainsBody);
+        Assert.Contains("Remote test domain", domainsBody, StringComparison.Ordinal);
+        HttpResponseMessage secondDomainResponse = await SendAsync(
+            client,
+            firstRoute.EndpointPath + "/records?query=Online-only",
+            firstCredential.Secret,
+            secondDomainId);
+        string secondDomainBody = await secondDomainResponse.Content.ReadAsStringAsync();
+        Assert.True(secondDomainResponse.IsSuccessStatusCode, secondDomainBody);
+        Assert.Contains("Remote-domain record", secondDomainBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ada Lovelace", secondDomainBody, StringComparison.Ordinal);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await SendAsync(client, firstRoute.EndpointPath + $"/records/{adaId}", firstCredential.Secret, secondDomainId)).StatusCode);
+        using (HttpRequestMessage invalidDomainRequest = new(HttpMethod.Get, firstRoute.EndpointPath + "/records"))
+        {
+            invalidDomainRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", firstCredential.Secret);
+            invalidDomainRequest.Headers.Add("X-Monkeysphere-Domain", Guid.CreateVersion7().ToString("D"));
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(invalidDomainRequest)).StatusCode);
+        }
         HttpResponseMessage typesResponse = await SendAsync(
             client,
             firstRoute.EndpointPath + "/record-types",
@@ -1019,6 +1155,16 @@ public sealed class RemoteAccessApplicationTests
         string mcpBody = await mcpResponse.Content.ReadAsStringAsync();
         Assert.True(mcpResponse.IsSuccessStatusCode, mcpBody);
         Assert.Contains("Ada Lovelace", mcpBody, StringComparison.Ordinal);
+        HttpResponseMessage secondDomainMcpResponse = await SendMcpAsync(
+            client,
+            mcpRoute.EndpointPath!,
+            mcpCredential.Secret,
+            "Online-only",
+            secondDomainId);
+        string secondDomainMcpBody = await secondDomainMcpResponse.Content.ReadAsStringAsync();
+        Assert.True(secondDomainMcpResponse.IsSuccessStatusCode, secondDomainMcpBody);
+        Assert.Contains("Remote-domain record", secondDomainMcpBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ada Lovelace", secondDomainMcpBody, StringComparison.Ordinal);
 
         using (IServiceScope scope = factory.Services.CreateScope())
         {
@@ -1034,14 +1180,23 @@ public sealed class RemoteAccessApplicationTests
         Assert.Contains(audit, item => item.Event.Action == "records.search" && item.Event.Result == DnaXRemoteAuditResult.Allowed);
     }
 
-    private static async Task<HttpResponseMessage> SendAsync(HttpClient client, string path, string secret)
+    private static async Task<HttpResponseMessage> SendAsync(HttpClient client, string path, string secret, Guid? domainId = null)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+        if (domainId is Guid id)
+        {
+            request.Headers.Add("X-Monkeysphere-Domain", id.ToString("D"));
+        }
         return await client.SendAsync(request);
     }
 
-    private static async Task<HttpResponseMessage> SendMcpAsync(HttpClient client, string path, string secret)
+    private static async Task<HttpResponseMessage> SendMcpAsync(
+        HttpClient client,
+        string path,
+        string secret,
+        string query = "Enchantress",
+        Guid? domainId = null)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
@@ -1050,8 +1205,29 @@ public sealed class RemoteAccessApplicationTests
         request.Headers.Add("MCP-Protocol-Version", "2026-07-28");
         request.Headers.Add("Mcp-Method", "tools/call");
         request.Headers.Add("Mcp-Name", "search_records");
+        Dictionary<string, object?> arguments = new() { ["query"] = query };
+        if (domainId is Guid id)
+        {
+            arguments["domainId"] = id.ToString("D");
+        }
+        string payload = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
+            @params = new
+            {
+                name = "search_records",
+                arguments,
+                _meta = new Dictionary<string, object?>
+                {
+                    ["io.modelcontextprotocol/protocolVersion"] = "2026-07-28",
+                    ["io.modelcontextprotocol/clientCapabilities"] = new { },
+                },
+            },
+        });
         request.Content = new StringContent(
-            """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_records","arguments":{"query":"Enchantress"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}""",
+            payload,
             Encoding.UTF8,
             "application/json");
         return await client.SendAsync(request);

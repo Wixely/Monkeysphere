@@ -1,0 +1,146 @@
+@page "/settings/domains"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDomainCatalog Domains
+@inject ICurrentDomain CurrentDomain
+@inject NavigationManager Navigation
+
+<PageTitle>Domains · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="domains" />
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Separate spheres</p>
+        <h1>Domains</h1>
+        <p>Keep unrelated records in self-contained spaces. Records, structures, relationships, views, calendar entries, maps, and media never appear outside their domain.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_error ? "error" : "success")" role="status">@_message</div>
+}
+
+<div class="settings-grid domain-settings-grid">
+    <section class="panel">
+        <h2>Existing domains</h2>
+        <div class="domain-list">
+            @foreach (MonkeysphereDomain domain in Domains.Snapshot)
+            {
+                <div class="domain-row">
+                    <div>
+                        <strong>@domain.Name</strong>
+                        @if (domain.Id == CurrentDomain.Id)
+                        {
+                            <span class="pill">Current</span>
+                        }
+                        @if (domain.IsDefault)
+                        {
+                            <span class="pill">Original data</span>
+                        }
+                    </div>
+                    @if (_editingId == domain.Id)
+                    {
+                        <div class="inline-form">
+                            <label>
+                                <span>Name</span>
+                                <input maxlength="@MonkeysphereDomains.MaximumNameLength" @bind="_renameName" />
+                            </label>
+                            <button class="button primary" type="button" @onclick="SaveRenameAsync">Save</button>
+                            <button class="button" type="button" @onclick="CancelRename">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="button" type="button" @onclick="() => BeginRename(domain)">Rename</button>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="panel settings-form">
+        <h2>Create domain</h2>
+        <p class="muted">A new domain starts with its own setup wizard and no access to records or structures in other domains.</p>
+        <label>
+            <span>Name</span>
+            <input maxlength="@MonkeysphereDomains.MaximumNameLength" placeholder="For example, Online friends" @bind="_newName" />
+        </label>
+        <button class="button primary" type="button" @onclick="CreateAsync">Create domain</button>
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "created")]
+    public Guid? CreatedDomainId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "renamed")]
+    public Guid? RenamedDomainId { get; set; }
+
+    private string _newName = string.Empty;
+    private Guid? _editingId;
+    private string _renameName = string.Empty;
+    private string? _message;
+    private bool _error;
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            MonkeysphereDomain domain = await Domains.CreateAsync(_newName);
+            Navigation.NavigateTo($"/settings/domains?created={domain.Id:D}", forceLoad: true);
+        }
+        catch (DomainValidationException exception)
+        {
+            _error = true;
+            _message = exception.Message;
+        }
+    }
+
+    private void BeginRename(MonkeysphereDomain domain)
+    {
+        _editingId = domain.Id;
+        _renameName = domain.Name;
+        _message = null;
+    }
+
+    private void CancelRename()
+    {
+        _editingId = null;
+        _renameName = string.Empty;
+    }
+
+    private async Task SaveRenameAsync()
+    {
+        if (_editingId is not Guid id)
+        {
+            return;
+        }
+
+        try
+        {
+            MonkeysphereDomain domain = await Domains.RenameAsync(id, _renameName);
+            Navigation.NavigateTo($"/settings/domains?renamed={domain.Id:D}", forceLoad: true);
+        }
+        catch (DomainValidationException exception)
+        {
+            _error = true;
+            _message = exception.Message;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (CreatedDomainId is Guid createdId && Domains.TryGet(createdId, out MonkeysphereDomain? created))
+        {
+            _error = false;
+            _message = $"{created!.Name} was created. Select it from the domain menu to run its setup wizard.";
+        }
+        else if (RenamedDomainId is Guid renamedId && Domains.TryGet(renamedId, out MonkeysphereDomain? renamed))
+        {
+            _error = false;
+            _message = $"Domain renamed to {renamed!.Name}.";
+        }
+    }
+}

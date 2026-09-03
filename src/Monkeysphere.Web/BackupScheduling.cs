@@ -53,7 +53,7 @@ public static class BackupScheduleCalculator
 }
 
 public sealed partial class BackupScheduleWorker(
-    IBackupService backups,
+    IServiceScopeFactory scopeFactory,
     IOptions<BackupScheduleOptions> configuredOptions,
     TimeProvider timeProvider,
     ILogger<BackupScheduleWorker> logger) : BackgroundService
@@ -78,6 +78,8 @@ public sealed partial class BackupScheduleWorker(
             await Task.Delay(due - now, timeProvider, stoppingToken).ConfigureAwait(false);
             try
             {
+                await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+                IBackupService backups = scope.ServiceProvider.GetRequiredService<IBackupService>();
                 BackupInfo backup = await backups.CreateAsync(stoppingToken).ConfigureAwait(false);
                 await backups.PruneAsync(options.RetentionCount, stoppingToken).ConfigureAwait(false);
                 ScheduledBackupCompleted(logger, backup.Id);

@@ -7,6 +7,7 @@ namespace Monkeysphere.Data;
 public sealed class RecordImageService(
     IMonkeysphereStore store,
     IDnaXPaths paths,
+    ICurrentDomain currentDomain,
     TimeProvider timeProvider) : IRecordImageService
 {
     private const int MaximumPixels = 24_000_000;
@@ -44,10 +45,10 @@ public sealed class RecordImageService(
         using SKBitmap bitmap = SKBitmap.Decode(encoded)
             ?? throw new DomainValidationException("The selected image could not be decoded safely.");
         Guid imageId = Guid.CreateVersion7();
-        string directory = Directory.CreateDirectory(RecordImageStoragePaths.RecordDirectory(paths, recordId)).FullName;
-        string originalPath = RecordImageStoragePaths.OriginalPath(paths, recordId, imageId, extension);
-        string previewPath = RecordImageStoragePaths.PreviewPath(paths, recordId, imageId);
-        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, recordId, imageId);
+        string directory = Directory.CreateDirectory(RecordImageStoragePaths.RecordDirectory(paths, currentDomain, recordId)).FullName;
+        string originalPath = RecordImageStoragePaths.OriginalPath(paths, currentDomain, recordId, imageId, extension);
+        string previewPath = RecordImageStoragePaths.PreviewPath(paths, currentDomain, recordId, imageId);
+        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, currentDomain, recordId, imageId);
         try
         {
             await File.WriteAllBytesAsync(originalPath, encoded, cancellationToken).ConfigureAwait(false);
@@ -99,9 +100,9 @@ public sealed class RecordImageService(
             return false;
         }
 
-        DeleteIfExists(RecordImageStoragePaths.OriginalPath(paths, recordId, imageId, ExtensionForContentType(image.OriginalContentType)));
-        DeleteIfExists(RecordImageStoragePaths.PreviewPath(paths, recordId, imageId));
-        DeleteIfExists(RecordImageStoragePaths.ThumbnailPath(paths, recordId, imageId));
+        DeleteIfExists(RecordImageStoragePaths.OriginalPath(paths, currentDomain, recordId, imageId, ExtensionForContentType(image.OriginalContentType)));
+        DeleteIfExists(RecordImageStoragePaths.PreviewPath(paths, currentDomain, recordId, imageId));
+        DeleteIfExists(RecordImageStoragePaths.ThumbnailPath(paths, currentDomain, recordId, imageId));
         return true;
     }
 
@@ -170,6 +171,7 @@ public sealed class RecordImageService(
 
         string originalPath = RecordImageStoragePaths.OriginalPath(
             paths,
+            currentDomain,
             recordId,
             imageId,
             ExtensionForContentType(image.OriginalContentType));
@@ -178,8 +180,8 @@ public sealed class RecordImageService(
             ?? throw new DomainValidationException("The retained original image could not be decoded.");
         ValidateCrop(correction, original.Width, original.Height);
         using SKBitmap corrected = ApplyCorrection(original, correction);
-        string previewPath = RecordImageStoragePaths.PreviewPath(paths, recordId, imageId);
-        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, recordId, imageId);
+        string previewPath = RecordImageStoragePaths.PreviewPath(paths, currentDomain, recordId, imageId);
+        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, currentDomain, recordId, imageId);
         string previewTemporary = previewPath + "." + Guid.CreateVersion7().ToString("N") + ".tmp";
         string thumbnailTemporary = thumbnailPath + "." + Guid.CreateVersion7().ToString("N") + ".tmp";
         try
@@ -236,10 +238,11 @@ public sealed class RecordImageService(
 
         string path = variant switch
         {
-            RecordImageVariant.Preview => RecordImageStoragePaths.PreviewPath(paths, recordId, imageId),
-            RecordImageVariant.Thumbnail => RecordImageStoragePaths.ThumbnailPath(paths, recordId, imageId),
+            RecordImageVariant.Preview => RecordImageStoragePaths.PreviewPath(paths, currentDomain, recordId, imageId),
+            RecordImageVariant.Thumbnail => RecordImageStoragePaths.ThumbnailPath(paths, currentDomain, recordId, imageId),
             RecordImageVariant.Original => RecordImageStoragePaths.OriginalPath(
                 paths,
+                currentDomain,
                 recordId,
                 imageId,
                 ExtensionForContentType(image.OriginalContentType)),
@@ -262,6 +265,7 @@ public sealed class RecordImageService(
     {
         string originalPath = RecordImageStoragePaths.OriginalPath(
             paths,
+            currentDomain,
             image.RecordId,
             image.Id,
             ExtensionForContentType(image.OriginalContentType));
@@ -271,8 +275,8 @@ public sealed class RecordImageService(
         ImageCorrection correction = image.Correction ?? new ImageCorrection();
         ValidateCrop(correction, original.Width, original.Height);
         using SKBitmap corrected = ApplyCorrection(original, correction);
-        string previewPath = RecordImageStoragePaths.PreviewPath(paths, image.RecordId, image.Id);
-        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, image.RecordId, image.Id);
+        string previewPath = RecordImageStoragePaths.PreviewPath(paths, currentDomain, image.RecordId, image.Id);
+        string thumbnailPath = RecordImageStoragePaths.ThumbnailPath(paths, currentDomain, image.RecordId, image.Id);
         string suffix = "." + Guid.CreateVersion7().ToString("N") + ".tmp";
         string previewTemporary = previewPath + suffix;
         string thumbnailTemporary = thumbnailPath + suffix;

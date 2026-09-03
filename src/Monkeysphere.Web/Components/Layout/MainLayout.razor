@@ -1,5 +1,7 @@
 @inherits LayoutComponentBase
 @inject IPresetService Presets
+@inject IDomainCatalog Domains
+@inject ICurrentDomain CurrentDomain
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
@@ -21,6 +23,32 @@
                 <NavLink href="/graph">Graph</NavLink>
                 <NavLink href="/settings">Settings</NavLink>
             </nav>
+        </Authorized>
+    </AuthorizeView>
+    <AuthorizeView>
+        <Authorized>
+            <details class="domain-switcher">
+                <summary aria-label="Current domain">@CurrentDomainName</summary>
+                <form method="post" action="/domains/select">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+                    @foreach (MonkeysphereDomain domain in Domains.Snapshot)
+                    {
+                        <button type="submit"
+                                name="domainId"
+                                value="@domain.Id"
+                                class="@(domain.Id == CurrentDomain.Id ? "active" : null)"
+                                aria-current="@(domain.Id == CurrentDomain.Id ? "true" : null)">
+                            <span>@domain.Name</span>
+                            @if (domain.Id == CurrentDomain.Id)
+                            {
+                                <span aria-hidden="true">✓</span>
+                            }
+                        </button>
+                    }
+                    <a href="/settings/domains">Manage domains</a>
+                </form>
+            </details>
         </Authorized>
     </AuthorizeView>
     <button type="button" class="theme-toggle" data-theme-toggle aria-label="Use dark theme" aria-pressed="false" title="Use dark theme">
@@ -46,6 +74,12 @@
 </div>
 
 @code {
+    private string CurrentDomainName => Domains.TryGet(CurrentDomain.Id, out MonkeysphereDomain? domain)
+        ? domain?.Name ?? "Default"
+        : "Default";
+
+    private string ReturnUrl => "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+
     protected override async Task OnInitializedAsync()
     {
         AuthenticationState authentication = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -57,4 +91,5 @@
             Navigation.NavigateTo("/setup");
         }
     }
+
 }

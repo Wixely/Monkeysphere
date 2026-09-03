@@ -50,6 +50,10 @@ else
         @SurfacePanel(_state.Mcp, "MCP")
     </div>
 
+    <div class="notice" role="note">
+        Remote reads default to the Default domain. List domains first, then send <code>X-Monkeysphere-Domain</code> with HTTP requests or <code>domainId</code> to MCP record tools to read another domain. Invalid identifiers fail closed.
+    </div>
+
     <section class="panel">
         <h2>Recent redacted activity</h2>
         @if (_activity.Count == 0)

@@ -15,4 +15,15 @@ public sealed class MigrationTests
         Assert.All(result.HistoricalVersions, version =>
             Assert.Equal(result.CanonicalSchemaSnapshot, version.SchemaSnapshot));
     }
+
+    [Fact]
+    public async Task DomainRegistrySchemaUpgradesToItsCanonicalSchema()
+    {
+        DnaXHistoricalMigrationVerification result =
+            await DnaXSqliteMigrationVerifier.VerifyAllHistoricalVersionsAsync(DomainRegistrySchema.Manifest);
+
+        Assert.Equal(DomainRegistrySchema.Manifest.CurrentVersion, result.HistoricalVersions.Count);
+        Assert.All(result.HistoricalVersions, version =>
+            Assert.Equal(result.CanonicalSchemaSnapshot, version.SchemaSnapshot));
+    }
 }

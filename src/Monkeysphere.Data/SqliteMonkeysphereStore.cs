@@ -8,7 +8,10 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connections, IDnaXPaths paths) : IMonkeysphereStore
+public sealed class SqliteMonkeysphereStore(
+    MonkeysphereConnectionFactory connections,
+    IDnaXPaths paths,
+    ICurrentDomain currentDomain) : IMonkeysphereStore
 {
     public async Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
     {
@@ -1016,7 +1019,7 @@ public sealed class SqliteMonkeysphereStore(MonkeysphereConnectionFactory connec
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (changed == 1)
         {
-            RecordImageStoragePaths.DeleteRecordDirectory(paths, id);
+            RecordImageStoragePaths.DeleteRecordDirectory(paths, currentDomain, id);
         }
 
         return changed == 1;

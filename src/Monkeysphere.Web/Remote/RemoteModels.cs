@@ -6,6 +6,8 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Web.Remote;
 
+public sealed record RemoteDomain(Guid Id, string Name, bool IsDefault);
+
 public sealed record RemoteRecordType(
     Guid Id,
     string Name,
@@ -77,11 +79,28 @@ public sealed record RemotePage<T>(IReadOnlyList<T> Items, int Page, int PageSiz
 public sealed class MonkeysphereRemoteQueries(
     IMonkeysphereService service,
     IRelationshipService relationshipService,
+    IDomainCatalog domains,
+    ICurrentDomainScope currentDomain,
     IHttpContextAccessor httpContextAccessor)
 {
-    public async Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<RemoteDomain>> ListDomainsAsync(CancellationToken cancellationToken = default)
     {
         DemandReadScope();
+        IReadOnlyList<RemoteDomain> results = domains.Snapshot
+            .Select(domain => new RemoteDomain(domain.Id, domain.Name, domain.IsDefault))
+            .ToArray();
+        return Task.FromResult(results);
+    }
+
+    public async Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
+        => await ListRecordTypesAsync(null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(
+        Guid? domainId,
+        CancellationToken cancellationToken = default)
+    {
+        DemandReadScope();
+        using IDisposable? domainScope = UseDomain(domainId);
         IReadOnlyList<RecordType> types = await service.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false);
         List<RemoteRecordType> results = [];
         foreach (RecordType type in types.Take(100))
@@ -97,8 +116,15 @@ public sealed class MonkeysphereRemoteQueries(
     }
 
     public async Task<RemoteRecordType?> GetRecordTypeAsync(Guid id, CancellationToken cancellationToken = default)
+        => await GetRecordTypeAsync(id, null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<RemoteRecordType?> GetRecordTypeAsync(
+        Guid id,
+        Guid? domainId,
+        CancellationToken cancellationToken = default)
     {
         DemandReadScope();
+        using IDisposable? domainScope = UseDomain(domainId);
         RecordTypeDetails? details = await service.GetRecordTypeAsync(id, cancellationToken).ConfigureAwait(false);
         return details is null ? null : MapType(details);
     }
@@ -109,8 +135,18 @@ public sealed class MonkeysphereRemoteQueries(
         int page = 1,
         int pageSize = 25,
         CancellationToken cancellationToken = default)
+        => await SearchRecordsAsync(query, recordTypeId, page, pageSize, null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<RemotePage<RemoteRecordSummary>> SearchRecordsAsync(
+        string? query,
+        Guid? recordTypeId,
+        int page,
+        int pageSize,
+        Guid? domainId,
+        CancellationToken cancellationToken = default)
     {
         DemandReadScope();
+        using IDisposable? domainScope = UseDomain(domainId);
         int boundedPageSize = Math.Clamp(pageSize, 1, 100);
         PagedResult<RecordSummary> result = await service.SearchRecordsAsync(
             new RecordSearch(query, recordTypeId, Page: Math.Max(page, 1), PageSize: boundedPageSize),
@@ -119,8 +155,15 @@ public sealed class MonkeysphereRemoteQueries(
     }
 
     public async Task<RemoteRecord?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default)
+        => await GetRecordAsync(id, null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<RemoteRecord?> GetRecordAsync(
+        Guid id,
+        Guid? domainId,
+        CancellationToken cancellationToken = default)
     {
         DemandReadScope();
+        using IDisposable? domainScope = UseDomain(domainId);
         RecordDetails? record = await service.GetRecordAsync(id, cancellationToken).ConfigureAwait(false);
         if (record is null)
         {
@@ -134,10 +177,19 @@ public sealed class MonkeysphereRemoteQueries(
     public async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
         Guid id,
         CancellationToken cancellationToken = default)
+        => await GetRecordRelationshipsAsync(id, null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
+        Guid id,
+        Guid? domainId,
+        CancellationToken cancellationToken = default)
     {
         DemandReadScope();
+        using IDisposable? domainScope = UseDomain(domainId);
         return await GetRecordRelationshipsCoreAsync(id, cancellationToken).ConfigureAwait(false);
     }
+
+    private IDisposable? UseDomain(Guid? domainId) => domainId is Guid id ? currentDomain.Use(id) : null;
 
     private void DemandReadScope()
     {
@@ -225,20 +277,29 @@ public sealed class MonkeysphereRemoteQueries(
 [McpServerToolType]
 public sealed class MonkeysphereRemoteTools
 {
+    [McpServerTool(Name = "list_domains", UseStructuredContent = true)]
+    [Description("Lists the available isolated Monkeysphere domains.")]
+    public static Task<IReadOnlyList<RemoteDomain>> ListDomainsAsync(
+        MonkeysphereRemoteQueries queries,
+        CancellationToken cancellationToken = default) =>
+        queries.ListDomainsAsync(cancellationToken);
+
     [McpServerTool(Name = "list_record_types", UseStructuredContent = true)]
     [Description("Lists Monkeysphere record types and their field definitions.")]
     public static Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(
         MonkeysphereRemoteQueries queries,
+        string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.ListRecordTypesAsync(cancellationToken);
+        queries.ListRecordTypesAsync(ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
     [McpServerTool(Name = "get_record_type", UseStructuredContent = true)]
     [Description("Gets one Monkeysphere record type and its field definitions.")]
     public static Task<RemoteRecordType?> GetRecordTypeAsync(
         MonkeysphereRemoteQueries queries,
         Guid id,
+        string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordTypeAsync(id, cancellationToken);
+        queries.GetRecordTypeAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
     [McpServerTool(Name = "search_records", UseStructuredContent = true)]
     [Description("Searches Monkeysphere records with bounded pagination.")]
@@ -248,12 +309,14 @@ public sealed class MonkeysphereRemoteTools
         string? recordTypeId = null,
         int page = 1,
         int pageSize = 25,
+        string? domainId = null,
         CancellationToken cancellationToken = default) =>
         queries.SearchRecordsAsync(
             query,
             ParseOptionalGuid(recordTypeId, "recordTypeId"),
             page,
             pageSize,
+            ParseOptionalGuid(domainId, "domainId"),
             cancellationToken);
 
     private static Guid? ParseOptionalGuid(string? value, string parameterName)
@@ -273,14 +336,16 @@ public sealed class MonkeysphereRemoteTools
     public static Task<RemoteRecord?> GetRecordAsync(
         MonkeysphereRemoteQueries queries,
         Guid id,
+        string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordAsync(id, cancellationToken);
+        queries.GetRecordAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
     [McpServerTool(Name = "get_record_relationships", UseStructuredContent = true)]
     [Description("Gets the bounded relationships visible from one Monkeysphere record.")]
     public static Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
         MonkeysphereRemoteQueries queries,
         Guid id,
+        string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordRelationshipsAsync(id, cancellationToken);
+        queries.GetRecordRelationshipsAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 }

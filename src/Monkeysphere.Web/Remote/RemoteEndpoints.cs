@@ -11,6 +11,9 @@ public static class RemoteEndpoints
             context.HttpContext.User.HasDnaXRemoteScope("records.read")
                 ? await next(context).ConfigureAwait(false)
                 : Results.StatusCode(StatusCodes.Status403Forbidden));
+        api.MapGet("/domains", async (MonkeysphereRemoteQueries queries, CancellationToken cancellationToken) =>
+                Results.Ok(await queries.ListDomainsAsync(cancellationToken).ConfigureAwait(false)))
+            .WithDnaXRemoteAction("records.list_domains");
         api.MapGet("/record-types", async (MonkeysphereRemoteQueries queries, CancellationToken cancellationToken) =>
                 Results.Ok(await queries.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false)))
             .WithDnaXRemoteAction("records.list_types");

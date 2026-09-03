@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
+using Monkeysphere.Core;
 using Monkeysphere.Data;
 using Monkeysphere.Web.Components;
 using Monkeysphere.Web.Remote;
@@ -53,6 +54,8 @@ builder.Services.AddOptions<KeyManagementOptions>()
     });
 builder.Services.AddSingleton(new DebugResetAvailability(
     builder.Configuration.GetValue<bool>("Monkeysphere:Debug:AllowDatabaseReset")));
+builder.Services.AddScoped<ICurrentDomainScope, HttpCurrentDomain>();
+builder.Services.AddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
 builder.Services.AddMonkeysphereData();
 builder.Services.AddOptions<BackupScheduleOptions>()
     .Bind(builder.Configuration.GetSection("Monkeysphere:Backups"));
@@ -146,7 +149,7 @@ if (trustedProxies.Length > 0)
 WebApplication app = builder.Build();
 
 _ = app.Services.GetRequiredService<AdministratorCredential>();
-await app.Services.MigrateDnaXDatabaseAsync(MonkeysphereDataExtensions.DatabaseName);
+await app.Services.InitializeMonkeysphereDomainsAsync();
 await app.Services.MigrateDnaXDatabaseAsync("RemoteAccess");
 
 if (!app.Environment.IsDevelopment())
@@ -155,6 +158,21 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseMonkeysphereSecurityHeaders();
+
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (DomainValidationException) when (
+        context.Request.Headers.ContainsKey(DomainSelection.HeaderName) &&
+        !context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsync("The requested domain is invalid.");
+    }
+});
 
 if (trustedProxies.Length > 0)
 {
@@ -173,6 +191,7 @@ app.MapStaticAssets().AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "alive" })).AllowAnonymous();
 app.MapGet("/health/ready", () => Results.Ok(new { status = "ready" })).AllowAnonymous();
 app.MapAdministratorAuthentication();
+app.MapDomainSelection();
 app.MapRecordImages();
 app.MapCalendarExport();
 app.MapVCardExport();

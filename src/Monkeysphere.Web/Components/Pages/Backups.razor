@@ -14,13 +14,13 @@
     <div>
         <p class="eyebrow">Portable recovery</p>
         <h1>Backups</h1>
-        <p>Create a checksummed package containing consistent database snapshots and authoritative image originals.</p>
+        <p>Create a checksummed, deployment-wide package containing every domain, consistent database snapshots, and authoritative image originals.</p>
     </div>
     <button class="button primary" type="button" disabled="@_working" @onclick="CreateAsync">@(_working ? "Creating…" : "Create backup")</button>
 </div>
 
 <div class="notice" role="note">
-    Backups exclude deployment configuration, data-protection keys, administrator credentials, and regenerable image derivatives. Store downloaded packages as sensitive personal data.
+    A backup intentionally includes all domains and remote-access state, regardless of the currently selected domain. It excludes deployment configuration, data-protection keys, administrator credentials, and regenerable image derivatives. Store downloaded packages as sensitive personal data.
 </div>
 
 <section class="panel">

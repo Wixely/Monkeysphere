@@ -1,8 +1,10 @@
-const recordTypeKey = 'monkeysphere.graph.record-types';
+function recordTypeKey(domainId) {
+    return `monkeysphere.graph.record-types.${domainId}`;
+}
 
-export function loadRecordTypeIds() {
+export function loadRecordTypeIds(domainId) {
     try {
-        const value = globalThis.localStorage.getItem(recordTypeKey);
+        const value = globalThis.localStorage.getItem(recordTypeKey(domainId));
         const parsed = value ? JSON.parse(value) : null;
         return Array.isArray(parsed) && parsed.every(item => typeof item === 'string') ? parsed : null;
     } catch {
@@ -10,9 +12,9 @@ export function loadRecordTypeIds() {
     }
 }
 
-export function saveRecordTypeIds(ids) {
+export function saveRecordTypeIds(domainId, ids) {
     try {
-        globalThis.localStorage.setItem(recordTypeKey, JSON.stringify(ids));
+        globalThis.localStorage.setItem(recordTypeKey(domainId), JSON.stringify(ids));
     } catch {
         // Storage may be unavailable in a hardened or private browser context.
     }

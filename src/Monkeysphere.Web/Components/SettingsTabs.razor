@@ -1,6 +1,9 @@
 @inject IConfiguration Configuration
 
 <nav class="section-tabs settings-tabs" aria-label="Settings sections">
+    <a class="@(Active == "domains" ? "active" : null)"
+       aria-current="@(Active == "domains" ? "page" : null)"
+       href="/settings/domains">Domains</a>
     <a class="@(Active == "dashboard" ? "active" : null)"
        aria-current="@(Active == "dashboard" ? "page" : null)"
        href="/settings/dashboard">Dashboard</a>

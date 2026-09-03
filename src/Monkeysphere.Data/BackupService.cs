@@ -10,11 +10,10 @@ using Monkeysphere.Core;
 namespace Monkeysphere.Data;
 
 public sealed class BackupService(
-    MonkeysphereConnectionFactory connections,
     IDnaXPaths paths,
     TimeProvider timeProvider) : IBackupService
 {
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
     private const int MaximumEntries = 100_005;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -34,37 +33,55 @@ public sealed class BackupService(
 
         try
         {
-            string applicationSnapshot = Path.Combine(temporaryDirectory, "monkeysphere.db");
+            string registrySnapshot = Path.Combine(temporaryDirectory, "domains.db");
             string remoteSnapshot = Path.Combine(temporaryDirectory, "remote-access.db");
-            await BackupApplicationDatabaseAsync(applicationSnapshot, cancellationToken).ConfigureAwait(false);
+            await BackupDatabaseFileAsync(paths.ResolveWritable("domains.db"), registrySnapshot, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<BackupDomain> backedUpDomains = await ListSnapshotDomainsAsync(registrySnapshot, cancellationToken).ConfigureAwait(false);
             await BackupDatabaseFileAsync(
                 paths.ResolveWritable("remote-access.db"),
                 remoteSnapshot,
                 cancellationToken).ConfigureAwait(false);
 
+            List<DomainSnapshot> domainSnapshots = [];
+            foreach (BackupDomain domain in backedUpDomains)
+            {
+                string snapshot = Path.Combine(temporaryDirectory, domain.Id.ToString("N") + ".db");
+                await BackupDatabaseFileAsync(
+                    paths.ResolveWritable(DomainStoragePaths.DatabaseRelativePath(domain.Id)),
+                    snapshot,
+                    cancellationToken).ConfigureAwait(false);
+                domainSnapshots.Add(new(domain, snapshot));
+            }
+
             List<BackupManifestEntry> entries = [];
             await using (FileStream output = new(partialPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131_072, true))
             using (ZipArchive archive = new(output, ZipArchiveMode.Create, leaveOpen: false))
             {
-                await AddFileAsync(archive, applicationSnapshot, "databases/monkeysphere.db", "application-database", entries, cancellationToken).ConfigureAwait(false);
+                await AddFileAsync(archive, registrySnapshot, "databases/domains.db", "domain-registry", entries, cancellationToken).ConfigureAwait(false);
                 await AddFileAsync(archive, remoteSnapshot, "databases/remote-access.db", "remote-access-database", entries, cancellationToken).ConfigureAwait(false);
 
-                foreach (ImageBackupRow image in await ListSnapshotImagesAsync(applicationSnapshot, cancellationToken).ConfigureAwait(false))
+                foreach (DomainSnapshot domainSnapshot in domainSnapshots)
                 {
-                    string extension = image.OriginalContentType switch
+                    string domainPrefix = $"domains/{domainSnapshot.Domain.Id:N}";
+                    await AddFileAsync(
+                        archive,
+                        domainSnapshot.DatabasePath,
+                        domainPrefix + "/monkeysphere.db",
+                        "application-database",
+                        entries,
+                        cancellationToken).ConfigureAwait(false);
+                    foreach (ImageBackupRow image in await ListSnapshotImagesAsync(domainSnapshot.DatabasePath, cancellationToken).ConfigureAwait(false))
                     {
-                        "image/jpeg" => ".jpg",
-                        "image/png" => ".png",
-                        "image/webp" => ".webp",
-                        _ => throw new InvalidDataException("The database references an unsupported original image type."),
-                    };
-                    string sourcePath = RecordImageStoragePaths.OriginalPath(
-                        paths,
-                        Guid.ParseExact(image.RecordId, "D"),
-                        Guid.ParseExact(image.Id, "D"),
-                        extension);
-                    string archivePath = $"media/records/{Guid.ParseExact(image.RecordId, "D"):N}/{Guid.ParseExact(image.Id, "D"):N}.original{extension}";
-                    await AddFileAsync(archive, sourcePath, archivePath, "image-original", entries, cancellationToken).ConfigureAwait(false);
+                        string extension = ImageExtension(image.OriginalContentType);
+                        string sourcePath = RecordImageStoragePaths.OriginalPath(
+                            paths,
+                            domainSnapshot.Domain.Id,
+                            Guid.ParseExact(image.RecordId, "D"),
+                            Guid.ParseExact(image.Id, "D"),
+                            extension);
+                        string archivePath = $"{domainPrefix}/media/records/{Guid.ParseExact(image.RecordId, "D"):N}/{Guid.ParseExact(image.Id, "D"):N}.original{extension}";
+                        await AddFileAsync(archive, sourcePath, archivePath, "image-original", entries, cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
                 BackupManifest manifest = new(
@@ -73,7 +90,8 @@ public sealed class BackupService(
                     createdAt,
                     typeof(BackupService).Assembly.GetName().Version?.ToString() ?? "unknown",
                     MonkeysphereSchema.Manifest.CurrentVersion,
-                    entries);
+                    entries,
+                    backedUpDomains);
                 ZipArchiveEntry manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Optimal);
                 await using Stream manifestStream = manifestEntry.Open();
                 await JsonSerializer.SerializeAsync(manifestStream, manifest, JsonOptions, cancellationToken).ConfigureAwait(false);
@@ -134,7 +152,7 @@ public sealed class BackupService(
                     ?? throw new InvalidDataException("The backup manifest is invalid.");
             }
 
-            if (manifest.FormatVersion != FormatVersion || manifest.BackupId != id ||
+            if (manifest.FormatVersion is < 1 or > FormatVersion || manifest.BackupId != id ||
                 manifest.ApplicationSchemaVersion is < 1 || manifest.ApplicationSchemaVersion > MonkeysphereSchema.Manifest.CurrentVersion)
             {
                 throw new InvalidDataException("The backup format, identity, or schema version is incompatible.");
@@ -169,19 +187,26 @@ public sealed class BackupService(
                 throw new InvalidDataException("The backup contains unmanifested payload entries.");
             }
 
-            string applicationDatabase = await ExtractForValidationAsync(
-                archive,
-                "databases/monkeysphere.db",
-                validationDirectory,
-                cancellationToken).ConfigureAwait(false);
             string remoteDatabase = await ExtractForValidationAsync(
                 archive,
                 "databases/remote-access.db",
                 validationDirectory,
                 cancellationToken).ConfigureAwait(false);
-            await ValidateSqliteAsync(applicationDatabase, cancellationToken).ConfigureAwait(false);
             await ValidateSqliteAsync(remoteDatabase, cancellationToken).ConfigureAwait(false);
-            await ValidateMediaReferencesAsync(applicationDatabase, manifest.Entries, cancellationToken).ConfigureAwait(false);
+            if (manifest.FormatVersion == 1)
+            {
+                string applicationDatabase = await ExtractForValidationAsync(
+                    archive,
+                    "databases/monkeysphere.db",
+                    validationDirectory,
+                    cancellationToken).ConfigureAwait(false);
+                await ValidateSqliteAsync(applicationDatabase, cancellationToken).ConfigureAwait(false);
+                await ValidateMediaReferencesAsync(applicationDatabase, manifest.Entries, "media/records", cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await ValidateVersionTwoAsync(archive, manifest, validationDirectory, cancellationToken).ConfigureAwait(false);
+            }
 
             return new(
                 backup,
@@ -226,12 +251,6 @@ public sealed class BackupService(
                 File.Delete(path);
             }
         }
-    }
-
-    private async Task BackupApplicationDatabaseAsync(string destination, CancellationToken cancellationToken)
-    {
-        await using SqliteConnection source = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await BackupOpenConnectionAsync(source, destination, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task BackupDatabaseFileAsync(string sourcePath, string destination, CancellationToken cancellationToken)
@@ -302,25 +321,35 @@ public sealed class BackupService(
         return rows.ToArray();
     }
 
+    private static async Task<IReadOnlyList<BackupDomain>> ListSnapshotDomainsAsync(
+        string databasePath,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = await OpenReadOnlyAsync(databasePath, cancellationToken).ConfigureAwait(false);
+        IEnumerable<BackupDomainRow> rows = await connection.QueryAsync<BackupDomainRow>(new CommandDefinition("""
+            SELECT Id, Name, IsDefault FROM Domains ORDER BY IsDefault DESC, Name COLLATE NOCASE, Id;
+            """, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.Select(row => new BackupDomain(
+            Guid.ParseExact(row.Id, "D"),
+            row.Name,
+            row.IsDefault != 0)).ToArray();
+    }
+
     private static async Task ValidateMediaReferencesAsync(
         string databasePath,
         IReadOnlyList<BackupManifestEntry> entries,
+        string mediaPrefix,
         CancellationToken cancellationToken)
     {
         HashSet<string> originals = entries
-            .Where(entry => entry.Kind == "image-original")
+            .Where(entry => entry.Kind == "image-original" &&
+                entry.Path.StartsWith(mediaPrefix + "/", StringComparison.Ordinal))
             .Select(entry => entry.Path)
             .ToHashSet(StringComparer.Ordinal);
         foreach (ImageBackupRow image in await ListSnapshotImagesAsync(databasePath, cancellationToken).ConfigureAwait(false))
         {
-            string extension = image.OriginalContentType switch
-            {
-                "image/jpeg" => ".jpg",
-                "image/png" => ".png",
-                "image/webp" => ".webp",
-                _ => throw new InvalidDataException("The backup database references an unsupported original image type."),
-            };
-            string expected = $"media/records/{Guid.ParseExact(image.RecordId, "D"):N}/{Guid.ParseExact(image.Id, "D"):N}.original{extension}";
+            string extension = ImageExtension(image.OriginalContentType);
+            string expected = $"{mediaPrefix}/{Guid.ParseExact(image.RecordId, "D"):N}/{Guid.ParseExact(image.Id, "D"):N}.original{extension}";
             if (!originals.Remove(expected))
             {
                 throw new InvalidDataException($"The backup is missing original media '{expected}'.");
@@ -370,11 +399,12 @@ public sealed class BackupService(
         ZipArchive archive,
         string entryPath,
         string directory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? destinationName = null)
     {
         ZipArchiveEntry entry = archive.GetEntry(entryPath)
             ?? throw new InvalidDataException($"Backup entry '{entryPath}' is missing.");
-        string destination = Path.Combine(directory, Path.GetFileName(entryPath));
+        string destination = Path.Combine(directory, destinationName ?? Path.GetFileName(entryPath));
         await using Stream source = entry.Open();
         await using FileStream output = new(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131_072, true);
         await source.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
@@ -417,15 +447,84 @@ public sealed class BackupService(
         }
     }
 
+    private static string ImageExtension(string contentType) => contentType switch
+    {
+        "image/jpeg" => ".jpg",
+        "image/png" => ".png",
+        "image/webp" => ".webp",
+        _ => throw new InvalidDataException("The backup database references an unsupported original image type."),
+    };
+
+    private static async Task ValidateVersionTwoAsync(
+        ZipArchive archive,
+        BackupManifest manifest,
+        string validationDirectory,
+        CancellationToken cancellationToken)
+    {
+        BackupDomain[] backedUpDomains = manifest.Domains?.ToArray()
+            ?? throw new InvalidDataException("The backup domain catalogue is missing.");
+        if (backedUpDomains.Length == 0 ||
+            backedUpDomains.Select(domain => domain.Id).Distinct().Count() != backedUpDomains.Length ||
+            backedUpDomains.Count(domain => domain.IsDefault) != 1 ||
+            backedUpDomains.Single(domain => domain.IsDefault).Id != MonkeysphereDomains.DefaultId ||
+            backedUpDomains.Any(domain => string.IsNullOrWhiteSpace(domain.Name)))
+        {
+            throw new InvalidDataException("The backup domain catalogue is invalid.");
+        }
+
+        string registryDatabase = await ExtractForValidationAsync(
+            archive,
+            "databases/domains.db",
+            validationDirectory,
+            cancellationToken,
+            "domains.db").ConfigureAwait(false);
+        await ValidateSqliteAsync(registryDatabase, cancellationToken).ConfigureAwait(false);
+        await using (SqliteConnection registry = await OpenReadOnlyAsync(registryDatabase, cancellationToken).ConfigureAwait(false))
+        {
+            IEnumerable<BackupDomainRow> rows = await registry.QueryAsync<BackupDomainRow>(new CommandDefinition(
+                "SELECT Id, Name, IsDefault FROM Domains ORDER BY Id;",
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+            string[] actual = rows.Select(row => $"{row.Id}|{row.Name}|{row.IsDefault}").Order().ToArray();
+            string[] expected = backedUpDomains.Select(domain => $"{domain.Id:D}|{domain.Name}|{(domain.IsDefault ? 1 : 0)}").Order().ToArray();
+            if (!actual.SequenceEqual(expected, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException("The backup manifest does not match its domain registry.");
+            }
+        }
+
+        foreach (BackupDomain domain in backedUpDomains)
+        {
+            string prefix = $"domains/{domain.Id:N}";
+            string database = await ExtractForValidationAsync(
+                archive,
+                prefix + "/monkeysphere.db",
+                validationDirectory,
+                cancellationToken,
+                domain.Id.ToString("N") + ".db").ConfigureAwait(false);
+            await ValidateSqliteAsync(database, cancellationToken).ConfigureAwait(false);
+            await ValidateMediaReferencesAsync(database, manifest.Entries, prefix + "/media/records", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private sealed record BackupManifest(
         int FormatVersion,
         Guid BackupId,
         DateTimeOffset CreatedAtUtc,
         string ApplicationVersion,
         int ApplicationSchemaVersion,
-        IReadOnlyList<BackupManifestEntry> Entries);
+        IReadOnlyList<BackupManifestEntry> Entries,
+        IReadOnlyList<BackupDomain>? Domains = null);
 
     private sealed record BackupManifestEntry(string Path, string Kind, long ByteLength, string Sha256);
+    private sealed record BackupDomain(Guid Id, string Name, bool IsDefault);
+    private sealed record DomainSnapshot(BackupDomain Domain, string DatabasePath);
+
+    private sealed class BackupDomainRow
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public int IsDefault { get; init; }
+    }
 
     private sealed class ImageBackupRow
     {

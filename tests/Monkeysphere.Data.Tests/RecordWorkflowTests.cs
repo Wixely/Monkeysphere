@@ -897,14 +897,16 @@ public sealed class RecordWorkflowTests
     {
         private readonly string _dataRoot;
         private readonly ServiceProvider _provider;
+        private readonly AsyncServiceScope _scope;
 
-        private TestApplication(string dataRoot, ServiceProvider provider)
+        private TestApplication(string dataRoot, ServiceProvider provider, AsyncServiceScope scope)
         {
             _dataRoot = dataRoot;
             _provider = provider;
+            _scope = scope;
         }
 
-        public IServiceProvider Services => _provider;
+        public IServiceProvider Services => _scope.ServiceProvider;
 
         public static async Task<TestApplication> CreateAsync(TimeProvider? timeProvider = null)
         {
@@ -921,11 +923,13 @@ public sealed class RecordWorkflowTests
             services.AddMonkeysphereData();
             ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
             await provider.MigrateDnaXDatabaseAsync(MonkeysphereDataExtensions.DatabaseName);
-            return new TestApplication(dataRoot, provider);
+            AsyncServiceScope scope = provider.CreateAsyncScope();
+            return new TestApplication(dataRoot, provider, scope);
         }
 
         public async ValueTask DisposeAsync()
         {
+            await _scope.DisposeAsync();
             await _provider.DisposeAsync();
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(_dataRoot))
