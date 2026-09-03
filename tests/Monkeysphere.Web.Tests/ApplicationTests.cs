@@ -769,7 +769,22 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
         if (ownedRoot.StartsWith(Path.TrimEndingDirectorySeparator(allowedRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
             Directory.Exists(ownedRoot))
         {
-            Directory.Delete(ownedRoot, recursive: true);
+            DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+            while (Directory.Exists(ownedRoot))
+            {
+                try
+                {
+                    Directory.Delete(ownedRoot, recursive: true);
+                }
+                catch (IOException) when (DateTimeOffset.UtcNow < deadline)
+                {
+                    Thread.Sleep(50);
+                }
+                catch (UnauthorizedAccessException) when (DateTimeOffset.UtcNow < deadline)
+                {
+                    Thread.Sleep(50);
+                }
+            }
         }
     }
 
