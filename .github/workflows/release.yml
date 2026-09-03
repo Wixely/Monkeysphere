@@ -5,13 +5,61 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Check out exact tag without a Node action
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Build and smoke-test Docker deployment
+        shell: bash
+        run: ./eng/VerifyDocker.sh
+
+      - name: Publish versioned container image
+        id: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag is not a supported semantic version: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --build-arg "MONKEYSPHERE_VERSION=$version" \
+            --build-arg "MONKEYSPHERE_REVISION=$GITHUB_SHA" \
+            --tag "$image:$version" \
+            --tag "$image:alpha" \
+            .
+          docker push "$image:$version"
+          docker push "$image:alpha"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image:$version" | cut -d@ -f2)"
+          test -n "$digest"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: container
     runs-on: windows-latest
     timeout-minutes: 25
+    permissions:
+      contents: write
     steps:
       - name: Check out exact tag without a Node action
         shell: bash
@@ -44,4 +92,6 @@ jobs:
           gh release create $env:GITHUB_REF_NAME @assets `
             --verify-tag `
             --generate-notes `
+            --prerelease `
+            --notes "Docker image: ``${{ needs.container.outputs.image }}:$($env:GITHUB_REF_NAME.TrimStart('v'))`` (``${{ needs.container.outputs.digest }}``)" `
             --title "Monkeysphere $($env:GITHUB_REF_NAME)"

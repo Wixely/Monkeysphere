@@ -94,6 +94,7 @@ Record types can be retired without deleting their records or saved views. Exist
 - Windows Service: the host detects service execution; an explicit, self-cleaning lifecycle verifier is available, but live verification remains required before support is claimed.
 - Linux/systemd: a unit template and interactive/static verification scripts are included; live lifecycle verification remains required.
 - Docker: use `docker compose up --build`. It defaults to `admin` / `admin`; set `MONKEYSPHERE_ADMIN_USERNAME` and `MONKEYSPHERE_ADMIN_PASSWORD` in the Docker deployment environment to override them.
+- Published alpha images are available from GitHub Container Registry for Linux x64: `docker pull ghcr.io/wixely/monkeysphere:alpha`. Use an immutable version tag such as `0.1.0-alpha.1` for repeatable deployments.
 - Destructive debug controls are disabled by default. For a disposable test deployment only, set `MONKEYSPHERE_DEBUG_ALLOW_DATABASE_RESET=true` in Docker (or `Monkeysphere__Debug__AllowDatabaseReset=true` in .NET configuration) to expose **Settings → Debug**. The repository VS Code launch profiles enable it for local testing.
 
 See [architecture](docs/architecture.md), [security](docs/security.md), the [initial-release threat model](docs/threat-model.md), [performance and load boundaries](docs/performance-boundaries.md), [dependencies](docs/dependencies.md), [verification status](docs/verification.md), the [release process](docs/releasing.md), the [comparison with Monica](comparisons/monica.md), and [third-party notices](THIRD-PARTY-NOTICES.md).

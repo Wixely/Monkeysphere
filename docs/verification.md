@@ -4,7 +4,7 @@ Last verified: 2026-09-03
 
 ## Verified evidence
 
-- The 2026-09-03 Release build completed with zero warnings and all 112 tests passed. Supply-chain verification passed for all 12 vendored files.
+- The 2026-09-03 Release build completed with zero warnings and all 114 tests passed. Supply-chain verification passed for all 12 vendored files.
 - `dotnet format Monkeysphere.slnx --verify-no-changes --no-restore` passed.
 - Authenticated editor rendering and static-asset tests cover the private map-pin control and vendored OpenLayers delivery.
 - Core, SQLite integration, and authenticated rendering tests cover map-query bounds, single and multi-field filters, pagination, R-tree migration history, approximation-radius viewport intersection, structured location summaries, private map access, and disabled-by-default persistence of the external-tile choice.
@@ -15,7 +15,7 @@ Last verified: 2026-09-03
 - Web rendering checks cover delivery of the early theme initializer, its local-storage persistence contract, the accessible header toggle, and live graph-theme integration.
 - A production-path scale regression creates 10,000 records and 50,000 relationships, completes a one-hop focused query under a 10-second cancellation deadline, and proves simultaneous 500-node and 2,000-edge truncation. This verifies the accepted boundary, not a latency SLA.
 - Application tests verify the global anti-framing, origin-only cross-site referrer, MIME-sniffing, permissions, base-URI, and object-embedding response headers.
-- `eng/VerifySupplyChain.ps1 -AuditVulnerabilities` reported no known direct or transitive NuGet vulnerability from the configured sources on 2026-09-01. The audit is time-sensitive and is not treated as permanent evidence.
+- `eng/VerifySupplyChain.ps1 -AuditVulnerabilities` reported no known direct or transitive NuGet vulnerability from the configured sources on 2026-09-03. The audit is time-sensitive and is not treated as permanent evidence.
 - `eng/PackageRelease.ps1` produced separate framework-dependent Windows x64 and Linux x64 ZIPs plus a two-entry SHA-256 file. Archive inspection found no PDB, database, backup, key, secret, or log candidate; execution of the Linux package remains unverified.
 - The packaged Windows x64 executable passed readiness, default-credential sign-in, authenticated setup rendering, managed-database creation, process restart, and persistent-data-root smoke checks twice on 2026-08-29.
 - The systemd unit passed `systemd-analyze verify` against isolated existing command/data paths and retained its notify, privilege-escalation, private-temporary-directory, and read-only-system hardening directives. This was a static unit check, not a service lifecycle test.
