@@ -53,28 +53,6 @@ function graphStyles() {
             style: { 'width': 54, 'height': 54 }
         },
         {
-            selector: 'node[badgeFor]',
-            style: {
-                'background-color': panel,
-                'border-color': ink,
-                'border-width': 2,
-                'label': 'data(label)',
-                'color': ink,
-                'font-family': '"Segoe UI Emoji", "Segoe UI Symbol", sans-serif',
-                'font-size': 12,
-                'font-weight': 700,
-                'text-wrap': 'none',
-                'text-halign': 'center',
-                'text-valign': 'center',
-                'text-margin-x': 0,
-                'text-margin-y': 0,
-                'width': 18,
-                'height': 18,
-                'events': 'no',
-                'z-index': 20
-            }
-        },
-        {
             selector: 'node:selected',
             style: { 'border-color': selected, 'border-width': 6 }
         },
@@ -103,33 +81,19 @@ function graphStyles() {
 
 function elements(graph) {
     return [
-        ...graph.nodes.flatMap(node => {
-            const result = [{
-                group: 'nodes',
-                data: {
-                    id: node.recordId,
-                    recordId: node.recordId,
-                    label: node.displayName,
-                    type: node.recordTypeName,
-                    distance: node.distance,
-                    ...(node.imageId
-                        ? { imageUrl: `/records/${encodeURIComponent(node.recordId)}/images/${encodeURIComponent(node.imageId)}/thumbnail` }
-                        : {})
-                }
-            }];
-            if (node.recordTypeSymbol) {
-                result.push({
-                    group: 'nodes',
-                    data: {
-                        id: `type-badge-${node.recordId}`,
-                        badgeFor: node.recordId,
-                        label: node.recordTypeSymbol,
-                        type: node.recordTypeName
-                    }
-                });
+        ...graph.nodes.map(node => ({
+            group: 'nodes',
+            data: {
+                id: node.recordId,
+                recordId: node.recordId,
+                label: node.displayName,
+                type: node.recordTypeName,
+                distance: node.distance,
+                ...(node.imageId
+                    ? { imageUrl: `/records/${encodeURIComponent(node.recordId)}/images/${encodeURIComponent(node.imageId)}/thumbnail` }
+                    : {})
             }
-            return result;
-        }),
+        })),
         ...graph.edges.map(edge => ({
             group: 'edges',
             data: {
@@ -143,30 +107,51 @@ function elements(graph) {
     ];
 }
 
-function positionBadge(cy, node) {
-    const badge = cy.getElementById(`type-badge-${node.id()}`);
-    if (!badge.length) {
-        return;
-    }
-
-    const position = node.position();
-    const offset = Math.max(node.width(), node.height()) * 0.32;
-    badge.unlock();
-    badge.position({ x: position.x + offset, y: position.y - offset });
-    badge.lock();
-}
-
-function positionBadges(cy) {
-    cy.nodes().forEach(node => {
-        if (!node.data('badgeFor')) {
-            positionBadge(cy, node);
+function rebuildBadges(layer, graph, badgeState) {
+    layer.replaceChildren();
+    badgeState.elements.clear();
+    graph.nodes.forEach(node => {
+        if (!node.recordTypeSymbol) {
+            return;
         }
+
+        const badge = document.createElement('span');
+        badge.className = 'graph-type-badge';
+        badge.textContent = node.recordTypeSymbol;
+        badge.title = node.recordTypeName;
+        layer.appendChild(badge);
+        badgeState.elements.set(node.recordId, badge);
     });
 }
 
-function runLayout(cy) {
-    const layoutElements = cy.elements().filter(element => element.isEdge() || !element.data('badgeFor'));
-    layoutElements.layout({
+function positionBadges(cy, badgeState) {
+    badgeState.elements.forEach((badge, recordId) => {
+        const node = cy.getElementById(recordId);
+        if (!node.length || !node.visible()) {
+            badge.hidden = true;
+            return;
+        }
+
+        const position = node.renderedPosition();
+        const nodeSize = Math.max(node.renderedWidth(), node.renderedHeight());
+        const offset = nodeSize * 0.32;
+        const badgeSize = Math.min(38, Math.max(22, nodeSize * 0.42));
+        badge.hidden = false;
+        badge.style.width = `${badgeSize}px`;
+        badge.style.height = `${badgeSize}px`;
+        badge.style.fontSize = `${badgeSize * 0.55}px`;
+        badge.style.left = `${position.x + offset}px`;
+        badge.style.top = `${position.y - offset}px`;
+    });
+}
+
+function queueBadgePositions(cy, badgeState) {
+    cancelAnimationFrame(badgeState.frame);
+    badgeState.frame = requestAnimationFrame(() => positionBadges(cy, badgeState));
+}
+
+function runLayout(cy, badgeState) {
+    cy.elements().layout({
         name: 'cose',
         animate: false,
         fit: false,
@@ -175,8 +160,32 @@ function runLayout(cy) {
         idealEdgeLength: () => 100,
         randomize: true
     }).run();
-    positionBadges(cy);
     cy.fit(cy.elements(), 36);
+    queueBadgePositions(cy, badgeState);
+}
+
+function hideRecordMenu(menu) {
+    menu.hidden = true;
+}
+
+function showRecordMenu(element, menu, node, renderedPosition) {
+    const recordId = node.data('recordId');
+    if (!recordId) {
+        return;
+    }
+
+    const link = menu.querySelector('a');
+    link.href = `/records/${encodeURIComponent(recordId)}`;
+    link.textContent = `View ${node.data('label') || 'record'}`;
+    menu.hidden = false;
+
+    const menuWidth = menu.offsetWidth;
+    const menuHeight = menu.offsetHeight;
+    const x = Math.min(Math.max(8, renderedPosition.x), Math.max(8, element.clientWidth - menuWidth - 8));
+    const y = Math.min(Math.max(8, renderedPosition.y), Math.max(8, element.clientHeight - menuHeight - 8));
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    link.focus({ preventScroll: true });
 }
 
 export function create(element, callback, graph) {
@@ -191,17 +200,61 @@ export function create(element, callback, graph) {
         maxZoom: 3,
         style: graphStyles()
     });
-    cy.on('position', 'node', event => {
-        if (!event.target.data('badgeFor')) {
-            positionBadge(cy, event.target);
-        }
-    });
+    const shell = element.parentElement;
+    const menu = shell.querySelector('.graph-record-menu');
+    const badgeLayer = shell.querySelector('.graph-type-badges');
+    const badgeState = { elements: new globalThis.Map(), frame: undefined };
+    rebuildBadges(badgeLayer, graph, badgeState);
+    cy.on('render', () => queueBadgePositions(cy, badgeState));
     cy.on('tap', 'node', event => {
         const recordId = event.target.data('recordId');
         if (recordId) {
             callback.invokeMethodAsync('NodeSelected', recordId);
         }
     });
+    cy.on('cxttap', 'node', event => {
+        const node = event.target;
+        if (!node.data('recordId')) {
+            return;
+        }
+
+        event.originalEvent?.preventDefault();
+        cy.nodes().unselect();
+        node.select();
+        showRecordMenu(element, menu, node, event.renderedPosition);
+    });
+    cy.on('tap pan zoom drag', () => hideRecordMenu(menu));
+
+    const suppressContextMenu = event => event.preventDefault();
+    const dismissMenu = event => {
+        if (!shell.contains(event.target)) {
+            hideRecordMenu(menu);
+        }
+    };
+    const handleKeyDown = event => {
+        if (event.key === 'Escape') {
+            hideRecordMenu(menu);
+            element.focus();
+            return;
+        }
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) {
+            return;
+        }
+
+        const selected = cy.nodes(':selected').filter(item => item.data('recordId'));
+        const node = selected.length
+            ? selected.first()
+            : cy.nodes().filter(item => item.data('recordId')).first();
+        if (!node?.length) {
+            return;
+        }
+
+        event.preventDefault();
+        showRecordMenu(element, menu, node, node.renderedPosition());
+    };
+    element.addEventListener('contextmenu', suppressContextMenu);
+    element.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('pointerdown', dismissMenu);
     let resizeFrame;
     const observer = new ResizeObserver(() => {
         cancelAnimationFrame(resizeFrame);
@@ -211,19 +264,21 @@ export function create(element, callback, graph) {
         });
     });
     observer.observe(element);
-    graphs.set(element, { cy, observer });
-    runLayout(cy);
+    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState });
+    runLayout(cy, badgeState);
 }
 
 export function update(element, graph) {
-    const cy = graphs.get(element)?.cy;
-    if (!cy) {
+    const instance = graphs.get(element);
+    if (!instance) {
         return;
     }
 
+    const { cy, badgeLayer, badgeState } = instance;
     cy.elements().remove();
     cy.add(elements(graph));
-    runLayout(cy);
+    rebuildBadges(badgeLayer, graph, badgeState);
+    runLayout(cy, badgeState);
 }
 
 export function centerOn(element, recordId) {
@@ -246,7 +301,11 @@ export function centerOn(element, recordId) {
 export function dispose(element) {
     const graph = graphs.get(element);
     if (graph) {
+        cancelAnimationFrame(graph.badgeState.frame);
         graph.observer.disconnect();
+        element.removeEventListener('contextmenu', graph.suppressContextMenu);
+        element.removeEventListener('keydown', graph.handleKeyDown);
+        document.removeEventListener('pointerdown', graph.dismissMenu);
         graph.cy.destroy();
         graphs.delete(element);
     }

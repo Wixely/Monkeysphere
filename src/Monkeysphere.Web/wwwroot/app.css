@@ -1296,6 +1296,11 @@ input[type="checkbox"] {
     gap: .4rem;
 }
 
+.relationship-graph-shell {
+    position: relative;
+    width: 100%;
+}
+
 .relationship-graph {
     width: 100%;
     height: min(68vh, 44rem);
@@ -1303,6 +1308,64 @@ input[type="checkbox"] {
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--graph-background);
+}
+
+.graph-type-badges {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    overflow: hidden;
+    border-radius: .65rem;
+    pointer-events: none;
+}
+
+.graph-type-badge {
+    position: absolute;
+    display: grid;
+    width: 1.55rem;
+    height: 1.55rem;
+    transform: translate(-50%, -50%);
+    place-items: center;
+    border: 2px solid var(--ink);
+    border-radius: 50%;
+    background: var(--panel);
+    box-shadow: var(--shadow-small);
+    font-family: "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    font-size: .85rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.graph-record-menu {
+    position: absolute;
+    z-index: 3;
+    min-width: 10rem;
+    padding: .3rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .55rem;
+    background: var(--panel-translucent-strong);
+    box-shadow: var(--shadow-small);
+    backdrop-filter: blur(10px);
+}
+
+.graph-record-menu[hidden] {
+    display: none;
+}
+
+.graph-record-menu a {
+    display: block;
+    padding: .5rem .65rem;
+    border-radius: .35rem;
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.graph-record-menu a:hover,
+.graph-record-menu a:focus-visible {
+    color: var(--accent-dark);
+    background: var(--accent-soft);
+    outline: none;
 }
 
 .graph-filter-grid {

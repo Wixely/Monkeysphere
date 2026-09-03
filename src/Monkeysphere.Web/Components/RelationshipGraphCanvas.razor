@@ -1,11 +1,18 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<div class="relationship-graph"
-     @ref="_element"
-     role="img"
-     aria-label="Relationship graph visualization"
-     aria-describedby="relationship-graph-description"></div>
+<div class="relationship-graph-shell">
+    <div class="relationship-graph"
+         @ref="_element"
+         role="img"
+         tabindex="0"
+         aria-label="Relationship graph visualization. Right-click or long-press a record for actions."
+         aria-describedby="relationship-graph-description"></div>
+    <div class="graph-type-badges" aria-hidden="true"></div>
+    <div class="graph-record-menu" role="menu" aria-label="Record actions" hidden>
+        <a role="menuitem" href="/records">View record</a>
+    </div>
+</div>
 
 @code {
     [Parameter]

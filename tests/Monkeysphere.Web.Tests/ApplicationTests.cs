@@ -65,9 +65,13 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("'background-image': 'data(imageUrl)'", graphScript, StringComparison.Ordinal);
         Assert.Contains("selector: 'edge[?directional]'", graphScript, StringComparison.Ordinal);
         Assert.DoesNotContain("wheelSensitivity", graphScript, StringComparison.Ordinal);
-        Assert.Contains("badgeFor", graphScript, StringComparison.Ordinal);
-        Assert.Contains("positionBadge", graphScript, StringComparison.Ordinal);
-        Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("badgeFor", graphScript, StringComparison.Ordinal);
+        Assert.Contains("graph-type-badge", graphScript, StringComparison.Ordinal);
+        Assert.Contains("node.renderedPosition()", graphScript, StringComparison.Ordinal);
+        Assert.Contains("cy.on('render'", graphScript, StringComparison.Ordinal);
+        Assert.Contains("cy.on('cxttap', 'node'", graphScript, StringComparison.Ordinal);
+        Assert.Contains("View ${node.data('label') || 'record'}", graphScript, StringComparison.Ordinal);
+        Assert.Contains("event.shiftKey && event.key === 'F10'", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
         Assert.Contains("centerOn", graphScript, StringComparison.Ordinal);
@@ -75,6 +79,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.OK, graphPreferences.StatusCode);
         Assert.Contains("monkeysphere.graph.record-types", await graphPreferences.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains(".relationship-graph", css, StringComparison.Ordinal);
+        Assert.Contains(".graph-type-badges", css, StringComparison.Ordinal);
+        Assert.Contains("pointer-events: none;", css, StringComparison.Ordinal);
         Assert.Contains("background: var(--graph-background);", css, StringComparison.Ordinal);
         Assert.Contains(".saved-view-layout", css, StringComparison.Ordinal);
         Assert.Contains("background: var(--subtle-background);", css, StringComparison.Ordinal);
