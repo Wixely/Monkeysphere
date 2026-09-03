@@ -2,6 +2,22 @@
 
 Monkeysphere is an open-source, private, self-hosted relationship-memory application for records about people, pets, places, interests, and administrator-defined entity types. It is a work in progress preparing for its initial alpha release.
 
+## Screenshots
+
+All screenshots use a fictional demonstration dataset.
+
+![Monkeysphere Dashboard showing upcoming dates and people](docs/images/dashboard.png)
+
+The Dashboard keeps upcoming recurring dates and selected record categories together.
+
+![Monkeysphere relationship graph connecting people, pets, places, a vehicle, an event, and a game](docs/images/relationship-graph.png)
+
+The relationship graph can show the whole selected sphere or focus on chosen records and their connections.
+
+![Monkeysphere map showing fictional locations around central London](docs/images/map.png)
+
+The map plots known coordinates, clusters nearby records, and visualizes approximate areas. External basemap tiles are off by default and require an explicit administrator choice in Settings.
+
 ## Current vertical slice
 
 The current slice provides one administrator account, configurable record types and reusable typed fields, previewed field and record-type schema evolution, record editing, searchable alternate names, rich multi-image records, structured locations, directional and symmetric relationships, reusable saved record and graph views, a configurable Dashboard, an exact-date calendar with an upcoming-date list, private in-app reminders, manual iCalendar export, previewed vCard contact import and scoped export, bounded search/filtering, SQLite/Dapper persistence, checksummed DnaX migrations, and disabled-by-default read-only HTTP API and MCP surfaces. Every record has one primary display name and can have multiple aliases, nicknames, short names, former names, and images. New datasets open a four-level setup wizard with concrete examples, customizable preset selection, and a persistent blank-slate option. The catalogue currently ships 15 editable, versioned record-type presets with canonical field keys and applicable packaged relationships. Saved record views package one record type, selected columns, up to ten filters, optional grouping, and display-name or field sorting; saved graph views retain their display mode, selected records, and enabled record types. The Dashboard can show multiple ordered record categories and recurring upcoming dates, defaulting to People and birthdays when those presets are installed. The calendar can be filtered by record type and date field; it places exact-date values and non-approximate day-precision temporal values, while deliberately withholding coarser or approximate values from exact day cells. Authenticated users can schedule several local lead times, dismiss reminders, and download the selected month as a standards-compatible `.ics` file; Monkeysphere does not send reminder details to an outside service. The import/export page accepts bounded UTF-8 vCard 3.0 and 4.0 files for the Person preset, previews standard mappings and possible duplicates against both saved records and earlier contacts in the same file, applies explicit create/skip/merge/replace choices in one transaction, semantically preserves unsupported properties and Apple labels, and exports only deliberately selected contacts as vCard 4.0. Recognized fields include text, multiline text, number, exact date, choice, tags, precision-aware temporal values, phone numbers, web links, and locations; unknown type identifiers retain a lossless text fallback.
@@ -62,7 +78,7 @@ Location fields accept descriptive context, an optional WGS84 latitude/longitude
 
 Preset-derived record types and fields retain their preset key and version while remaining locally editable. Home, Workplace, Favourite Place, and Event are catalogue version 2 presets using the structured location field. Already-installed version 1 schemas are not silently changed; preset upgrades remain an explicit future workflow.
 
-The authenticated map plots coordinate-bearing records through bounded, paged spatial queries. Record-type and multi-select location-layer filters narrow the view, close pins cluster together, declared approximation radii appear as areas, and selecting a pin or cluster reveals linked record summaries. Both coordinate editing and multi-record visualization use the vendored OpenLayers client with a local graticule and make no external tile or geocoding request.
+The authenticated map plots coordinate-bearing records through bounded, paged spatial queries. Record-type and multi-select location-layer filters narrow the view, close pins cluster together, declared approximation radii appear as areas, and selecting a pin or cluster reveals linked record summaries. Both coordinate editing and multi-record visualization use the vendored OpenLayers client. The multi-record map starts with a private local graticule; an administrator may explicitly enable attributed OpenStreetMap tiles in Settings after acknowledging that tile requests disclose their IP address, browser metadata, site origin, and viewed area. Record names are never included in tile requests. No geocoding service is used.
 
 The authenticated relationship graph uses a locally vendored Cytoscape.js build. With no record filter it shows all records in the enabled types. Name and alias search offers matching records and supports comma-separated selection; the display mode can show everything, the selected records with their immediate connections, or only the selected records. Per-type checkboxes are saved in browser-local storage, and the complete filter can be saved as a graph view. Records with images use their authenticated cover thumbnail inside the graph node, with the standard amber circle as a fallback; an optional record-type symbol remains attached above the node while it moves. Right-click, long-press, the Context Menu key, or `Shift+F10` opens a direct record action. Each response is capped at 500 nodes and 2,000 edges; the page clearly reports truncation and asks for narrower filters rather than silently attempting an unbounded render.
 
