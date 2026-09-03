@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 14,
+        currentVersion: 16,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -471,6 +471,53 @@ public static class MonkeysphereSchema
                     ELSE Symbol
                 END
                 WHERE PresetKey IS NOT NULL;
+                """),
+            DnaXMigration.Sql(15, "configurable-dashboard", "Add dashboard display and recurring-date settings", """
+                CREATE TABLE DashboardSettings (
+                    Singleton INTEGER NOT NULL PRIMARY KEY CHECK (Singleton = 1),
+                    RecordTypeId TEXT NULL,
+                    UpcomingDays INTEGER NOT NULL CHECK (UpcomingDays BETWEEN 1 AND 366),
+                    UpdatedAtUtc TEXT NOT NULL,
+                    FOREIGN KEY (RecordTypeId) REFERENCES RecordTypes(Id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE DashboardRecurringFields (
+                    FieldDefinitionId TEXT NOT NULL PRIMARY KEY,
+                    SortOrder INTEGER NOT NULL UNIQUE CHECK (SortOrder >= 0),
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id) ON DELETE CASCADE
+                );
+                """),
+            DnaXMigration.Sql(16, "saved-graph-views", "Add reusable relationship graph filters", """
+                CREATE TABLE GraphViews (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    DisplayMode INTEGER NOT NULL CHECK (DisplayMode BETWEEN 0 AND 2),
+                    CreatedAtUtc TEXT NOT NULL,
+                    UpdatedAtUtc TEXT NOT NULL
+                );
+
+                CREATE TABLE GraphViewRecords (
+                    GraphViewId TEXT NOT NULL,
+                    RecordId TEXT NOT NULL,
+                    SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                    PRIMARY KEY (GraphViewId, RecordId),
+                    UNIQUE (GraphViewId, SortOrder),
+                    FOREIGN KEY (GraphViewId) REFERENCES GraphViews(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE GraphViewRecordTypes (
+                    GraphViewId TEXT NOT NULL,
+                    RecordTypeId TEXT NOT NULL,
+                    SortOrder INTEGER NOT NULL CHECK (SortOrder >= 0),
+                    PRIMARY KEY (GraphViewId, RecordTypeId),
+                    UNIQUE (GraphViewId, SortOrder),
+                    FOREIGN KEY (GraphViewId) REFERENCES GraphViews(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (RecordTypeId) REFERENCES RecordTypes(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_GraphViewRecords_RecordId ON GraphViewRecords (RecordId);
+                CREATE INDEX IX_GraphViewRecordTypes_RecordTypeId ON GraphViewRecordTypes (RecordTypeId);
                 """),
         ]);
 }

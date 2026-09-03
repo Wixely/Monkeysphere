@@ -83,10 +83,12 @@ public sealed class RelationshipWorkflowTests
         IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
         IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
         RecordType person = await records.CreateRecordTypeAsync("Graph person", "👤");
+        RecordType pet = await records.CreateRecordTypeAsync("Graph pet", "🐕");
         RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", [], ["Enchantress"]);
         RecordDetails charles = await records.CreateRecordAsync(person.Id, "Charles", []);
         RecordDetails mary = await records.CreateRecordAsync(person.Id, "Mary", []);
         RecordDetails unrelated = await records.CreateRecordAsync(person.Id, "Unrelated", []);
+        RecordDetails fido = await records.CreateRecordAsync(pet.Id, "Fido", []);
         byte[] png = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
         RecordImage adaImage = await images.AddAsync(ada.Record.Id, new MemoryStream(png), "ada.png");
@@ -95,6 +97,35 @@ public sealed class RelationshipWorkflowTests
         _ = await relationships.CreateAsync(knows.Id, ada.Record.Id, charles.Record.Id);
         _ = await relationships.CreateAsync(inspired.Id, charles.Record.Id, mary.Record.Id);
         _ = await relationships.CreateAsync(knows.Id, mary.Record.Id, unrelated.Record.Id);
+        _ = await relationships.CreateAsync(knows.Id, ada.Record.Id, fido.Record.Id);
+
+        RelationshipGraphResult all = await graph.QueryAsync(new(
+            SelectedRecordIds: [mary.Record.Id]));
+        Assert.Equal(5, all.Nodes.Count);
+        Assert.Equal(mary.Record.Id, all.Nodes[0].RecordId);
+
+        RelationshipGraphResult connected = await graph.QueryAsync(new(
+            DisplayMode: RelationshipGraphDisplayMode.Connected,
+            SelectedRecordIds: [ada.Record.Id]));
+        Assert.Equal(
+            [ada.Record.Id, charles.Record.Id, fido.Record.Id],
+            connected.Nodes.Select(node => node.RecordId));
+
+        RelationshipGraphResult peopleOnly = await graph.QueryAsync(new(
+            DisplayMode: RelationshipGraphDisplayMode.Connected,
+            SelectedRecordIds: [ada.Record.Id],
+            RecordTypeIds: [person.Id]));
+        Assert.Equal([ada.Record.Id, charles.Record.Id], peopleOnly.Nodes.Select(node => node.RecordId));
+
+        RelationshipGraphResult isolated = await graph.QueryAsync(new(
+            DisplayMode: RelationshipGraphDisplayMode.Isolated,
+            SelectedRecordIds: [ada.Record.Id, mary.Record.Id]));
+        Assert.Equal([ada.Record.Id, mary.Record.Id], isolated.Nodes.Select(node => node.RecordId));
+        Assert.Empty(isolated.Edges);
+
+        Assert.Empty((await graph.QueryAsync(new(
+            DisplayMode: RelationshipGraphDisplayMode.Connected,
+            SelectedRecordIds: []))).Nodes);
 
         RelationshipGraphResult search = await graph.QueryAsync(new(Search: "Enchantress"));
         RelationshipGraphNode searchNode = Assert.Single(search.Nodes);
@@ -104,21 +135,68 @@ public sealed class RelationshipWorkflowTests
         Assert.Empty(search.Edges);
 
         RelationshipGraphResult depthOne = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id, Depth: 1));
-        Assert.Equal([ada.Record.Id, charles.Record.Id], depthOne.Nodes.Select(node => node.RecordId));
+        Assert.Equal([ada.Record.Id, charles.Record.Id, fido.Record.Id], depthOne.Nodes.Select(node => node.RecordId));
         Assert.Null(Assert.Single(depthOne.Nodes, node => node.RecordId == charles.Record.Id).ImageId);
-        Assert.Single(depthOne.Edges);
+        Assert.Equal(2, depthOne.Edges.Count);
 
         RelationshipGraphResult filtered = await graph.QueryAsync(new(
             FocusRecordId: ada.Record.Id,
             RelationshipTypeId: knows.Id,
             Depth: 3));
-        Assert.Equal([ada.Record.Id, charles.Record.Id], filtered.Nodes.Select(node => node.RecordId));
-        Assert.Single(filtered.Edges);
+        Assert.Equal([ada.Record.Id, charles.Record.Id, fido.Record.Id], filtered.Nodes.Select(node => node.RecordId));
+        Assert.Equal(2, filtered.Edges.Count);
 
         RelationshipGraphResult truncated = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id, Depth: 3, NodeLimit: 2));
         Assert.True(truncated.NodesTruncated);
         Assert.Equal(2, truncated.Nodes.Count);
         Assert.DoesNotContain(truncated.Nodes, node => node.RecordId == unrelated.Record.Id);
+    }
+
+    [Fact]
+    public async Task GraphViewsPersistModesSelectionsAndVisibleTypes()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IGraphViewService views = application.Services.GetRequiredService<IGraphViewService>();
+        RecordType person = await records.CreateRecordTypeAsync("Graph view person");
+        RecordType pet = await records.CreateRecordTypeAsync("Graph view pet");
+        RecordDetails ada = await records.CreateRecordAsync(person.Id, "Ada", []);
+        RecordDetails fido = await records.CreateRecordAsync(pet.Id, "Fido", []);
+
+        GraphView created = await views.CreateAsync(new(
+            "Household",
+            RelationshipGraphDisplayMode.Isolated,
+            [ada.Record.Id, fido.Record.Id],
+            [person.Id, pet.Id]));
+
+        GraphView read = Assert.Single(await views.ListAsync());
+        Assert.Equal(created.Id, read.Id);
+        Assert.Equal([ada.Record.Id, fido.Record.Id], read.RecordIds);
+        Assert.Equal([person.Id, pet.Id], read.RecordTypeIds);
+        Assert.Equal(RelationshipGraphDisplayMode.Isolated, read.DisplayMode);
+
+        GraphView updated = await views.UpdateAsync(created.Id, new(
+            "Household connections",
+            RelationshipGraphDisplayMode.Connected,
+            [ada.Record.Id],
+            [person.Id]));
+        Assert.Equal("Household connections", updated.Name);
+        Assert.Equal([ada.Record.Id], updated.RecordIds);
+        Assert.Equal([person.Id], updated.RecordTypeIds);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => views.CreateAsync(new(
+            "Hidden selection",
+            RelationshipGraphDisplayMode.Isolated,
+            [fido.Record.Id],
+            [person.Id])));
+        await Assert.ThrowsAsync<DomainValidationException>(() => views.CreateAsync(new(
+            "Household connections",
+            RelationshipGraphDisplayMode.All,
+            [],
+            [person.Id])));
+
+        Assert.True(await views.DeleteAsync(created.Id));
+        Assert.Empty(await views.ListAsync());
     }
 
     [Fact]

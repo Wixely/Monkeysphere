@@ -1,0 +1,152 @@
+@page "/settings/dashboard"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDashboardService Dashboard
+@inject IMonkeysphereService Records
+
+<PageTitle>Dashboard settings · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="dashboard" />
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Front page</p>
+        <h1>Dashboard</h1>
+        <p>Choose the records and annually recurring dates shown when you open Monkeysphere.</p>
+    </div>
+    <a class="button" href="/">Open dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
+}
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="panel dashboard-settings-panel">
+        <div class="form-grid">
+            <label>
+                Record category
+                <SearchableSelect TValue="string" @bind-Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Dashboard record category" />
+                <small>The selected category becomes the main list on the dashboard.</small>
+            </label>
+            <label>
+                Upcoming period
+                <SearchableSelect TValue="int" @bind-Value="_upcomingDays" Options="UpcomingDayOptions" AriaLabel="Dashboard upcoming period" />
+                <small>Recurring dates within this period appear above the record list.</small>
+            </label>
+        </div>
+
+        <fieldset class="field-picker dashboard-date-fields">
+            <legend>Annually recurring date fields</legend>
+            @if (_dateFields.Count == 0)
+            {
+                <p class="empty-state">No active date fields are available.</p>
+            }
+            else
+            {
+                @foreach (FieldDefinition field in _dateFields)
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox"
+                               checked="@_selectedDateFields.Contains(field.Id)"
+                               @onchange="args => SetDateField(field.Id, args)" />
+                        <span>@DateFieldLabel(field)</span>
+                    </label>
+                }
+            }
+        </fieldset>
+        <p class="muted">Birthdays from the People preset are selected automatically until you save your own choices. Select anniversary or other date fields here when they should repeat every year.</p>
+        <button class="button primary" type="button" @onclick="SaveAsync">Save dashboard</button>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<RecordType> _types = [];
+    private IReadOnlyList<FieldDefinition> _dateFields = [];
+    private readonly HashSet<Guid> _selectedDateFields = [];
+    private readonly Dictionary<Guid, List<string>> _dateFieldTypeNames = [];
+    private string _recordTypeValue = string.Empty;
+    private int _upcomingDays = DashboardService.DefaultUpcomingDays;
+    private string? _message;
+    private bool _isError;
+    private bool _loading = true;
+
+    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
+        [new(string.Empty, "No record list"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), DisplayTypeName(type)))];
+
+    private static IReadOnlyList<ComboboxOption<int>> UpcomingDayOptions { get; } =
+        [new(30, "Next 30 days"), new(60, "Next 60 days"), new(90, "Next 90 days"), new(180, "Next 6 months"), new(366, "Next year")];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = (await Records.ListRecordTypesAsync())
+            .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
+            .ToArray();
+        _dateFields = (await Records.ListFieldDefinitionsAsync())
+            .Where(field => field.Lifecycle == FieldLifecycle.Active && field.TypeId is FieldTypes.ExactDate or FieldTypes.Temporal)
+            .OrderBy(field => field.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        HashSet<Guid> dateFieldIds = _dateFields.Select(field => field.Id).ToHashSet();
+        foreach (RecordType type in _types)
+        {
+            RecordTypeDetails? details = await Records.GetRecordTypeAsync(type.Id);
+            foreach (Guid fieldId in details?.Fields.Select(field => field.Definition.Id).Where(dateFieldIds.Contains) ?? [])
+            {
+                if (!_dateFieldTypeNames.TryGetValue(fieldId, out List<string>? names))
+                {
+                    names = [];
+                    _dateFieldTypeNames.Add(fieldId, names);
+                }
+
+                names.Add(DisplayTypeName(type));
+            }
+        }
+
+        DashboardConfiguration configuration = await Dashboard.GetConfigurationAsync();
+        _recordTypeValue = configuration.RecordTypeId?.ToString() ?? string.Empty;
+        _upcomingDays = configuration.UpcomingDays;
+        _selectedDateFields.UnionWith(configuration.RecurringFieldDefinitionIds);
+        _loading = false;
+    }
+
+    private void SetDateField(Guid fieldId, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+        {
+            _selectedDateFields.Add(fieldId);
+        }
+        else
+        {
+            _selectedDateFields.Remove(fieldId);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            Guid? recordTypeId = Guid.TryParse(_recordTypeValue, out Guid parsed) ? parsed : null;
+            await Dashboard.SaveConfigurationAsync(new(recordTypeId, _selectedDateFields.ToArray(), _upcomingDays));
+            _message = "Dashboard settings saved.";
+            _isError = false;
+        }
+        catch (DomainValidationException exception)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+    }
+
+    private static string DisplayTypeName(RecordType type) =>
+        string.Equals(type.PresetKey, "monkeysphere.person", StringComparison.Ordinal) ? "People" : type.Name;
+
+    private string DateFieldLabel(FieldDefinition field) => _dateFieldTypeNames.TryGetValue(field.Id, out List<string>? names)
+        ? $"{field.Name} · {string.Join(", ", names)}"
+        : field.Name;
+}

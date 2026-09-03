@@ -1,12 +1,21 @@
 @page "/"
+@page "/dashboard"
 @attribute [Authorize]
 @rendermode InteractiveServer
-@inject IMonkeysphereService Service
+@inject IDashboardService Dashboard
+@inject IMonkeysphereService Records
+@inject TimeProvider TimeProvider
 
-<PageTitle>Overview · Monkeysphere</PageTitle>
+<PageTitle>Dashboard · Monkeysphere</PageTitle>
 
-<h1>Your private sphere</h1>
-<p class="lede">Remember useful context without turning it into somebody else's social network.</p>
+<div class="page-heading dashboard-heading">
+    <div>
+        <p class="eyebrow">At a glance</p>
+        <h1>Dashboard</h1>
+        <p>Upcoming moments and the records you want close at hand.</p>
+    </div>
+    <a class="button" href="/settings/dashboard">Configure dashboard</a>
+</div>
 
 @if (_loading)
 {
@@ -14,31 +23,160 @@
 }
 else
 {
-    <section class="metric-grid" aria-label="Dataset summary">
-        <article class="metric-card">
-            <strong>@_typeCount</strong>
-            <span>record types</span>
-        </article>
-        <article class="metric-card">
-            <strong>@_recordCount</strong>
-            <span>records</span>
-        </article>
+    <section class="panel dashboard-upcoming" aria-labelledby="upcoming-heading">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Next @_configuration.UpcomingDays days</p>
+                <h2 id="upcoming-heading">Upcoming dates</h2>
+            </div>
+            <a class="button subtle" href="/calendar">Open calendar</a>
+        </div>
+        @if (_upcoming.Count == 0)
+        {
+            <p class="empty-state">No recurring dates are coming up.</p>
+        }
+        else
+        {
+            <div class="dashboard-date-list">
+                @foreach (DashboardUpcomingDate item in _upcoming)
+                {
+                    <article class="dashboard-date-item">
+                        <div class="dashboard-date-marker" aria-hidden="true">
+                            <strong>@item.OccursAt.Day</strong>
+                            <span>@item.OccursAt.ToString("MMM", CultureInfo.CurrentCulture)</span>
+                        </div>
+                        <div class="dashboard-date-details">
+                            <a href="/records/@item.Source.RecordId">@item.Source.RecordDisplayName</a>
+                            <span>@item.Source.FieldName · @OccurrenceLabel(item)</span>
+                        </div>
+                        <strong class="dashboard-distance">@DistanceLabel(item)</strong>
+                    </article>
+                }
+            </div>
+        }
     </section>
-    <div class="action-row">
-        <a class="button primary" href="/structures">Define a record type</a>
-        <a class="button" href="/records/new">Add a record</a>
-    </div>
+
+    <section class="panel dashboard-records" aria-labelledby="dashboard-records-heading">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Front-page records</p>
+                <h2 id="dashboard-records-heading">@_recordTypeName</h2>
+            </div>
+            <div class="action-row wrap">
+                @if (_configuration.RecordTypeId is Guid selectedTypeId)
+                {
+                    <a class="button" href="/records/new?typeId=@selectedTypeId">Add @_recordTypeSingular</a>
+                }
+                <a class="button subtle" href="/records">All records</a>
+            </div>
+        </div>
+        @if (_configuration.RecordTypeId is null)
+        {
+            <p class="empty-state">Choose a record category in Dashboard settings.</p>
+        }
+        else if (_records.Items.Count == 0)
+        {
+            <p class="empty-state">No @_recordTypeName.ToLower(CultureInfo.CurrentCulture) yet.</p>
+        }
+        else
+        {
+            <ul class="item-list dashboard-record-list">
+                @foreach (DashboardRecordRow row in _recordRows)
+                {
+                    <li>
+                        <div class="dashboard-record-identity">
+                            <a class="dashboard-record-avatar" href="/records/@row.Record.Id" aria-label="Open @row.Record.DisplayName">
+                                @if (row.ImageId is Guid imageId)
+                                {
+                                    <img src="/records/@row.Record.Id/images/@imageId/thumbnail"
+                                         alt=""
+                                         loading="lazy" />
+                                }
+                                else
+                                {
+                                    <span class="dashboard-record-placeholder" aria-hidden="true">@_recordTypeSymbol</span>
+                                }
+                            </a>
+                            <a href="/records/@row.Record.Id">@row.Record.DisplayName</a>
+                        </div>
+                        <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
+                    </li>
+                }
+            </ul>
+            @if (_records.TotalCount > _records.Items.Count)
+            {
+                <p class="dashboard-more"><a href="/records">View all @_records.TotalCount @_recordTypeName.ToLower(CultureInfo.CurrentCulture)</a></p>
+            }
+        }
+    </section>
 }
 
 @code {
+    private DashboardConfiguration _configuration = new(null, []);
+    private IReadOnlyList<DashboardUpcomingDate> _upcoming = [];
+    private PagedResult<RecordSummary> _records = new([], 1, 12, 0);
+    private readonly List<DashboardRecordRow> _recordRows = [];
+    private string _recordTypeName = "Records";
+    private string _recordTypeSingular = "record";
+    private string _recordTypeSymbol = "·";
     private bool _loading = true;
-    private int _typeCount;
-    private int _recordCount;
 
     protected override async Task OnInitializedAsync()
     {
-        _typeCount = (await Service.ListRecordTypesAsync()).Count;
-        _recordCount = (await Service.SearchRecordsAsync(new RecordSearch(PageSize: 1))).TotalCount;
+        _configuration = await Dashboard.GetConfigurationAsync();
+        _upcoming = await Dashboard.ListUpcomingAsync(_configuration);
+        if (_configuration.RecordTypeId is Guid recordTypeId)
+        {
+            RecordType? type = (await Records.ListRecordTypesAsync()).FirstOrDefault(item => item.Id == recordTypeId);
+            if (type is not null)
+            {
+                _recordTypeSingular = type.Name;
+                _recordTypeSymbol = type.Symbol ?? type.Name[..1].ToUpper(CultureInfo.CurrentCulture);
+                _recordTypeName = string.Equals(type.PresetKey, "monkeysphere.person", StringComparison.Ordinal)
+                    ? "People"
+                    : type.Name;
+            }
+
+            _records = await Records.SearchRecordsAsync(new RecordSearch(RecordTypeId: recordTypeId, PageSize: 12));
+            foreach (RecordSummary summary in _records.Items)
+            {
+                RecordDetails? details = await Records.GetRecordAsync(summary.Id);
+                RecordImage? image = details?.Images.FirstOrDefault(item => item.IsCover) ?? details?.Images.FirstOrDefault();
+                _recordRows.Add(new(summary, image?.Id));
+            }
+        }
+
         _loading = false;
     }
+
+    private string DistanceLabel(DashboardUpcomingDate item)
+    {
+        DateTimeOffset now = TimeProvider.GetLocalNow();
+        if (!item.HasTime)
+        {
+            int days = DateOnly.FromDateTime(item.OccursAt.DateTime).DayNumber - DateOnly.FromDateTime(now.DateTime).DayNumber;
+            return days switch
+            {
+                0 => "Today",
+                1 => "Tomorrow",
+                _ => $"In {days} days",
+            };
+        }
+
+        double hours = Math.Max(0, (item.OccursAt - now).TotalHours);
+        if (hours < 48)
+        {
+            int roundedHours = Math.Max(1, (int)Math.Ceiling(hours));
+            return $"In {roundedHours} hour{(roundedHours == 1 ? string.Empty : "s")}";
+        }
+
+        int roundedDays = (int)Math.Ceiling(hours / 24);
+        return $"In {roundedDays} days";
+    }
+
+    private static string OccurrenceLabel(DashboardUpcomingDate item) => item.HasTime
+        ? item.OccursAt.ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture)
+        : item.OccursAt.ToString("dddd d MMMM", CultureInfo.CurrentCulture);
+
+    private sealed record DashboardRecordRow(RecordSummary Record, Guid? ImageId);
 }

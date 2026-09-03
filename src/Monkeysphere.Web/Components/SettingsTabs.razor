@@ -1,4 +1,7 @@
-<nav class="section-tabs" aria-label="Settings sections">
+<nav class="section-tabs settings-tabs" aria-label="Settings sections">
+    <a class="@(Active == "dashboard" ? "active" : null)"
+       aria-current="@(Active == "dashboard" ? "page" : null)"
+       href="/settings/dashboard">Dashboard</a>
     <a class="@(Active == "import-export" ? "active" : null)"
        aria-current="@(Active == "import-export" ? "page" : null)"
        href="/settings">Import/export</a>

@@ -202,12 +202,21 @@ export function create(element, callback, graph) {
             callback.invokeMethodAsync('NodeSelected', recordId);
         }
     });
-    graphs.set(element, cy);
+    let resizeFrame;
+    const observer = new ResizeObserver(() => {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+            cy.resize();
+            cy.fit(cy.elements(), 36);
+        });
+    });
+    observer.observe(element);
+    graphs.set(element, { cy, observer });
     runLayout(cy);
 }
 
 export function update(element, graph) {
-    const cy = graphs.get(element);
+    const cy = graphs.get(element)?.cy;
     if (!cy) {
         return;
     }
@@ -217,14 +226,32 @@ export function update(element, graph) {
     runLayout(cy);
 }
 
+export function centerOn(element, recordId) {
+    const cy = graphs.get(element)?.cy;
+    const node = cy?.getElementById(recordId);
+    if (!cy || !node?.length) {
+        return;
+    }
+
+    node.select();
+    cy.animate({
+        center: { eles: node },
+        zoom: Math.max(cy.zoom(), 1.15)
+    }, {
+        duration: 280,
+        easing: 'ease-out'
+    });
+}
+
 export function dispose(element) {
-    const cy = graphs.get(element);
-    if (cy) {
-        cy.destroy();
+    const graph = graphs.get(element);
+    if (graph) {
+        graph.observer.disconnect();
+        graph.cy.destroy();
         graphs.delete(element);
     }
 }
 
 globalThis.addEventListener('monkeysphere:themechanged', () => {
-    graphs.forEach(cy => cy.style().fromJson(graphStyles()).update());
+    graphs.forEach(graph => graph.cy.style().fromJson(graphStyles()).update());
 });

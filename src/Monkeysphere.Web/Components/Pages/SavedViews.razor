@@ -4,6 +4,7 @@
 @rendermode InteractiveServer
 @inject IMonkeysphereService Records
 @inject ISavedViewService Views
+@inject IGraphViewService GraphViews
 
 <PageTitle>Saved views · Monkeysphere</PageTitle>
 
@@ -13,7 +14,7 @@
     <div>
         <p class="eyebrow">Reusable views</p>
         <h1>Saved views</h1>
-        <p>Package a record grid's columns, filters, grouping, and sorting for reuse.</p>
+        <p>Reuse record-grid layouts and relationship-graph filters.</p>
     </div>
     <a class="button" href="/records">Open records</a>
 </div>
@@ -23,15 +24,15 @@
     <div class="notice @(_isError ? "error" : "success")" role="status">@_message</div>
 }
 
-<div class="split-layout">
-    <section class="panel">
+<div class="split-layout saved-view-layout">
+    <section class="panel saved-view-list-panel">
         <div class="section-heading">
-            <h2>Existing views</h2>
-            <button class="button" type="button" @onclick="NewView">New view</button>
+            <h2>Record views</h2>
+            <button class="button" type="button" @onclick="NewView">New record view</button>
         </div>
         @if (_views.Count == 0)
         {
-            <p class="empty-state">No saved views yet.</p>
+            <p class="empty-state">No saved record views yet.</p>
         }
         else
         {
@@ -45,9 +46,29 @@
                 }
             </ul>
         }
+        <div class="section-heading compact-heading saved-view-kind-heading">
+            <h2>Graph views</h2>
+            <a class="button" href="/graph">New graph view</a>
+        </div>
+        @if (_graphViews.Count == 0)
+        {
+            <p class="empty-state">No saved graph views yet.</p>
+        }
+        else
+        {
+            <ul class="item-list">
+                @foreach (GraphView view in _graphViews)
+                {
+                    <li>
+                        <a class="text-button" href="/graph?viewId=@view.Id">@view.Name</a>
+                        <span class="pill">Graph · @GraphModeName(view.DisplayMode)</span>
+                    </li>
+                }
+            </ul>
+        }
     </section>
 
-    <section class="panel">
+    <section class="panel saved-view-editor">
         <h2>@(_editingId.HasValue ? "Edit saved view" : "Create saved view")</h2>
         <div class="form-grid">
             <label>
@@ -150,6 +171,7 @@
 @code {
     private IReadOnlyList<RecordType> _types = [];
     private IReadOnlyList<SavedView> _views = [];
+    private IReadOnlyList<GraphView> _graphViews = [];
     private IReadOnlyList<RecordTypeField> _fields = [];
     private readonly List<Guid> _selectedColumns = [];
     private readonly List<FilterEditor> _filters = [];
@@ -354,7 +376,18 @@
         _filters.Clear();
     }
 
-    private async Task ReloadViewsAsync() => _views = await Views.ListAsync();
+    private async Task ReloadViewsAsync()
+    {
+        _views = await Views.ListAsync();
+        _graphViews = await GraphViews.ListAsync();
+    }
+
+    private static string GraphModeName(RelationshipGraphDisplayMode mode) => mode switch
+    {
+        RelationshipGraphDisplayMode.Connected => "Connected",
+        RelationshipGraphDisplayMode.Isolated => "Isolated",
+        _ => "All",
+    };
     private string TypeName(Guid id) => _types.FirstOrDefault(type => type.Id == id)?.Name ?? "Unavailable type";
     private static string FieldLabel(RecordTypeField field) => field.Definition.Lifecycle == FieldLifecycle.Retired
         ? field.Definition.Name + " (retired)"

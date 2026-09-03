@@ -32,6 +32,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         HttpResponseMessage mapLibrary = await client.GetAsync("/vendor/openlayers/10.10.0/ol.js");
         HttpResponseMessage graphLibrary = await client.GetAsync("/vendor/cytoscape/3.34.0/cytoscape.min.js");
         HttpResponseMessage graphBehavior = await client.GetAsync("/relationship-graph.js");
+        HttpResponseMessage graphPreferences = await client.GetAsync("/graph-preferences.js");
         HttpResponseMessage mapEditorBehavior = await client.GetAsync("/map-editor.js");
         HttpResponseMessage recordMapBehavior = await client.GetAsync("/record-map.js");
         HttpResponseMessage themeBehavior = await client.GetAsync("/theme.js");
@@ -69,8 +70,15 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("'text-margin-y': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
+        Assert.Contains("centerOn", graphScript, StringComparison.Ordinal);
+        Assert.Contains("ResizeObserver", graphScript, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.OK, graphPreferences.StatusCode);
+        Assert.Contains("monkeysphere.graph.record-types", await graphPreferences.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains(".relationship-graph", css, StringComparison.Ordinal);
         Assert.Contains("background: var(--graph-background);", css, StringComparison.Ordinal);
+        Assert.Contains(".saved-view-layout", css, StringComparison.Ordinal);
+        Assert.Contains("background: var(--subtle-background);", css, StringComparison.Ordinal);
+        Assert.Contains(".relationship-type-row", css, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", await mapEditorBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", await recordMapBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, themeBehavior.StatusCode);
@@ -163,10 +171,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
     [Theory]
     [InlineData("/")]
+    [InlineData("/dashboard")]
     [InlineData("/structures")]
     [InlineData("/structures/relationship-types")]
     [InlineData("/structures/saved-views")]
     [InlineData("/settings")]
+    [InlineData("/settings/dashboard")]
     [InlineData("/settings/backups")]
     [InlineData("/settings/remote-access")]
     [InlineData("/saved-views")]
@@ -193,11 +203,15 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string suffix = Guid.NewGuid().ToString("N");
         Guid typeId;
         Guid recordId;
+        Guid dashboardImageId;
         using (IServiceScope scope = _factory.Services.CreateScope())
         {
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
             ISavedViewService views = scope.ServiceProvider.GetRequiredService<ISavedViewService>();
+            IGraphViewService graphViews = scope.ServiceProvider.GetRequiredService<IGraphViewService>();
             IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
+            IDashboardService dashboard = scope.ServiceProvider.GetRequiredService<IDashboardService>();
+            IRecordImageService images = scope.ServiceProvider.GetRequiredService<IRecordImageService>();
             RecordType type = await records.CreateRecordTypeAsync("View type " + suffix);
             typeId = type.Id;
             FieldDefinition name = await records.CreateAndAttachFieldAsync(
@@ -217,6 +231,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                     new(location.Id, Location: new LocationValueInput("Test location", "51.5", "-0.1")),
                 ])).Record.Id;
             RecordDetails related = await records.CreateRecordAsync(type.Id, "Related record " + suffix, []);
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            dashboardImageId = (await images.AddAsync(related.Record.Id, new MemoryStream(png), "dashboard.png")).Id;
             RelationshipType connection = await relationships.CreateTypeAsync(new(
                 "Graph connection " + suffix,
                 RelationshipDirectionality.Symmetric));
@@ -227,6 +244,12 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                 null,
                 [name.Id],
                 []));
+            _ = await graphViews.CreateAsync(new SaveGraphViewRequest(
+                "Graph view " + suffix,
+                RelationshipGraphDisplayMode.Connected,
+                [recordId],
+                [type.Id]));
+            _ = await dashboard.SaveConfigurationAsync(new(type.Id, [occasion.Id], 90));
         }
 
         using HttpClient client = CreateClient(allowRedirect: false);
@@ -242,7 +265,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         string viewsHtml = await client.GetStringAsync("/structures/saved-views");
         string structuresHtml = await client.GetStringAsync("/structures");
+        string relationshipTypesHtml = await client.GetStringAsync("/structures/relationship-types");
         string recordsHtml = await client.GetStringAsync("/records");
+        string dashboardHtml = await client.GetStringAsync("/");
+        string dashboardSettingsHtml = await client.GetStringAsync("/settings/dashboard");
         string calendarHtml = await client.GetStringAsync("/calendar");
         string mapHtml = await client.GetStringAsync("/map");
         string graphHtml = await client.GetStringAsync("/graph");
@@ -251,6 +277,10 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
         Assert.Contains("Grid view " + suffix, viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("saved-view-layout", viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("saved-view-editor", viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("Graph view " + suffix, viewsHtml, StringComparison.Ordinal);
+        Assert.Contains("Graph · Connected", WebUtility.HtmlDecode(viewsHtml), StringComparison.Ordinal);
         Assert.Contains("aria-label=\"Structure sections\"", structuresHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"/structures/relationship-types\"", structuresHtml, StringComparison.Ordinal);
         Assert.Contains(">Structures</a>", structuresHtml, StringComparison.Ordinal);
@@ -258,7 +288,19 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Matches(@"\d+ fields · v\d+", decodedStructuresHtml);
         Assert.DoesNotContain("@preset", decodedStructuresHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("@type", decodedStructuresHtml, StringComparison.Ordinal);
+        Assert.Contains("relationship-type-list", relationshipTypesHtml, StringComparison.Ordinal);
+        Assert.Contains("relationship-type-actions", relationshipTypesHtml, StringComparison.Ordinal);
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
+        Assert.Contains("<h1>Dashboard</h1>", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("Upcoming dates", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("Configure dashboard", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("dashboard-record-avatar", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("dashboard-record-placeholder", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains($"/images/{dashboardImageId:D}/thumbnail", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("View record " + suffix, dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("Dashboard record category", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Annually recurring date fields", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Occasion " + suffix, dashboardSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("role=\"combobox\"", recordsHtml, StringComparison.Ordinal);
         Assert.Contains("aria-autocomplete=\"list\"", recordsHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("<select", recordsHtml, StringComparison.OrdinalIgnoreCase);
@@ -274,9 +316,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
             HttpStatusCode.BadRequest,
             (await client.GetAsync("/calendar/export.ics?from=2026-09-30&to=2026-09-01")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/vcard/export.vcf?ids=")).StatusCode);
-        Assert.Contains("Bounded private view", graphHtml, StringComparison.Ordinal);
-        Assert.Contains("Graph connection " + suffix, graphHtml, StringComparison.Ordinal);
-        Assert.Contains("Select a displayed record", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Record name or alias", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Show all", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Show connected", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Show isolated", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Record types", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Centre a displayed record", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Save graph view", graphHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Relationship type", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
         Assert.Contains("data-theme-toggle", graphHtml, StringComparison.Ordinal);
         Assert.Contains("theme.js", graphHtml, StringComparison.Ordinal);

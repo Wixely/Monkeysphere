@@ -815,6 +815,52 @@ public sealed class RecordWorkflowTests
             new DateOnly(2026, 9, 1))));
     }
 
+    [Fact]
+    public async Task DashboardPersistsCategoryAndProjectsAnnualDatesWithDayAndTimePrecision()
+    {
+        FixedTimeProvider clock = new(new DateTimeOffset(2026, 9, 3, 10, 30, 0, TimeSpan.Zero));
+        await using TestApplication application = await TestApplication.CreateAsync(clock);
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IDashboardService dashboard = application.Services.GetRequiredService<IDashboardService>();
+
+        RecordType person = await records.CreateRecordTypeAsync("Person");
+        FieldDefinition birthday = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Birthday", FieldTypes.ExactDate, false));
+        FieldDefinition anniversary = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Anniversary", FieldTypes.Temporal, false));
+        FieldDefinition notes = await records.CreateAndAttachFieldAsync(
+            person.Id,
+            new CreateFieldRequest("Notes", FieldTypes.Text, false));
+
+        _ = await records.CreateRecordAsync(person.Id, "Ada", [new(birthday.Id, "1815-09-05")]);
+        _ = await records.CreateRecordAsync(person.Id, "Grace", [
+            new(anniversary.Id, Temporal: new TemporalValueInput("1994-09-03T15:00", TemporalPrecision.Minute)),
+        ]);
+
+        DashboardConfiguration saved = await dashboard.SaveConfigurationAsync(new(
+            person.Id,
+            [birthday.Id, anniversary.Id],
+            30));
+        DashboardConfiguration reloaded = await dashboard.GetConfigurationAsync();
+        Assert.Equal(saved.RecordTypeId, reloaded.RecordTypeId);
+        Assert.Equal(saved.UpcomingDays, reloaded.UpcomingDays);
+        Assert.Equal(saved.RecurringFieldDefinitionIds.ToArray(), reloaded.RecurringFieldDefinitionIds.ToArray());
+
+        IReadOnlyList<DashboardUpcomingDate> upcoming = await dashboard.ListUpcomingAsync();
+        Assert.Equal(["Grace", "Ada"], upcoming.Select(item => item.Source.RecordDisplayName));
+        Assert.True(upcoming[0].HasTime);
+        Assert.Equal(new DateTimeOffset(2026, 9, 3, 15, 0, 0, TimeSpan.Zero), upcoming[0].OccursAt);
+        Assert.False(upcoming[1].HasTime);
+        Assert.Equal(new DateTimeOffset(2026, 9, 5, 0, 0, 0, TimeSpan.Zero), upcoming[1].OccursAt);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => dashboard.SaveConfigurationAsync(new(
+            person.Id,
+            [notes.Id],
+            30)));
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;
@@ -828,12 +874,16 @@ public sealed class RecordWorkflowTests
 
         public IServiceProvider Services => _provider;
 
-        public static async Task<TestApplication> CreateAsync()
+        public static async Task<TestApplication> CreateAsync(TimeProvider? timeProvider = null)
         {
             string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dataRoot);
             ServiceCollection services = new();
             services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(dataRoot));
+            if (timeProvider is not null)
+            {
+                services.AddSingleton(timeProvider);
+            }
             services.AddDnaXHosting(options => options.WritableDataRoot = dataRoot);
             services.AddMonkeysphereData();
             ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
@@ -858,5 +908,11 @@ public sealed class RecordWorkflowTests
             public string ContentRootPath { get; set; } = contentRoot;
             public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
         }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 }

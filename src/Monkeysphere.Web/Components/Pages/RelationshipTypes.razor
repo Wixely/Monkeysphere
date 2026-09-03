@@ -51,40 +51,46 @@
     }
     else
     {
-        <ul class="item-list">
+        <ul class="item-list relationship-type-list">
             @foreach (RelationshipType type in _types)
             {
-                <li>
-                    <div>
-                        @if (type.Lifecycle == RelationshipLifecycle.Active)
-                        {
-                            <input value="@_names[type.Id]" aria-label="Forward label" @onchange="args => SetName(type.Id, args)" />
-                        }
-                        else
-                        {
-                            <strong>@type.Name</strong>
-                        }
-                        @if (type.Directionality == RelationshipDirectionality.Directional)
-                        {
+                <li class="relationship-type-row">
+                    <div class="relationship-type-fields">
+                        <div class="relationship-type-labels">
                             @if (type.Lifecycle == RelationshipLifecycle.Active)
                             {
-                                <input value="@_inverseNames[type.Id]" aria-label="Inverse label" @onchange="args => SetInverseName(type.Id, args)" />
+                                <input value="@_names[type.Id]" aria-label="Forward label" @onchange="args => SetName(type.Id, args)" />
                             }
                             else
                             {
-                                <span class="muted"> / @type.InverseName</span>
+                                <strong>@type.Name</strong>
                             }
-                        }
-                        <span class="pill">@type.Directionality</span>
-                        @if (type.Lifecycle == RelationshipLifecycle.Retired)
-                        {
-                            <span class="pill">retired</span>
-                        }
+                            @if (type.Directionality == RelationshipDirectionality.Directional)
+                            {
+                                @if (type.Lifecycle == RelationshipLifecycle.Active)
+                                {
+                                    <input value="@_inverseNames[type.Id]" aria-label="Inverse label" @onchange="args => SetInverseName(type.Id, args)" />
+                                }
+                                else
+                                {
+                                    <span class="muted">@type.InverseName</span>
+                                }
+                            }
+                        </div>
+                        <div class="relationship-type-meta">
+                            <span class="pill">@type.Directionality</span>
+                            @if (type.Lifecycle == RelationshipLifecycle.Retired)
+                            {
+                                <span class="pill">retired</span>
+                            }
+                        </div>
                     </div>
                     @if (type.Lifecycle == RelationshipLifecycle.Active)
                     {
-                        <button class="button" type="button" @onclick="() => RenameAsync(type)">Rename</button>
-                        <button class="button" type="button" @onclick="() => RetireAsync(type.Id)">Retire</button>
+                        <div class="relationship-type-actions">
+                            <button class="button" type="button" @onclick="() => RenameAsync(type)">Rename</button>
+                            <button class="button" type="button" @onclick="() => RetireAsync(type.Id)">Retire</button>
+                        </div>
                     }
                 </li>
             }

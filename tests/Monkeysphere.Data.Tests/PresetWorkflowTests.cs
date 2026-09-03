@@ -13,6 +13,7 @@ public sealed class PresetWorkflowTests
         IPresetService presets = application.Services.GetRequiredService<IPresetService>();
         IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
         IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+        IDashboardService dashboard = application.Services.GetRequiredService<IDashboardService>();
 
         Assert.False((await presets.GetSetupStatusAsync()).IsComplete);
         Assert.Equal(15, presets.RecordTypes.Count);
@@ -46,6 +47,14 @@ public sealed class PresetWorkflowTests
             Assert.Equal("monkeysphere.video-game", field.Definition.PresetKey);
             Assert.NotNull(field.Definition.CanonicalKey);
         });
+
+        RecordType person = Assert.Single(installed, item => item.PresetKey == "monkeysphere.person");
+        RecordTypeDetails personDetails = Assert.IsType<RecordTypeDetails>(await records.GetRecordTypeAsync(person.Id));
+        FieldDefinition birthday = Assert.Single(personDetails.Fields, field =>
+            field.Definition.CanonicalKey == "monkeysphere.person.birthday").Definition;
+        DashboardConfiguration dashboardDefaults = await dashboard.GetConfigurationAsync();
+        Assert.Equal(person.Id, dashboardDefaults.RecordTypeId);
+        Assert.Equal([birthday.Id], dashboardDefaults.RecurringFieldDefinitionIds);
 
         IReadOnlyList<RelationshipType> relationshipTypes = await relationships.ListTypesAsync();
         Assert.Contains(relationshipTypes, item => item.PresetKey == "monkeysphere.relationship.owns");

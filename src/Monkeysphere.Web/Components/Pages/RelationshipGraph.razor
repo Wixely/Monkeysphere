@@ -1,8 +1,12 @@
 @page "/graph"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @inject IRelationshipGraphService GraphService
-@inject IRelationshipService Relationships
+@inject IGraphViewService GraphViews
+@inject IMonkeysphereService Records
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 <PageTitle>Relationship graph · Monkeysphere</PageTitle>
 
@@ -10,60 +14,122 @@
     <div>
         <p class="eyebrow">Connections at a glance</p>
         <h1>Relationship graph</h1>
-        <p>Search the whole dataset or focus on one record and expand its neighbours up to three hops.</p>
+        <p>Browse everything, follow the connections around selected records, or compare only a chosen set.</p>
     </div>
 </div>
 
 <section class="panel graph-filters" aria-label="Graph filters">
-    <div class="form-grid">
-        <label>
-            Record name or alias
-            <input @bind="_search" maxlength="200" placeholder="Search records" />
-        </label>
-        <label>
-            Relationship type
-            <SearchableSelect TValue="string" @bind-Value="_relationshipTypeValue" Options="RelationshipTypeOptions" AriaLabel="Relationship type" />
-        </label>
+    <div class="graph-filter-grid">
+        <div>
+            <label for="graph-record-search">Record name or alias</label>
+            <div class="graph-search" @onfocusout="CloseSuggestionsAsync">
+                <input id="graph-record-search"
+                       type="text"
+                       role="combobox"
+                       placeholder="Type a name, or paste comma-separated names"
+                       maxlength="500"
+                       autocomplete="off"
+                       aria-autocomplete="list"
+                       aria-haspopup="listbox"
+                       aria-expanded="@(_suggestions.Count > 0 ? "true" : "false")"
+                       aria-controls="graph-search-options"
+                       @oninput="SearchChangedAsync" />
+                @if (_suggestions.Count > 0)
+                {
+                    <div class="combobox-list graph-search-options" id="graph-search-options" role="listbox" aria-label="Matching records">
+                        @foreach (RecordSummary suggestion in _suggestions)
+                        {
+                            <button type="button"
+                                    class="combobox-option"
+                                    role="option"
+                                    @onmousedown="() => SelectSuggestionAsync(suggestion)"
+                                    @onmousedown:preventDefault>
+                                <span>@suggestion.DisplayName</span>
+                                <small>@suggestion.RecordTypeName</small>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <small>Choose a result to centre it. Separate names with commas to choose several records.</small>
+        </div>
+
+        <fieldset class="graph-mode-picker">
+            <legend>Show</legend>
+            @foreach (RelationshipGraphDisplayMode mode in Enum.GetValues<RelationshipGraphDisplayMode>())
+            {
+                <label class="radio-label">
+                    <input type="radio"
+                           name="graph-display-mode"
+                           value="@mode"
+                           checked="@(_displayMode == mode)"
+                           @onchange="() => ChangeModeAsync(mode)" />
+                    @ModeLabel(mode)
+                </label>
+            }
+        </fieldset>
     </div>
-    <div class="action-row">
-        <button class="button primary" type="button" @onclick="SearchAsync">Search graph</button>
-        @if (_focusRecordId.HasValue)
-        {
-            <button class="button" type="button" @onclick="ClearFocusAsync">Return to search</button>
-        }
-    </div>
+
+    @if (_selectedRecords.Count > 0)
+    {
+        <div class="graph-selected-records" aria-label="Selected records">
+            @foreach (RecordSummary record in _selectedRecords)
+            {
+                <span class="filter-chip">
+                    <button type="button" @onclick="() => CentreRecordAsync(record.Id)">@record.DisplayName</button>
+                    <button type="button" class="filter-chip-remove" aria-label="Remove @record.DisplayName" @onclick="() => RemoveRecordAsync(record.Id)">×</button>
+                </span>
+            }
+            <button class="text-button" type="button" @onclick="ClearSelectedAsync">Clear selected</button>
+        </div>
+    }
+
+    <fieldset class="graph-type-picker">
+        <legend>Record types</legend>
+        <div class="graph-type-options">
+            @foreach (RecordType type in _recordTypes)
+            {
+                <label class="checkbox-label">
+                    <input type="checkbox"
+                           checked="@_selectedRecordTypeIds.Contains(type.Id)"
+                           @onchange="args => ToggleRecordTypeAsync(type.Id, args)" />
+                    <span aria-hidden="true">@type.Symbol</span>
+                    @DisplayTypeName(type)
+                </label>
+            }
+        </div>
+    </fieldset>
 </section>
 
 @if (_graph.NodesTruncated || _graph.EdgesTruncated)
 {
     <div class="notice" role="status">
-        This view reached the @(_graph.NodesTruncated ? "500-node" : "2,000-edge") limit. Narrow the name or relationship-type filter to reveal hidden items.
+        This view reached the @(_graph.NodesTruncated ? "500-node" : "2,000-edge") limit. Remove record types or choose a smaller record set to reveal hidden items.
     </div>
 }
 
 <section class="panel">
     <div class="section-heading">
         <div>
-            <p class="eyebrow">Bounded private view</p>
+            <p class="eyebrow">@ModeDescription()</p>
             <h2>@_graph.Nodes.Count nodes · @_graph.Edges.Count edges</h2>
         </div>
-        @if (_focusRecordId.HasValue)
-        {
-            <span class="pill">@_depth hop@(_depth == 1 ? string.Empty : "s")</span>
-        }
     </div>
 
     @if (_graph.Nodes.Count == 0)
     {
-        <p class="empty-state">No records match this graph view.</p>
+        <p class="empty-state">@EmptyMessage()</p>
     }
     else
     {
-        <p class="muted" id="relationship-graph-description">Lines show relationships between the displayed records. Use the accessible record selector below if you do not use the visual canvas.</p>
-        <RelationshipGraphCanvas Graph="_graph" OnNodeSelected="SelectNode" />
+        <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Search above or use the accessible selector below to centre a record.</p>
+        <RelationshipGraphCanvas Graph="_graph"
+                                 OnNodeSelected="SelectNode"
+                                 CenterRecordId="_centreRecordId"
+                                 CenterRequest="_centreRequest" />
         <label class="graph-record-picker">
-            Select a displayed record
-            <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Select a displayed record" OnSelected="SelectNodeFromList" />
+            Centre a displayed record
+            <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Centre a displayed record" OnSelected="SelectNodeFromListAsync" />
         </label>
     }
 </section>
@@ -74,46 +140,292 @@
         <div>
             <p class="eyebrow">Selected record</p>
             <h2>@_selected.DisplayName</h2>
-            <p>@_selected.RecordTypeName · distance @_selected.Distance</p>
+            <p>@_selected.RecordTypeName</p>
         </div>
-        <div class="action-row">
-            <a class="button primary" href="/records/@_selected.RecordId">Open record</a>
-            <button class="button" type="button" @onclick="FocusSelectedAsync">Show neighbours</button>
-            @if (_focusRecordId.HasValue && _depth < 3)
-            {
-                <button class="button" type="button" @onclick="ExpandAsync">Expand another hop</button>
-            }
-        </div>
+        <a class="button primary" href="/records/@_selected.RecordId">Open record</a>
     </section>
 }
 
+<section class="panel graph-save-view">
+    <div>
+        <p class="eyebrow">Reusable graph filter</p>
+        <h2>@(_editingGraphViewId.HasValue ? "Update graph view" : "Save graph view")</h2>
+        <p class="muted">Stores the display mode, chosen records, and visible record types. Canvas position is not stored.</p>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(_saveMessage))
+    {
+        <div class="notice @(_saveError ? "error" : "success")" role="status">@_saveMessage</div>
+    }
+    <div class="graph-save-view-controls">
+        <label>
+            View name
+            <input @bind="_graphViewName" maxlength="200" placeholder="For example, close family" />
+        </label>
+        <button class="button primary" type="button" @onclick="SaveGraphViewAsync">
+            @(_editingGraphViewId.HasValue ? "Save changes" : "Save graph view")
+        </button>
+        @if (_editingGraphViewId.HasValue)
+        {
+            <button class="button" type="button" @onclick="NewGraphView">Save as new</button>
+            @if (_confirmDeleteGraphView)
+            {
+                <button class="button danger" type="button" @onclick="DeleteGraphViewAsync">Confirm delete</button>
+                <button class="button" type="button" @onclick="() => _confirmDeleteGraphView = false">Cancel</button>
+            }
+            else
+            {
+                <button class="button danger subtle" type="button" @onclick="() => _confirmDeleteGraphView = true">Delete</button>
+            }
+        }
+        <a class="button" href="/structures/saved-views">Manage saved views</a>
+    </div>
+</section>
+
 @code {
-    private IReadOnlyList<RelationshipType> _types = [];
+    [SupplyParameterFromQuery(Name = "viewId")]
+    public Guid? ViewId { get; set; }
+
+    private IReadOnlyList<RecordType> _recordTypes = [];
     private RelationshipGraphResult _graph = new([], [], false, false);
     private RelationshipGraphNode? _selected;
-    private string _search = string.Empty;
-    private string _relationshipTypeValue = string.Empty;
-    private Guid? _focusRecordId;
-    private int _depth = 1;
-
-    private IReadOnlyList<ComboboxOption<string>> RelationshipTypeOptions =>
-        [new ComboboxOption<string>(string.Empty, "All relationship types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
+    private readonly List<RecordSummary> _selectedRecords = [];
+    private IReadOnlyList<RecordSummary> _suggestions = [];
+    private readonly HashSet<Guid> _selectedRecordTypeIds = [];
+    private RelationshipGraphDisplayMode _displayMode = RelationshipGraphDisplayMode.All;
+    private string _searchText = string.Empty;
+    private Guid? _centreRecordId;
+    private long _centreRequest;
+    private long _searchRevision;
+    private CancellationTokenSource? _searchDelay;
+    private IJSObjectReference? _preferencesModule;
+    private Guid? _editingGraphViewId;
+    private string _graphViewName = string.Empty;
+    private string? _saveMessage;
+    private bool _saveError;
+    private bool _confirmDeleteGraphView;
 
     private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
-        [new ComboboxOption<string>(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}, distance {node.Distance}"))];
+        [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
 
     protected override async Task OnInitializedAsync()
     {
-        _types = await Relationships.ListTypesAsync();
+        _recordTypes = (await Records.ListRecordTypesAsync())
+            .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
+            .ToArray();
+        if (ViewId is Guid viewId)
+        {
+            await LoadGraphViewAsync(viewId);
+        }
+        else
+        {
+            _selectedRecordTypeIds.UnionWith(_recordTypes.Select(type => type.Id));
+        }
+
         await ReloadAsync();
     }
 
-    private async Task SearchAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _focusRecordId = null;
-        _selected = null;
-        _depth = 1;
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _preferencesModule = await JS.InvokeAsync<IJSObjectReference>("import", "./graph-preferences.js");
+        if (_editingGraphViewId.HasValue)
+        {
+            await SaveRecordTypePreferencesAsync();
+            return;
+        }
+
+        string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds");
+        if (savedIds is null)
+        {
+            return;
+        }
+
+        HashSet<Guid> available = _recordTypes.Select(type => type.Id).ToHashSet();
+        _selectedRecordTypeIds.Clear();
+        _selectedRecordTypeIds.UnionWith(savedIds
+            .Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
+            .Where(available.Contains));
         await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task SearchChangedAsync(ChangeEventArgs args)
+    {
+        long revision = ++_searchRevision;
+        _searchText = args.Value?.ToString() ?? string.Empty;
+        _searchDelay?.Cancel();
+        _searchDelay?.Dispose();
+        _searchDelay = new CancellationTokenSource();
+        CancellationToken cancellationToken = _searchDelay.Token;
+        try
+        {
+            await Task.Delay(300, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (revision != _searchRevision)
+        {
+            return;
+        }
+
+        string searchText = _searchText;
+        string[] terms = searchText.Split(',', StringSplitOptions.TrimEntries);
+        bool finalTermComplete = searchText.EndsWith(",", StringComparison.Ordinal);
+        int completedCount = Math.Max(0, terms.Length - 1) + (finalTermComplete ? 1 : 0);
+        bool changedSelection = false;
+        for (int index = 0; index < Math.Min(completedCount, terms.Length); index++)
+        {
+            if (string.IsNullOrWhiteSpace(terms[index]))
+            {
+                continue;
+            }
+
+            IReadOnlyList<RecordSummary> matches = await SearchCandidatesAsync(terms[index]);
+            if (matches.Count == 1)
+            {
+                changedSelection |= AddSelected(matches[0]);
+            }
+        }
+
+        string current = finalTermComplete || terms.Length == 0 ? string.Empty : terms[^1];
+        IReadOnlyList<RecordSummary> suggestions = string.IsNullOrWhiteSpace(current)
+            ? []
+            : await SearchCandidatesAsync(current);
+        if (revision != _searchRevision)
+        {
+            return;
+        }
+
+        _suggestions = suggestions;
+        if (suggestions.Count == 1 && current.Trim().Length >= 2)
+        {
+            changedSelection |= AddSelected(suggestions[0]);
+            _suggestions = [];
+            await ApplySelectionAsync(suggestions[0].Id);
+        }
+        else if (changedSelection && _displayMode != RelationshipGraphDisplayMode.All)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task<IReadOnlyList<RecordSummary>> SearchCandidatesAsync(string query)
+    {
+        string normalized = query.Trim();
+        if (normalized.Length == 0 || _selectedRecordTypeIds.Count == 0)
+        {
+            return [];
+        }
+
+        List<RecordSummary> matches = [];
+        foreach (Guid typeId in _selectedRecordTypeIds)
+        {
+            PagedResult<RecordSummary> result = await Records.SearchRecordsAsync(new(
+                Query: normalized,
+                RecordTypeId: typeId,
+                PageSize: 8));
+            matches.AddRange(result.Items);
+        }
+
+        return matches
+            .DistinctBy(record => record.Id)
+            .OrderBy(record => record.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(record => record.RecordTypeName, StringComparer.CurrentCultureIgnoreCase)
+            .Take(8)
+            .ToArray();
+    }
+
+    private async Task SelectSuggestionAsync(RecordSummary record)
+    {
+        AddSelected(record);
+        _suggestions = [];
+        await ApplySelectionAsync(record.Id);
+    }
+
+    private bool AddSelected(RecordSummary record)
+    {
+        if (_selectedRecords.Any(item => item.Id == record.Id))
+        {
+            return false;
+        }
+
+        if (_selectedRecords.Count >= RelationshipGraphService.MaximumSelectedRecords)
+        {
+            return false;
+        }
+
+        _selectedRecords.Add(record);
+        return true;
+    }
+
+    private async Task ApplySelectionAsync(Guid recordId)
+    {
+        if (_displayMode != RelationshipGraphDisplayMode.All ||
+            !_graph.Nodes.Any(node => node.RecordId == recordId))
+        {
+            await ReloadAsync();
+        }
+
+        await CentreRecordAsync(recordId);
+    }
+
+    private async Task ChangeModeAsync(RelationshipGraphDisplayMode mode)
+    {
+        _displayMode = mode;
+        _selected = null;
+        await ReloadAsync();
+        if (_selectedRecords.Count == 1)
+        {
+            await CentreRecordAsync(_selectedRecords[0].Id);
+        }
+    }
+
+    private async Task ToggleRecordTypeAsync(Guid typeId, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _selectedRecordTypeIds.Add(typeId);
+        }
+        else
+        {
+            _selectedRecordTypeIds.Remove(typeId);
+            _selectedRecords.RemoveAll(record => record.RecordTypeId == typeId);
+        }
+
+        if (_preferencesModule is not null)
+        {
+            await SaveRecordTypePreferencesAsync();
+        }
+
+        await ReloadAsync();
+    }
+
+    private async Task RemoveRecordAsync(Guid recordId)
+    {
+        _selectedRecords.RemoveAll(record => record.Id == recordId);
+        _selected = null;
+        if (_displayMode != RelationshipGraphDisplayMode.All)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ClearSelectedAsync()
+    {
+        _selectedRecords.Clear();
+        _selected = null;
+        _suggestions = [];
+        if (_displayMode != RelationshipGraphDisplayMode.All)
+        {
+            await ReloadAsync();
+        }
     }
 
     private Task SelectNode(Guid recordId)
@@ -122,53 +434,171 @@
         return Task.CompletedTask;
     }
 
-    private Task SelectNodeFromList(string value)
+    private async Task SelectNodeFromListAsync(string value)
     {
-        _selected = Guid.TryParse(value, out Guid recordId)
-            ? _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId)
-            : null;
+        if (Guid.TryParse(value, out Guid recordId))
+        {
+            await CentreRecordAsync(recordId);
+        }
+        else
+        {
+            _selected = null;
+        }
+    }
+
+    private Task CentreRecordAsync(Guid recordId)
+    {
+        _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
+        if (_selected is not null)
+        {
+            _centreRecordId = recordId;
+            _centreRequest++;
+        }
+
         return Task.CompletedTask;
     }
 
-    private async Task FocusSelectedAsync()
+    private Task CloseSuggestionsAsync()
     {
-        if (_selected is null)
-        {
-            return;
-        }
-
-        _focusRecordId = _selected.RecordId;
-        _search = string.Empty;
-        _depth = 1;
-        await ReloadAsync();
-        _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == _focusRecordId);
-    }
-
-    private async Task ExpandAsync()
-    {
-        _depth = Math.Min(3, _depth + 1);
-        await ReloadAsync();
-    }
-
-    private async Task ClearFocusAsync()
-    {
-        _focusRecordId = null;
-        _selected = null;
-        _depth = 1;
-        await ReloadAsync();
+        _suggestions = [];
+        return Task.CompletedTask;
     }
 
     private async Task ReloadAsync()
     {
-        Guid? relationshipTypeId = Guid.TryParse(_relationshipTypeValue, out Guid parsed) ? parsed : null;
         _graph = await GraphService.QueryAsync(new(
-            _search,
-            relationshipTypeId,
-            _focusRecordId,
-            _depth));
+            DisplayMode: _displayMode,
+            SelectedRecordIds: _selectedRecords.Select(record => record.Id).ToArray(),
+            RecordTypeIds: _selectedRecordTypeIds.ToArray()));
         if (_selected is not null)
         {
             _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == _selected.RecordId);
+        }
+    }
+
+    private async Task LoadGraphViewAsync(Guid id)
+    {
+        GraphView? view = await GraphViews.GetAsync(id);
+        if (view is null)
+        {
+            _saveMessage = "Graph view was not found.";
+            _saveError = true;
+            _selectedRecordTypeIds.UnionWith(_recordTypes.Select(type => type.Id));
+            return;
+        }
+
+        HashSet<Guid> availableTypeIds = _recordTypes.Select(type => type.Id).ToHashSet();
+        _editingGraphViewId = view.Id;
+        _graphViewName = view.Name;
+        _displayMode = view.DisplayMode;
+        _selectedRecordTypeIds.UnionWith(view.RecordTypeIds.Where(availableTypeIds.Contains));
+        foreach (Guid recordId in view.RecordIds)
+        {
+            RecordDetails? details = await Records.GetRecordAsync(recordId);
+            if (details is not null && _selectedRecordTypeIds.Contains(details.Record.RecordTypeId))
+            {
+                _selectedRecords.Add(details.Record);
+            }
+        }
+    }
+
+    private async Task SaveGraphViewAsync()
+    {
+        try
+        {
+            SaveGraphViewRequest request = new(
+                _graphViewName,
+                _displayMode,
+                _selectedRecords.Select(record => record.Id).ToArray(),
+                _selectedRecordTypeIds.ToArray());
+            GraphView saved = _editingGraphViewId is Guid id
+                ? await GraphViews.UpdateAsync(id, request)
+                : await GraphViews.CreateAsync(request);
+            _editingGraphViewId = saved.Id;
+            _graphViewName = saved.Name;
+            _saveMessage = $"Saved {saved.Name}.";
+            _saveError = false;
+            _confirmDeleteGraphView = false;
+            Navigation.NavigateTo($"/graph?viewId={saved.Id:D}", replace: true);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _saveMessage = exception.Message;
+            _saveError = true;
+        }
+    }
+
+    private void NewGraphView()
+    {
+        _editingGraphViewId = null;
+        _graphViewName = string.Empty;
+        _saveMessage = "Enter a new name, then save this filter as another graph view.";
+        _saveError = false;
+        Navigation.NavigateTo("/graph", replace: true);
+    }
+
+    private async Task DeleteGraphViewAsync()
+    {
+        if (_editingGraphViewId is not Guid id || !await GraphViews.DeleteAsync(id))
+        {
+            _saveMessage = "Graph view was not found.";
+            _saveError = true;
+            return;
+        }
+
+        _editingGraphViewId = null;
+        _graphViewName = string.Empty;
+        _confirmDeleteGraphView = false;
+        _saveMessage = "Deleted graph view.";
+        _saveError = false;
+        Navigation.NavigateTo("/graph", replace: true);
+    }
+
+    private async Task SaveRecordTypePreferencesAsync()
+    {
+        if (_preferencesModule is not null)
+        {
+            string[] ids = _selectedRecordTypeIds.Select(id => id.ToString("D")).ToArray();
+            await _preferencesModule.InvokeVoidAsync(
+                "saveRecordTypeIds",
+                new object?[] { ids });
+        }
+    }
+
+    private string ModeDescription() => _displayMode switch
+    {
+        RelationshipGraphDisplayMode.Connected => "Selected records and their connections",
+        RelationshipGraphDisplayMode.Isolated => "Selected records only",
+        _ => "Everything in the selected record types",
+    };
+
+    private string EmptyMessage() => _displayMode != RelationshipGraphDisplayMode.All && _selectedRecords.Count == 0
+        ? "Choose one or more records above to build this graph view."
+        : "No records match this graph view.";
+
+    private static string ModeLabel(RelationshipGraphDisplayMode mode) => mode switch
+    {
+        RelationshipGraphDisplayMode.Connected => "Show connected",
+        RelationshipGraphDisplayMode.Isolated => "Show isolated",
+        _ => "Show all",
+    };
+
+    private static string DisplayTypeName(RecordType type) =>
+        string.Equals(type.PresetKey, "monkeysphere.person", StringComparison.Ordinal) ? "People" : type.Name;
+
+    public async ValueTask DisposeAsync()
+    {
+        _searchDelay?.Cancel();
+        _searchDelay?.Dispose();
+        if (_preferencesModule is not null)
+        {
+            try
+            {
+                await _preferencesModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
         }
     }
 }

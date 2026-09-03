@@ -11,7 +11,13 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
         CancellationToken cancellationToken = default)
     {
         string? pattern = query.Search is null ? null : "%" + EscapeLike(query.Search) + "%";
-        string? focusId = query.FocusRecordId?.ToString("D");
+        Guid[] selectedIds = query.FocusRecordId is Guid focusRecordId
+            ? [focusRecordId]
+            : query.SelectedRecordIds?.ToArray() ?? [];
+        RelationshipGraphDisplayMode displayMode = query.FocusRecordId.HasValue
+            ? RelationshipGraphDisplayMode.Connected
+            : query.DisplayMode;
+        string[] recordTypeIds = query.RecordTypeIds?.Select(id => id.ToString("D")).ToArray() ?? [];
         string? relationshipTypeId = query.RelationshipTypeId?.ToString("D");
         int nodeTake = query.NodeLimit + 1;
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -19,13 +25,15 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             WITH RECURSIVE connected(Id, Distance) AS (
                 SELECT record.Id, 0
                 FROM Records record
-                WHERE ((@FocusId IS NOT NULL AND record.Id = @FocusId)
-                       OR (@FocusId IS NULL
-                           AND (@Pattern IS NULL
-                                OR record.DisplayName LIKE @Pattern ESCAPE '\' COLLATE NOCASE
-                                OR EXISTS (SELECT 1 FROM RecordAliases alias
-                                           WHERE alias.RecordId = record.Id
-                                             AND alias.Value LIKE @Pattern ESCAPE '\' COLLATE NOCASE))))
+                WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds)
+                  AND ((@Pattern IS NOT NULL
+                        AND (record.DisplayName LIKE @Pattern ESCAPE '\' COLLATE NOCASE
+                             OR EXISTS (SELECT 1 FROM RecordAliases alias
+                                        WHERE alias.RecordId = record.Id
+                                          AND alias.Value LIKE @Pattern ESCAPE '\' COLLATE NOCASE)))
+                       OR (@Pattern IS NULL AND @DisplayMode = @AllMode)
+                       OR (@Pattern IS NULL AND @DisplayMode <> @AllMode
+                           AND @HasSelection = 1 AND record.Id IN @SelectedRecordIds))
                 UNION
                 SELECT CASE WHEN relationship.SourceRecordId = connected.Id
                             THEN relationship.TargetRecordId ELSE relationship.SourceRecordId END,
@@ -33,7 +41,7 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
                 FROM connected
                 INNER JOIN Relationships relationship
                     ON relationship.SourceRecordId = connected.Id OR relationship.TargetRecordId = connected.Id
-                WHERE @FocusId IS NOT NULL
+                WHERE @DisplayMode = @ConnectedMode
                   AND connected.Distance < @Depth
                   AND (@RelationshipTypeId IS NULL OR relationship.RelationshipTypeId = @RelationshipTypeId)
             ), selected AS (
@@ -55,13 +63,21 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             FROM selected
             INNER JOIN Records record ON record.Id = selected.Id
             INNER JOIN RecordTypes type ON type.Id = record.RecordTypeId
-            ORDER BY selected.Distance, record.DisplayName COLLATE NOCASE, record.Id
+            WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds)
+            ORDER BY CASE WHEN @HasSelection = 1 AND record.Id IN @SelectedRecordIds THEN 0 ELSE 1 END,
+                     selected.Distance, record.DisplayName COLLATE NOCASE, record.Id
             LIMIT @NodeTake;
             """, new
         {
-            FocusId = focusId,
             Pattern = pattern,
-            query.Depth,
+            Depth = query.FocusRecordId.HasValue ? query.Depth : 1,
+            DisplayMode = (int)displayMode,
+            AllMode = (int)RelationshipGraphDisplayMode.All,
+            ConnectedMode = (int)RelationshipGraphDisplayMode.Connected,
+            HasSelection = selectedIds.Length > 0 ? 1 : 0,
+            SelectedRecordIds = selectedIds.Select(id => id.ToString("D")).ToArray(),
+            HasRecordTypeFilter = query.RecordTypeIds is null ? 0 : 1,
+            RecordTypeIds = recordTypeIds,
             RelationshipTypeId = relationshipTypeId,
             NodeTake = nodeTake,
         }, cancellationToken: cancellationToken)).ConfigureAwait(false);
