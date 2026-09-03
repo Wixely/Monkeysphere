@@ -17,7 +17,7 @@ Monkeysphere should not try to reproduce every Monica feature. It should preserv
 
 This comparison uses the Monkeysphere implementation in this repository and Monica's public repository and documentation as reviewed on 2026-09-03. Monica's default `main` branch identifies itself as a development beta and points users to the `4.x` branch for the stable version. Some capabilities described below are therefore branch-dependent; this document avoids treating every `main` feature as available in the stable release.
 
-Monkeysphere is currently an unpublished work in progress. Monica has a long-running public project and a substantially larger production feature set. A checked box should not be read as equivalent maturity, depth, or operational history.
+Monkeysphere is currently an early work in progress preparing for its initial alpha release. Monica has a long-running public project and a substantially larger production feature set. A checked box should not be read as equivalent maturity, depth, or operational history.
 
 ## Product and feature comparison
 
