@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 19,
+        currentVersion: 20,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -554,6 +554,23 @@ public static class MonkeysphereSchema
 
                 CREATE INDEX IX_GraphViewNodePositions_RecordId
                     ON GraphViewNodePositions (RecordId);
+                """),
+            DnaXMigration.Sql(20, "graph-viewport-and-settings", "Persist graph viewports and graph preferences", """
+                ALTER TABLE GraphViews ADD COLUMN ViewportPanX REAL NULL
+                    CHECK (ViewportPanX IS NULL OR ViewportPanX BETWEEN -1000000 AND 1000000);
+                ALTER TABLE GraphViews ADD COLUMN ViewportPanY REAL NULL
+                    CHECK (ViewportPanY IS NULL OR ViewportPanY BETWEEN -1000000 AND 1000000);
+                ALTER TABLE GraphViews ADD COLUMN ViewportZoom REAL NULL
+                    CHECK (ViewportZoom IS NULL OR ViewportZoom BETWEEN 0.15 AND 3);
+
+                CREATE TABLE GraphSettings (
+                    Singleton INTEGER NOT NULL PRIMARY KEY CHECK (Singleton = 1),
+                    WarnUnsavedChanges INTEGER NOT NULL CHECK (WarnUnsavedChanges IN (0, 1)),
+                    UpdatedAtUtc TEXT NOT NULL
+                );
+
+                INSERT INTO GraphSettings (Singleton, WarnUnsavedChanges, UpdatedAtUtc)
+                VALUES (1, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                 """),
         ]);
 }

@@ -4,12 +4,15 @@
 @implements IAsyncDisposable
 @inject IRelationshipGraphService GraphService
 @inject IGraphViewService GraphViews
+@inject IGraphSettingsService GraphSettings
 @inject IMonkeysphereService Records
 @inject ICurrentDomain CurrentDomain
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 
 <PageTitle>Relationship graph · Monkeysphere</PageTitle>
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" />
 
 <div class="page-heading">
     <div>
@@ -126,6 +129,10 @@
             <p class="eyebrow">@ModeDescription()</p>
             <h2>@_graph.Nodes.Count nodes · @_graph.Edges.Count edges</h2>
         </div>
+        @if (_graph.Nodes.Count > 0)
+        {
+            <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
+        }
     </div>
 
     @if (_graph.Nodes.Count == 0)
@@ -138,7 +145,9 @@
         <RelationshipGraphCanvas @ref="_graphCanvas"
                                  Graph="_graph"
                                  NodePositions="_nodePositions"
+                                 Viewport="_viewport"
                                  OnNodeSelected="SelectNode"
+                                 OnGraphChanged="MarkGraphDirty"
                                  CenterRecordId="_centreRecordId"
                                  CenterRequest="_centreRequest" />
         <label class="graph-record-picker">
@@ -254,7 +263,11 @@
     <div>
         <p class="eyebrow">Reusable graph filter</p>
         <h2>@(_editingGraphViewId.HasValue ? "Update graph view" : "Save graph view")</h2>
-        <p class="muted">Stores the display mode, chosen records, visible record types, and record positions. Drag records where you want them before saving.</p>
+        <p class="muted">Stores the display mode, chosen records, visible record types, record positions, and viewport. Drag and zoom the graph before saving.</p>
+        @if (_isDirty)
+        {
+            <span class="pill">Unsaved changes</span>
+        }
     </div>
     @if (!string.IsNullOrWhiteSpace(_saveMessage))
     {
@@ -263,7 +276,7 @@
     <div class="graph-save-view-controls">
         <label>
             View name
-            <input @bind="_graphViewName" maxlength="200" placeholder="For example, close family" />
+            <input @bind="_graphViewName" @bind:after="MarkGraphDirty" maxlength="200" placeholder="For example, close family" />
         </label>
         <button class="button primary" type="button" @onclick="SaveGraphViewAsync">
             @(_editingGraphViewId.HasValue ? "Save changes" : "Save graph view")
@@ -310,6 +323,10 @@
     private bool _confirmDeleteGraphView;
     private RelationshipGraphCanvas? _graphCanvas;
     private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
+    private GraphViewViewport? _viewport;
+    private bool _warnUnsavedChanges = true;
+    private bool _isDirty;
+    private bool _allowNavigation;
     private RecordDetails? _galleryRecord;
     private bool _galleryOpen;
     private bool _galleryLoading;
@@ -332,6 +349,7 @@
             .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
             .ToArray();
         _graphViews = await GraphViews.ListAsync();
+        _warnUnsavedChanges = (await GraphSettings.GetAsync()).WarnUnsavedChanges;
         if (ViewId is Guid viewId)
         {
             await LoadGraphViewAsync(viewId);
@@ -355,31 +373,33 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (firstRender)
         {
-            return;
+            _preferencesModule = await JS.InvokeAsync<IJSObjectReference>("import", "./graph-preferences.js");
+            if (_editingGraphViewId.HasValue)
+            {
+                await SaveRecordTypePreferencesAsync();
+            }
+            else
+            {
+                string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds", CurrentDomain.Id.ToString("D"));
+                if (savedIds is not null)
+                {
+                    HashSet<Guid> available = _recordTypes.Select(type => type.Id).ToHashSet();
+                    _selectedRecordTypeIds.Clear();
+                    _selectedRecordTypeIds.UnionWith(savedIds
+                        .Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
+                        .Where(available.Contains));
+                    await ReloadAsync();
+                    StateHasChanged();
+                }
+            }
         }
 
-        _preferencesModule = await JS.InvokeAsync<IJSObjectReference>("import", "./graph-preferences.js");
-        if (_editingGraphViewId.HasValue)
+        if (_preferencesModule is not null)
         {
-            await SaveRecordTypePreferencesAsync();
-            return;
+            await _preferencesModule.InvokeVoidAsync("setUnsavedChanges", ShouldWarnAboutUnsavedChanges);
         }
-
-        string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds", CurrentDomain.Id.ToString("D"));
-        if (savedIds is null)
-        {
-            return;
-        }
-
-        HashSet<Guid> available = _recordTypes.Select(type => type.Id).ToHashSet();
-        _selectedRecordTypeIds.Clear();
-        _selectedRecordTypeIds.UnionWith(savedIds
-            .Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
-            .Where(available.Contains));
-        await ReloadAsync();
-        StateHasChanged();
     }
 
     private async Task SearchChangedAsync(ChangeEventArgs args)
@@ -491,6 +511,7 @@
         }
 
         _selectedRecords.Add(record);
+        _isDirty = true;
         return true;
     }
 
@@ -509,6 +530,7 @@
     {
         _displayMode = mode;
         _selected = null;
+        _isDirty = true;
         await ReloadAsync();
         if (_selectedRecords.Count == 1)
         {
@@ -528,6 +550,7 @@
             _selectedRecords.RemoveAll(record => record.RecordTypeId == typeId);
         }
 
+        _isDirty = true;
         if (_preferencesModule is not null)
         {
             await SaveRecordTypePreferencesAsync();
@@ -538,7 +561,10 @@
 
     private async Task RemoveRecordAsync(Guid recordId)
     {
-        _selectedRecords.RemoveAll(record => record.Id == recordId);
+        if (_selectedRecords.RemoveAll(record => record.Id == recordId) > 0)
+        {
+            _isDirty = true;
+        }
         _selected = null;
         if (_displayMode != RelationshipGraphDisplayMode.All)
         {
@@ -548,6 +574,7 @@
 
     private async Task ClearSelectedAsync()
     {
+        _isDirty |= _selectedRecords.Count > 0;
         _selectedRecords.Clear();
         _selected = null;
         _suggestions = [];
@@ -657,6 +684,7 @@
         {
             _centreRecordId = recordId;
             _centreRequest++;
+            _isDirty = true;
         }
 
         return Task.CompletedTask;
@@ -696,6 +724,7 @@
         _graphViewName = view.Name;
         _displayMode = view.DisplayMode;
         _nodePositions = view.NodePositions;
+        _viewport = view.Viewport;
         _selectedRecordTypeIds.UnionWith(view.RecordTypeIds.Where(availableTypeIds.Contains));
         foreach (Guid recordId in view.RecordIds)
         {
@@ -714,22 +743,28 @@
             IReadOnlyList<GraphViewNodePosition> positions = _graphCanvas is null
                 ? []
                 : await _graphCanvas.CaptureNodePositionsAsync();
+            GraphViewViewport? viewport = _graphCanvas is null
+                ? null
+                : await _graphCanvas.CaptureViewportAsync();
             SaveGraphViewRequest request = new(
                 _graphViewName,
                 _displayMode,
                 _selectedRecords.Select(record => record.Id).ToArray(),
                 _selectedRecordTypeIds.ToArray(),
-                positions);
+                positions,
+                viewport);
             GraphView saved = _editingGraphViewId is Guid id
                 ? await GraphViews.UpdateAsync(id, request)
                 : await GraphViews.CreateAsync(request);
             _editingGraphViewId = saved.Id;
             _graphViewName = saved.Name;
             _nodePositions = saved.NodePositions;
+            _viewport = saved.Viewport;
             _graphViews = await GraphViews.ListAsync();
             _saveMessage = $"Saved {saved.Name}.";
             _saveError = false;
             _confirmDeleteGraphView = false;
+            _isDirty = false;
             Navigation.NavigateTo($"/graph?viewId={saved.Id:D}", replace: true);
         }
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
@@ -745,6 +780,7 @@
         _graphViewName = string.Empty;
         _saveMessage = "Enter a new name, then save this filter as another graph view.";
         _saveError = false;
+        _isDirty = true;
         Navigation.NavigateTo("/graph", replace: true);
     }
 
@@ -763,7 +799,43 @@
         _graphViews = await GraphViews.ListAsync();
         _saveMessage = "Deleted graph view.";
         _saveError = false;
+        _isDirty = false;
         Navigation.NavigateTo("/graph", replace: true);
+    }
+
+    private async Task ResetViewportAsync()
+    {
+        if (_graphCanvas is not null)
+        {
+            await _graphCanvas.ResetViewportAsync();
+            _isDirty = true;
+        }
+    }
+
+    private Task MarkGraphDirty()
+    {
+        _isDirty = true;
+        return Task.CompletedTask;
+    }
+
+    private bool ShouldWarnAboutUnsavedChanges => _warnUnsavedChanges && _isDirty;
+
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!ShouldWarnAboutUnsavedChanges || _allowNavigation)
+        {
+            return;
+        }
+
+        context.PreventNavigation();
+        bool leave = await JS.InvokeAsync<bool>(
+            "confirm",
+            "You have unsaved graph changes. Leave this page and discard them?");
+        if (leave)
+        {
+            _allowNavigation = true;
+            Navigation.NavigateTo(context.TargetLocation);
+        }
     }
 
     private async Task SaveRecordTypePreferencesAsync()
@@ -806,6 +878,7 @@
         {
             try
             {
+                await _preferencesModule.InvokeVoidAsync("clearUnsavedChanges");
                 await _preferencesModule.DisposeAsync();
             }
             catch (JSDisconnectedException)

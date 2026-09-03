@@ -257,7 +257,31 @@ function normalizePositions(nodes, fixedPositions) {
     });
 }
 
-function runLayout(cy, savedPositions, preservedPositions, badgeState) {
+function applyViewport(cy, viewport) {
+    if (!viewport ||
+        !Number.isFinite(viewport.panX) ||
+        !Number.isFinite(viewport.panY) ||
+        !Number.isFinite(viewport.zoom)) {
+        return false;
+    }
+
+    cy.viewport({
+        pan: { x: viewport.panX, y: viewport.panY },
+        zoom: Math.min(cy.maxZoom(), Math.max(cy.minZoom(), viewport.zoom))
+    });
+    return true;
+}
+
+function currentViewport(cy) {
+    const pan = cy.pan();
+    return {
+        panX: Math.round(pan.x * 1000) / 1000,
+        panY: Math.round(pan.y * 1000) / 1000,
+        zoom: Math.round(cy.zoom() * 1000000) / 1000000
+    };
+}
+
+function runLayout(cy, savedPositions, preservedPositions, badgeState, viewport) {
     const fixedPositions = positionMap(savedPositions);
     preservedPositions.forEach((position, id) => fixedPositions.set(id, position));
     const nodes = cy.nodes().toArray().sort((left, right) => left.id().localeCompare(right.id()));
@@ -278,7 +302,9 @@ function runLayout(cy, savedPositions, preservedPositions, badgeState) {
         normalizePositions(nodes, fixedPositions);
     }
 
-    cy.fit(cy.elements(), 36);
+    if (!applyViewport(cy, viewport)) {
+        cy.fit(cy.elements(), 36);
+    }
     queueBadgePositions(cy, badgeState);
 }
 
@@ -317,8 +343,8 @@ function showRecordMenu(element, menu, node, renderedPosition) {
     link.focus({ preventScroll: true });
 }
 
-export function create(element, callback, graph, savedPositions) {
-    if (!globalThis.cytoscape || graphs.has(element)) {
+export function create(element, callback, graph, savedPositions, savedViewport) {
+    if (!globalThis.cytoscape || !element?.isConnected || graphs.has(element)) {
         return;
     }
 
@@ -334,6 +360,16 @@ export function create(element, callback, graph, savedPositions) {
     const menu = shell.querySelector('.graph-record-menu');
     const badgeLayer = shell.querySelector('.graph-type-badges');
     const badgeState = { elements: new globalThis.Map(), frame: undefined };
+    const changeState = { frame: undefined };
+    const notifyGraphChanged = () => {
+        if (changeState.frame) {
+            return;
+        }
+        changeState.frame = requestAnimationFrame(() => {
+            changeState.frame = undefined;
+            callback.invokeMethodAsync('GraphChanged');
+        });
+    };
     rebuildBadges(badgeLayer, graph, badgeState);
     cy.on('render', () => queueBadgePositions(cy, badgeState));
     cy.on('tap', 'node', event => {
@@ -353,8 +389,17 @@ export function create(element, callback, graph, savedPositions) {
         node.select();
         showRecordMenu(element, menu, node, event.renderedPosition);
     });
-    cy.on('tap pan zoom drag', () => hideRecordMenu(menu));
-    cy.on('dragfree', 'node', event => separateDraggedNode(cy, event.target));
+    cy.on('tap drag', () => hideRecordMenu(menu));
+    cy.on('pan zoom', event => {
+        hideRecordMenu(menu);
+        if (event.originalEvent) {
+            notifyGraphChanged();
+        }
+    });
+    cy.on('dragfree', 'node', event => {
+        separateDraggedNode(cy, event.target);
+        notifyGraphChanged();
+    });
 
     const suppressContextMenu = event => event.preventDefault();
     const dismissMenu = event => {
@@ -391,12 +436,12 @@ export function create(element, callback, graph, savedPositions) {
         cancelAnimationFrame(resizeFrame);
         resizeFrame = requestAnimationFrame(() => {
             cy.resize();
-            cy.fit(cy.elements(), 36);
+            queueBadgePositions(cy, badgeState);
         });
     });
     observer.observe(element);
-    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState });
-    runLayout(cy, savedPositions, new globalThis.Map(), badgeState);
+    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState });
+    runLayout(cy, savedPositions, new globalThis.Map(), badgeState, savedViewport);
 }
 
 export function update(element, graph, savedPositions) {
@@ -407,10 +452,11 @@ export function update(element, graph, savedPositions) {
 
     const { cy, badgeLayer, badgeState } = instance;
     const preservedPositions = capturePositionMap(cy);
+    const preservedViewport = currentViewport(cy);
     cy.elements().remove();
     cy.add(elements(graph, savedPositions));
     rebuildBadges(badgeLayer, graph, badgeState);
-    runLayout(cy, savedPositions, preservedPositions, badgeState);
+    runLayout(cy, savedPositions, preservedPositions, badgeState, preservedViewport);
 }
 
 export function getPositions(element) {
@@ -431,6 +477,21 @@ export function getPositions(element) {
                 y: Math.round(position.y * 1000) / 1000
             };
         });
+}
+
+export function getViewport(element) {
+    const cy = graphs.get(element)?.cy;
+    return cy ? currentViewport(cy) : null;
+}
+
+export function resetViewport(element) {
+    const graph = graphs.get(element);
+    if (!graph) {
+        return;
+    }
+
+    graph.cy.fit(graph.cy.elements(), 36);
+    queueBadgePositions(graph.cy, graph.badgeState);
 }
 
 export function centerOn(element, recordId) {
@@ -454,6 +515,7 @@ export function dispose(element) {
     const graph = graphs.get(element);
     if (graph) {
         cancelAnimationFrame(graph.badgeState.frame);
+        cancelAnimationFrame(graph.changeState.frame);
         graph.observer.disconnect();
         element.removeEventListener('contextmenu', graph.suppressContextMenu);
         element.removeEventListener('keydown', graph.handleKeyDown);

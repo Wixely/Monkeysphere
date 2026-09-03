@@ -1,0 +1,59 @@
+@page "/settings/graph"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IGraphSettingsService GraphSettingsService
+
+<PageTitle>Graph settings · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="graph" />
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Graph editing</p>
+        <h1>Graph</h1>
+        <p>Choose how Monkeysphere protects changes made to graph filters and layouts.</p>
+    </div>
+    <a class="button" href="/graph">Open graph</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice success" role="status">@_message</div>
+}
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <section class="panel settings-form">
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_warnUnsavedChanges" />
+            <span>Warn before leaving a graph with unsaved changes</span>
+        </label>
+        <p class="muted">This includes changes to filters, selected records, node positions, pan, and zoom. The warning also applies when closing or reloading the browser tab.</p>
+        <button class="button primary" type="button" @onclick="SaveAsync">Save graph settings</button>
+    </section>
+}
+
+@code {
+    private bool _warnUnsavedChanges = true;
+    private bool _loading = true;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        GraphConfiguration configuration = await GraphSettingsService.GetAsync();
+        _warnUnsavedChanges = configuration.WarnUnsavedChanges;
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        await GraphSettingsService.SaveAsync(new(_warnUnsavedChanges));
+        _message = _warnUnsavedChanges
+            ? "Graph settings saved. Unsaved-change warnings are enabled."
+            : "Graph settings saved. Unsaved-change warnings are disabled.";
+    }
+}

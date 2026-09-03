@@ -7,17 +7,21 @@ public sealed record GraphView(
     IReadOnlyList<Guid> RecordIds,
     IReadOnlyList<Guid> RecordTypeIds,
     IReadOnlyList<GraphViewNodePosition> NodePositions,
+    GraphViewViewport? Viewport,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
 public sealed record GraphViewNodePosition(Guid RecordId, double X, double Y);
+
+public sealed record GraphViewViewport(double PanX, double PanY, double Zoom);
 
 public sealed record SaveGraphViewRequest(
     string Name,
     RelationshipGraphDisplayMode DisplayMode,
     IReadOnlyList<Guid> RecordIds,
     IReadOnlyList<Guid> RecordTypeIds,
-    IReadOnlyList<GraphViewNodePosition>? NodePositions = null);
+    IReadOnlyList<GraphViewNodePosition>? NodePositions = null,
+    GraphViewViewport? Viewport = null);
 
 public interface IGraphViewStore
 {
@@ -96,6 +100,14 @@ public sealed class GraphViewService(
                 Math.Abs(position.X) > 1_000_000 || Math.Abs(position.Y) > 1_000_000))
         {
             throw new DomainValidationException("Graph view node positions are invalid.");
+        }
+
+        if (request.Viewport is { } viewport &&
+            (!double.IsFinite(viewport.PanX) || !double.IsFinite(viewport.PanY) ||
+             Math.Abs(viewport.PanX) > 1_000_000 || Math.Abs(viewport.PanY) > 1_000_000 ||
+             !double.IsFinite(viewport.Zoom) || viewport.Zoom is < 0.15 or > 3))
+        {
+            throw new DomainValidationException("Graph view viewport is invalid.");
         }
 
         if (request.DisplayMode != RelationshipGraphDisplayMode.All && recordIds.Length == 0)

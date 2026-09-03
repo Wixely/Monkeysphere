@@ -50,6 +50,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IMapSettingsStore, SqliteMapSettingsStore>();
         services.AddScoped<IMapSettingsService, MapSettingsService>();
+        services.AddScoped<IGraphSettingsStore, SqliteGraphSettingsStore>();
+        services.AddScoped<IGraphSettingsService, GraphSettingsService>();
         services.AddScoped<IPresetStore, SqlitePresetStore>();
         services.AddScoped<IPresetService, PresetService>();
         services.AddScoped<IDebugDatabaseResetService, DebugDatabaseResetService>();
@@ -129,6 +131,7 @@ internal sealed class DebugDatabaseResetService(
             DELETE FROM DashboardCategories;
             DELETE FROM DashboardSettings;
             DELETE FROM MapSettings;
+            DELETE FROM GraphSettings;
             DELETE FROM GraphViews;
             DELETE FROM SavedViews;
             DELETE FROM Relationships;

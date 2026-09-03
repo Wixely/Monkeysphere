@@ -11,7 +11,7 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         GraphViewRow[] rows = (await connection.QueryAsync<GraphViewRow>(new CommandDefinition("""
-            SELECT Id, Name, DisplayMode, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, DisplayMode, ViewportPanX, ViewportPanY, ViewportZoom, CreatedAtUtc, UpdatedAtUtc
             FROM GraphViews
             ORDER BY Name COLLATE NOCASE, Id;
             """, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
@@ -28,7 +28,7 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         GraphViewRow? row = await connection.QuerySingleOrDefaultAsync<GraphViewRow>(new CommandDefinition("""
-            SELECT Id, Name, DisplayMode, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, DisplayMode, ViewportPanX, ViewportPanY, ViewportZoom, CreatedAtUtc, UpdatedAtUtc
             FROM GraphViews
             WHERE Id = @Id;
             """, new { Id = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -75,13 +75,21 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
                 Id = Key(id),
                 request.Name,
                 DisplayMode = (int)request.DisplayMode,
+                ViewportPanX = request.Viewport?.PanX,
+                ViewportPanY = request.Viewport?.PanY,
+                ViewportZoom = request.Viewport?.Zoom,
                 Now = Timestamp(now),
             };
             if (isUpdate)
             {
                 int changed = await connection.ExecuteAsync(new CommandDefinition("""
                     UPDATE GraphViews
-                    SET Name = @Name, DisplayMode = @DisplayMode, UpdatedAtUtc = @Now
+                    SET Name = @Name,
+                        DisplayMode = @DisplayMode,
+                        ViewportPanX = @ViewportPanX,
+                        ViewportPanY = @ViewportPanY,
+                        ViewportZoom = @ViewportZoom,
+                        UpdatedAtUtc = @Now
                     WHERE Id = @Id;
                     """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
                 if (changed != 1)
@@ -98,8 +106,12 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
             else
             {
                 await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO GraphViews (Id, Name, DisplayMode, CreatedAtUtc, UpdatedAtUtc)
-                    VALUES (@Id, @Name, @DisplayMode, @Now, @Now);
+                    INSERT INTO GraphViews (
+                        Id, Name, DisplayMode, ViewportPanX, ViewportPanY, ViewportZoom,
+                        CreatedAtUtc, UpdatedAtUtc)
+                    VALUES (
+                        @Id, @Name, @DisplayMode, @ViewportPanX, @ViewportPanY, @ViewportZoom,
+                        @Now, @Now);
                     """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
@@ -166,6 +178,9 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
             recordIds.Select(ParseGuid).ToArray(),
             recordTypeIds.Select(ParseGuid).ToArray(),
             positions.Select(position => new GraphViewNodePosition(ParseGuid(position.RecordId), position.X, position.Y)).ToArray(),
+            row.ViewportPanX.HasValue && row.ViewportPanY.HasValue && row.ViewportZoom.HasValue
+                ? new GraphViewViewport(row.ViewportPanX.Value, row.ViewportPanY.Value, row.ViewportZoom.Value)
+                : null,
             ParseTimestamp(row.CreatedAtUtc),
             ParseTimestamp(row.UpdatedAtUtc));
     }
@@ -180,6 +195,9 @@ public sealed class SqliteGraphViewStore(MonkeysphereConnectionFactory connectio
         public required string Id { get; init; }
         public required string Name { get; init; }
         public int DisplayMode { get; init; }
+        public double? ViewportPanX { get; init; }
+        public double? ViewportPanY { get; init; }
+        public double? ViewportZoom { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
     }

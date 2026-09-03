@@ -194,6 +194,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/settings/domains")]
     [InlineData("/settings/dashboard")]
     [InlineData("/settings/map")]
+    [InlineData("/settings/graph")]
     [InlineData("/settings/backups")]
     [InlineData("/settings/remote-access")]
     [InlineData("/settings/debug")]
@@ -313,6 +314,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string dashboardHtml = await client.GetStringAsync("/");
         string dashboardSettingsHtml = await client.GetStringAsync("/settings/dashboard");
         string mapSettingsHtml = await client.GetStringAsync("/settings/map");
+        string graphSettingsHtml = await client.GetStringAsync("/settings/graph");
         string aboutHtml = await client.GetStringAsync("/settings/about");
         string debugHtml = await client.GetStringAsync("/settings/debug");
         string calendarHtml = await client.GetStringAsync("/calendar");
@@ -344,6 +346,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Enable OpenStreetMap basemap tiles", mapSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("This is off by default", mapSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"/settings/map\"", mapSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Warn before leaving a graph with unsaved changes", graphSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"/settings/graph\"", graphSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("Current release", aboutHtml, StringComparison.Ordinal);
         Assert.Contains("https://github.com/Wixely/Monkeysphere", aboutHtml, StringComparison.Ordinal);
         Assert.Contains("This settings section is not enabled.", debugHtml, StringComparison.Ordinal);
@@ -383,6 +387,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Centre a displayed record", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Save graph view", graphHtml, StringComparison.Ordinal);
         Assert.Contains("record positions", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Reset viewport", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("viewport", graphHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("Relationship type", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
         Assert.Contains("data-theme-toggle", graphHtml, StringComparison.Ordinal);

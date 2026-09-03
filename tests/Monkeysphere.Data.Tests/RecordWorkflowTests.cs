@@ -893,6 +893,19 @@ public sealed class RecordWorkflowTests
         Assert.True((await settings.GetAsync()).ExternalTilesEnabled);
     }
 
+    [Fact]
+    public async Task UnsavedGraphChangeWarningsAreEnabledUntilExplicitlyDisabled()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IGraphSettingsService settings = application.Services.GetRequiredService<IGraphSettingsService>();
+
+        Assert.True((await settings.GetAsync()).WarnUnsavedChanges);
+
+        await settings.SaveAsync(new(false));
+
+        Assert.False((await settings.GetAsync()).WarnUnsavedChanges);
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;
