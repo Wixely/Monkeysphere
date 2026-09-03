@@ -1519,6 +1519,20 @@ input[type="checkbox"] {
     background: var(--accent);
 }
 
+.spatial-map .ol-attribution {
+    color: #24170c;
+    background: rgba(255, 250, 240, .92);
+}
+
+.spatial-map .ol-attribution a {
+    color: #713703;
+    font-weight: 700;
+}
+
+.map-privacy-notice {
+    margin-bottom: .8rem;
+}
+
 .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));

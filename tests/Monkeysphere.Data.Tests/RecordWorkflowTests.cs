@@ -880,6 +880,19 @@ public sealed class RecordWorkflowTests
         Assert.False((await presets.GetSetupStatusAsync()).IsComplete);
     }
 
+    [Fact]
+    public async Task ExternalMapTilesAreDisabledUntilExplicitlyEnabled()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMapSettingsService settings = application.Services.GetRequiredService<IMapSettingsService>();
+
+        Assert.False((await settings.GetAsync()).ExternalTilesEnabled);
+
+        await settings.SaveAsync(new(true));
+
+        Assert.True((await settings.GetAsync()).ExternalTilesEnabled);
+    }
+
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;

@@ -9,7 +9,7 @@ public static class SecurityHeaders
             {
                 IHeaderDictionary headers = context.Response.Headers;
                 headers.XContentTypeOptions = "nosniff";
-                headers["Referrer-Policy"] = "no-referrer";
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
                 headers["X-Frame-Options"] = "DENY";
                 headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
                 headers["Content-Security-Policy"] = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'";

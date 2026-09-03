@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 17,
+        currentVersion: 18,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -530,6 +530,16 @@ public static class MonkeysphereSchema
                 SELECT RecordTypeId, 0
                 FROM DashboardSettings
                 WHERE Singleton = 1 AND RecordTypeId IS NOT NULL;
+                """),
+            DnaXMigration.Sql(18, "external-map-tiles-setting", "Add an opt-in external map tile setting", """
+                CREATE TABLE MapSettings (
+                    Singleton INTEGER NOT NULL PRIMARY KEY CHECK (Singleton = 1),
+                    ExternalTilesEnabled INTEGER NOT NULL CHECK (ExternalTilesEnabled IN (0, 1)),
+                    UpdatedAtUtc TEXT NOT NULL
+                );
+
+                INSERT INTO MapSettings (Singleton, ExternalTilesEnabled, UpdatedAtUtc)
+                VALUES (1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                 """),
         ]);
 }

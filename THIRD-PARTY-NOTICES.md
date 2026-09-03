@@ -35,6 +35,8 @@ The transitive runtime package graph was reviewed from restored NuGet package me
 
 OpenLayers 10.10.0 is vendored from the official release package at <https://github.com/openlayers/openlayers/releases/tag/v10.10.0> and is licensed under BSD-2-Clause. Its license is retained beside the assets in `src/Monkeysphere.Web/wwwroot/vendor/openlayers/10.10.0/LICENSE.md`. Monkeysphere uses the full hosted build without GeoTIFF or mapbox-style integrations and does not use an npm or Node.js build step.
 
+When explicitly enabled in Settings, the map displays tiles and data © OpenStreetMap contributors under the Open Data Commons Open Database License. Attribution and copyright details are available at <https://www.openstreetmap.org/copyright>; use of the public tile service is subject to <https://operations.osmfoundation.org/policies/tiles/>. External tiles are disabled by default.
+
 | File | SHA-256 |
 | --- | --- |
 | `ol.js` | `B89AF8EC3B76F564D515FD07FED3EC414AECF8F33F685B77B607451CB0C2029F` |

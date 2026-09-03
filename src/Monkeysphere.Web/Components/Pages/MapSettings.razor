@@ -1,0 +1,63 @@
+@page "/settings/map"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IMapSettingsService MapSettingsService
+
+<PageTitle>Map settings · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="map" />
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Location display</p>
+        <h1>Map</h1>
+        <p>Choose whether maps may request an external geographic basemap.</p>
+    </div>
+    <a class="button" href="/map">Open map</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice success" role="status">@_message</div>
+}
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="panel settings-form">
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_externalTilesEnabled" />
+            <span>Enable OpenStreetMap basemap tiles</span>
+        </label>
+        <div class="notice warning">
+            <strong>Privacy notice</strong>
+            <p>This is off by default. When enabled, your browser requests map tiles from OpenStreetMap. The provider receives your IP address, browser metadata, the Monkeysphere site origin, and can infer the area being viewed. Record names are not sent, but tile requests describe the displayed area.</p>
+        </div>
+        <p class="muted">The private coordinate grid remains available when external tiles are disabled.</p>
+        <button class="button primary" type="button" @onclick="SaveAsync">Save map settings</button>
+    </section>
+}
+
+@code {
+    private bool _externalTilesEnabled;
+    private bool _loading = true;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        MapConfiguration configuration = await MapSettingsService.GetAsync();
+        _externalTilesEnabled = configuration.ExternalTilesEnabled;
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        await MapSettingsService.SaveAsync(new(_externalTilesEnabled));
+        _message = _externalTilesEnabled
+            ? "Map settings saved. OpenStreetMap tiles are enabled."
+            : "Map settings saved. External tiles are disabled.";
+    }
+}

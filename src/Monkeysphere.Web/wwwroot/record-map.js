@@ -66,11 +66,11 @@ function replaceEntries(state, entries, fit) {
                 .transform('EPSG:4326', 'EPSG:3857')
         })));
     if (fit && features.length > 0) {
-        state.map.getView().fit(state.source.getExtent(), { padding: [45, 45, 45, 45], maxZoom: 10, duration: 180 });
+        state.map.getView().fit(state.source.getExtent(), { padding: [45, 45, 45, 45], maxZoom: 14 });
     }
 }
 
-export function create(element, callback, entries) {
+export function create(element, callback, entries, basemapUrl) {
     if (!globalThis.ol || maps.has(element)) {
         return;
     }
@@ -78,19 +78,25 @@ export function create(element, callback, entries) {
     const source = new ol.source.Vector();
     const radiusSource = new ol.source.Vector();
     const clusters = new ol.source.Cluster({ distance: 48, minDistance: 12, source });
+    const gridLayer = graticule();
+    const radiusLayer = new ol.layer.Vector({
+        source: radiusSource,
+        style: radiusStyle()
+    });
+    const markerLayer = new ol.layer.Vector({ source: clusters, style: markerStyle });
+    const layers = [];
+    if (basemapUrl) {
+        layers.push(new ol.layer.Tile({
+            source: new ol.source.OSM({ url: basemapUrl, crossOrigin: 'anonymous' })
+        }));
+    }
+    layers.push(gridLayer, radiusLayer, markerLayer);
     const map = new ol.Map({
         target: element,
-        layers: [
-            graticule(),
-            new ol.layer.Vector({
-                source: radiusSource,
-                style: radiusStyle()
-            }),
-            new ol.layer.Vector({ source: clusters, style: markerStyle })
-        ],
+        layers,
         view: new ol.View({ center: ol.proj.fromLonLat([0, 20]), zoom: 2, minZoom: 1, maxZoom: 19 })
     });
-    const state = { map, source, radiusSource };
+    const state = { map, source, radiusSource, gridLayer, radiusLayer, markerLayer, hasBasemap: Boolean(basemapUrl) };
     map.on('singleclick', event => {
         const cluster = map.forEachFeatureAtPixel(event.pixel, feature => feature);
         if (!cluster) {
@@ -124,8 +130,10 @@ export function dispose(element) {
 
 globalThis.addEventListener('monkeysphere:themechanged', () => {
     for (const state of maps.values()) {
-        state.map.getLayers().setAt(0, graticule());
-        state.map.getLayers().item(1).setStyle(radiusStyle());
-        state.map.getLayers().item(2).setStyle(markerStyle);
+        const gridIndex = state.hasBasemap ? 1 : 0;
+        state.gridLayer = graticule();
+        state.map.getLayers().setAt(gridIndex, state.gridLayer);
+        state.radiusLayer.setStyle(radiusStyle());
+        state.markerLayer.setStyle(markerStyle);
     }
 });

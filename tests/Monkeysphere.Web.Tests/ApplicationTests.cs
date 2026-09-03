@@ -43,14 +43,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Equal(HttpStatusCode.OK, live.StatusCode);
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
         Assert.Equal("nosniff", Assert.Single(live.Headers.GetValues("X-Content-Type-Options")));
-        Assert.Equal("no-referrer", Assert.Single(live.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal("strict-origin-when-cross-origin", Assert.Single(live.Headers.GetValues("Referrer-Policy")));
         Assert.Equal("DENY", Assert.Single(live.Headers.GetValues("X-Frame-Options")));
         Assert.Equal("camera=(), microphone=(), geolocation=()", Assert.Single(live.Headers.GetValues("Permissions-Policy")));
         Assert.Equal(
             "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
             Assert.Single(live.Headers.GetValues("Content-Security-Policy")));
         Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
-        Assert.Equal("no-referrer", Assert.Single(missing.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal("strict-origin-when-cross-origin", Assert.Single(missing.Headers.GetValues("Referrer-Policy")));
         Assert.Equal("DENY", Assert.Single(missing.Headers.GetValues("X-Frame-Options")));
         Assert.Equal(
             "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
@@ -86,7 +86,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("background: var(--subtle-background);", css, StringComparison.Ordinal);
         Assert.Contains(".relationship-type-row", css, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", await mapEditorBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        Assert.Contains("monkeysphere:themechanged", await recordMapBehavior.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        string recordMapScript = await recordMapBehavior.Content.ReadAsStringAsync();
+        Assert.Contains("monkeysphere:themechanged", recordMapScript, StringComparison.Ordinal);
+        Assert.Contains("ol.source.OSM", recordMapScript, StringComparison.Ordinal);
+        Assert.Contains("if (basemapUrl)", recordMapScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("tile.openstreetmap.org", recordMapScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, themeBehavior.StatusCode);
         string themeScript = await themeBehavior.Content.ReadAsStringAsync();
         Assert.Contains("monkeysphere.theme", themeScript, StringComparison.Ordinal);
@@ -183,6 +187,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/structures/saved-views")]
     [InlineData("/settings")]
     [InlineData("/settings/dashboard")]
+    [InlineData("/settings/map")]
     [InlineData("/settings/backups")]
     [InlineData("/settings/remote-access")]
     [InlineData("/settings/debug")]
@@ -301,6 +306,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string recordsHtml = await client.GetStringAsync("/records");
         string dashboardHtml = await client.GetStringAsync("/");
         string dashboardSettingsHtml = await client.GetStringAsync("/settings/dashboard");
+        string mapSettingsHtml = await client.GetStringAsync("/settings/map");
         string aboutHtml = await client.GetStringAsync("/settings/about");
         string debugHtml = await client.GetStringAsync("/settings/debug");
         string calendarHtml = await client.GetStringAsync("/calendar");
@@ -329,6 +335,9 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Upcoming dates", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("Category order", dashboardSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("Upcoming-date order", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Enable OpenStreetMap basemap tiles", mapSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("This is off by default", mapSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"/settings/map\"", mapSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("Current release", aboutHtml, StringComparison.Ordinal);
         Assert.Contains("https://github.com/Wixely/Monkeysphere", aboutHtml, StringComparison.Ordinal);
         Assert.Contains("This settings section is not enabled.", debugHtml, StringComparison.Ordinal);
@@ -347,10 +356,11 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Upcoming exact dates", calendarHtml, StringComparison.Ordinal);
         Assert.Contains("View type " + suffix, calendarHtml, StringComparison.Ordinal);
         Assert.Contains("Remind me", calendarHtml, StringComparison.Ordinal);
-        Assert.Contains("Private spatial view", mapHtml, StringComparison.Ordinal);
+        Assert.Contains("Spatial view", mapHtml, StringComparison.Ordinal);
         Assert.Contains("1 location", mapHtml, StringComparison.Ordinal);
         Assert.Contains("Map location " + suffix, mapHtml, StringComparison.Ordinal);
         Assert.Contains("Browse locations as a list", mapHtml, StringComparison.Ordinal);
+        Assert.Contains("External basemap tiles are off", mapHtml, StringComparison.Ordinal);
         Assert.Contains("aria-describedby=\"location-map-help-", editorHtml, StringComparison.Ordinal);
         Assert.Equal(
             HttpStatusCode.BadRequest,

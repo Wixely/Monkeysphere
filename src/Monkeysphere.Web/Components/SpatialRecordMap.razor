@@ -6,7 +6,7 @@
      role="img"
      aria-label="Record location map visualization"
      aria-describedby="record-map-description"></div>
-<p class="muted" id="record-map-description">Pins are clustered when close together. Select a pin or cluster to see its records, or browse the equivalent list below. No tile or geocoding service is contacted.</p>
+<p class="muted" id="record-map-description">Pins are clustered when close together. Select a pin or cluster to see its records, or browse the equivalent list below. @(ExternalTilesEnabled ? "OpenStreetMap tiles are enabled; record names are not sent to the provider." : "No tile or geocoding service is contacted.")</p>
 
 <details class="map-record-list">
     <summary>Browse locations as a list (@Entries.Count)</summary>
@@ -54,6 +54,11 @@
     [Parameter]
     public IReadOnlyList<SpatialMapEntry> Entries { get; set; } = [];
 
+    [Parameter]
+    public bool ExternalTilesEnabled { get; set; }
+
+    private const string OpenStreetMapTileUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
     private ElementReference _element;
     private IJSObjectReference? _module;
     private DotNetObjectReference<SpatialRecordMap>? _reference;
@@ -75,7 +80,12 @@
         {
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./record-map.js");
             _reference = DotNetObjectReference.Create(this);
-            await _module.InvokeVoidAsync("create", _element, _reference, Entries);
+            await _module.InvokeVoidAsync(
+                "create",
+                _element,
+                _reference,
+                Entries,
+                ExternalTilesEnabled ? OpenStreetMapTileUrl : null);
             _needsUpdate = false;
         }
         else if (_needsUpdate && _module is not null)

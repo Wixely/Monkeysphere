@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject ISpatialMapService Maps
 @inject IMonkeysphereService Records
+@inject IMapSettingsService MapSettings
 
 <PageTitle>Map · Monkeysphere</PageTitle>
 
@@ -10,7 +11,7 @@
     <div>
         <p class="eyebrow">Places in context</p>
         <h1>Map</h1>
-        <p>Explore records with known coordinates without sharing those coordinates with a map provider.</p>
+        <p>Explore records with known coordinates. External map tiles are disabled until you explicitly enable them.</p>
     </div>
 </div>
 
@@ -28,7 +29,7 @@
                     <input type="checkbox"
                            checked="@_selectedFields.Contains(field.Id)"
                            @onchange="eventArgs => FieldChangedAsync(field.Id, eventArgs)" />
-                    @field.Name
+                    @LocationFieldLabel(field)
                 </label>
             }
         </fieldset>
@@ -38,11 +39,20 @@
 <section class="panel">
     <div class="section-heading">
         <div>
-            <p class="eyebrow">Private spatial view</p>
+            <p class="eyebrow">Spatial view</p>
             <h2>Record locations</h2>
         </div>
         <span class="pill">@_results.TotalCount location@(_results.TotalCount == 1 ? string.Empty : "s")</span>
     </div>
+
+    @if (_externalTilesEnabled)
+    {
+        <div class="notice warning map-privacy-notice">OpenStreetMap tiles are enabled. The viewed map area is shared with OpenStreetMap. <a href="/settings/map">Change map settings</a>.</div>
+    }
+    else
+    {
+        <div class="notice map-privacy-notice">External basemap tiles are off. The private coordinate grid is shown instead. <a href="/settings/map">Enable tiles in Settings</a>.</div>
+    }
 
     @if (_results.Items.Count == 0)
     {
@@ -50,7 +60,7 @@
     }
     else
     {
-        <SpatialRecordMap Entries="_results.Items" />
+        <SpatialRecordMap Entries="_results.Items" ExternalTilesEnabled="_externalTilesEnabled" />
         <div class="pagination" aria-label="Map result pages">
             <button class="button" type="button" disabled="@(_results.Page <= 1)" @onclick="PreviousPageAsync">Previous</button>
             <span>Page @_results.Page of @PageCount()</span>
@@ -66,13 +76,16 @@
     private PagedResult<SpatialMapEntry> _results = new([], 1, PageSize, 0);
     private string _recordTypeValue = string.Empty;
     private readonly HashSet<Guid> _selectedFields = [];
+    private readonly Dictionary<Guid, List<string>> _locationFieldTypeNames = [];
     private int _page = 1;
+    private bool _externalTilesEnabled;
 
     private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
         [new ComboboxOption<string>(string.Empty, "All record types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
 
     protected override async Task OnInitializedAsync()
     {
+        _externalTilesEnabled = (await MapSettings.GetAsync()).ExternalTilesEnabled;
         _types = await Records.ListRecordTypesAsync();
         await LoadLocationFieldsAsync();
         await ReloadAsync();
@@ -104,6 +117,7 @@
 
     private async Task LoadLocationFieldsAsync()
     {
+        _locationFieldTypeNames.Clear();
         IEnumerable<FieldDefinition> fields = SelectedRecordTypeId() is Guid typeId
             ? (await Records.GetRecordTypeAsync(typeId))?.Fields.Select(item => item.Definition) ?? []
             : await Records.ListFieldDefinitionsAsync();
@@ -112,6 +126,22 @@
             .DistinctBy(field => field.Id)
             .OrderBy(field => field.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
+
+        foreach (RecordType type in _types)
+        {
+            RecordTypeDetails? details = await Records.GetRecordTypeAsync(type.Id);
+            foreach (Guid fieldId in details?.Fields
+                         .Where(item => item.Definition.TypeId == FieldTypes.Location)
+                         .Select(item => item.Definition.Id) ?? [])
+            {
+                if (!_locationFieldTypeNames.TryGetValue(fieldId, out List<string>? names))
+                {
+                    names = [];
+                    _locationFieldTypeNames.Add(fieldId, names);
+                }
+                names.Add(type.Name);
+            }
+        }
     }
 
     private async Task ReloadAsync()
@@ -139,4 +169,9 @@
 
     private Guid? SelectedRecordTypeId() =>
         Guid.TryParse(_recordTypeValue, out Guid recordTypeId) ? recordTypeId : null;
+
+    private string LocationFieldLabel(FieldDefinition field) =>
+        _locationFieldTypeNames.TryGetValue(field.Id, out List<string>? names)
+            ? $"{field.Name} · {string.Join(", ", names)}"
+            : field.Name;
 }
