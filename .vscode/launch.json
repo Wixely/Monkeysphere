@@ -14,7 +14,8 @@
         "MONKEYSPHERE_ADMIN_USERNAME": "admin",
         "MONKEYSPHERE_ADMIN_PASSWORD": "admin",
         "MONKEYSPHERE_DATA_ROOT": "${workspaceFolder}/.local/vscode-data",
-        "DnaX__RemoteAccess__Enabled": "false"
+        "DnaX__RemoteAccess__Enabled": "false",
+        "Monkeysphere__Debug__AllowDatabaseReset": "true"
       },
       "serverReadyAction": {
         "action": "openExternally",

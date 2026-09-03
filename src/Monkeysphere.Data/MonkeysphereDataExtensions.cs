@@ -17,6 +17,7 @@ public static class MonkeysphereDataExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton(new DebugResetAvailability(false));
         services.AddSingleton<MonkeysphereConnectionFactory>();
         services.AddSingleton<IMonkeysphereStore, SqliteMonkeysphereStore>();
         services.AddSingleton<IMonkeysphereService, MonkeysphereService>();
@@ -42,6 +43,7 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IDashboardService, DashboardService>();
         services.AddSingleton<IPresetStore, SqlitePresetStore>();
         services.AddSingleton<IPresetService, PresetService>();
+        services.AddSingleton<IDebugDatabaseResetService, DebugDatabaseResetService>();
         services.AddDnaXDataMigrations(DatabaseName, options =>
         {
             options.ConnectionFactory = provider =>
@@ -57,6 +59,67 @@ public static class MonkeysphereDataExtensions
             });
         });
         return services;
+    }
+}
+
+public interface IDebugDatabaseResetService
+{
+    Task ResetAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed record DebugResetAvailability(bool Enabled);
+
+internal sealed class DebugDatabaseResetService(
+    MonkeysphereConnectionFactory connections,
+    IDnaXPaths paths,
+    DebugResetAvailability availability) : IDebugDatabaseResetService
+{
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
+    {
+        if (!availability.Enabled)
+        {
+            throw new InvalidOperationException("Database reset is not enabled by deployment configuration.");
+        }
+
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM DashboardRecurringFields;
+            DELETE FROM DashboardCategories;
+            DELETE FROM DashboardSettings;
+            DELETE FROM GraphViews;
+            DELETE FROM SavedViews;
+            DELETE FROM Relationships;
+            DELETE FROM RelationshipTypes;
+            DELETE FROM VCardProperties;
+            DELETE FROM VCardImports;
+            DELETE FROM Reminders;
+            DELETE FROM RecordImages;
+            DELETE FROM RecordAliases;
+            DELETE FROM FieldValueLocations;
+            DELETE FROM FieldValueTags;
+            DELETE FROM FieldValues;
+            DELETE FROM Records;
+            DELETE FROM RecordTypeFields;
+            DELETE FROM FieldDefinitions;
+            DELETE FROM RecordTypes;
+            DELETE FROM SetupState;
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        string mediaRoot = Path.GetFullPath(paths.ResolveWritable(Path.Combine("media", "records")));
+        string writableRoot = Path.GetFullPath(paths.ResolveWritable("."));
+        if (!mediaRoot.StartsWith(Path.TrimEndingDirectorySeparator(writableRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The record media directory is outside the writable data root.");
+        }
+        if (Directory.Exists(mediaRoot))
+        {
+            Directory.Delete(mediaRoot, recursive: true);
+        }
     }
 }
 

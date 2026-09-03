@@ -78,12 +78,28 @@ else
             }
 
             <div class="action-row wrap">
-                <button class="button primary" type="button" disabled="@_busy" @onclick="CompleteAsync">
+                <button class="button primary" type="button" disabled="@_busy" @onclick="RequestCompletionAsync">
                     @(_busy ? "Setting up…" : "Use this setup")
                 </button>
                 <span class="muted">Installation is transactional: either the whole selection is created or nothing is.</span>
             </div>
         </section>
+    }
+
+    @if (_confirmBlank)
+    {
+        <dialog open aria-modal="true" class="confirmation-dialog" aria-labelledby="blank-setup-title">
+            <div class="dialog-content">
+                <p class="eyebrow">Blank setup</p>
+                <h2 id="blank-setup-title">Start without premade structures?</h2>
+                <p>This is not recommended. Some features rely on the expected preset identities and naming schemes, and may not work with independently created record types or fields.</p>
+                <p>You can still install premade structures later from Structures.</p>
+                <div class="action-row">
+                    <button class="button subtle" type="button" autofocus @onclick="() => _confirmBlank = false">Go back</button>
+                    <button class="button danger" type="button" disabled="@_busy" @onclick="CompleteAsync">Start blank anyway</button>
+                </div>
+            </div>
+        </dialog>
     }
 }
 
@@ -94,6 +110,7 @@ else
     private HashSet<string> _selectedPresetKeys = new(StringComparer.Ordinal);
     private bool _loading = true;
     private bool _busy;
+    private bool _confirmBlank;
     private string? _message;
 
     private IEnumerable<RecordTypePreset> SelectedPackPresets => _selectedPack is null
@@ -112,6 +129,7 @@ else
         _selectedPackKey = pack.Key;
         _selectedPresetKeys = pack.PresetKeys.ToHashSet(StringComparer.Ordinal);
         _message = null;
+        _confirmBlank = false;
     }
 
     private void TogglePreset(string key, ChangeEventArgs eventArgs)
@@ -126,6 +144,17 @@ else
         }
     }
 
+    private Task RequestCompletionAsync()
+    {
+        if (_selectedPack?.PresetKeys.Count == 0)
+        {
+            _confirmBlank = true;
+            return Task.CompletedTask;
+        }
+
+        return CompleteAsync();
+    }
+
     private async Task CompleteAsync()
     {
         if (_selectedPackKey is null)
@@ -134,6 +163,7 @@ else
         }
 
         _busy = true;
+        _confirmBlank = false;
         _message = null;
         try
         {

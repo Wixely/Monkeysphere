@@ -25,8 +25,13 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
             FROM DashboardRecurringFields
             ORDER BY SortOrder, FieldDefinitionId;
             """, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        string[] categories = (await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT RecordTypeId
+            FROM DashboardCategories
+            ORDER BY SortOrder, RecordTypeId;
+            """, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         return new(
-            ParseNullableGuid(row.RecordTypeId),
+            categories.Select(ParseGuid).ToArray(),
             fields.Select(ParseGuid).ToArray(),
             row.UpcomingDays);
     }
@@ -49,12 +54,25 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
                     UpdatedAtUtc = excluded.UpdatedAtUtc;
 
                 DELETE FROM DashboardRecurringFields;
+                DELETE FROM DashboardCategories;
                 """, new
             {
-                RecordTypeId = configuration.RecordTypeId is Guid typeId ? Key(typeId) : null,
+                RecordTypeId = configuration.RecordTypeIds.Count > 0 ? Key(configuration.RecordTypeIds[0]) : null,
                 configuration.UpcomingDays,
                 UpdatedAtUtc = Timestamp(now),
             }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+            for (int index = 0; index < configuration.RecordTypeIds.Count; index++)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO DashboardCategories (RecordTypeId, SortOrder)
+                    VALUES (@RecordTypeId, @SortOrder);
+                    """, new
+                {
+                    RecordTypeId = Key(configuration.RecordTypeIds[index]),
+                    SortOrder = index,
+                }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
 
             for (int index = 0; index < configuration.RecurringFieldDefinitionIds.Count; index++)
             {
@@ -128,7 +146,6 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
     private static Guid ParseGuid(string value) => Guid.ParseExact(value, "D");
-    private static Guid? ParseNullableGuid(string? value) => value is null ? null : ParseGuid(value);
     private static string Timestamp(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
     private sealed class DashboardConfigurationRow

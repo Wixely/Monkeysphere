@@ -1,3 +1,5 @@
+@inject IConfiguration Configuration
+
 <nav class="section-tabs settings-tabs" aria-label="Settings sections">
     <a class="@(Active == "dashboard" ? "active" : null)"
        aria-current="@(Active == "dashboard" ? "page" : null)"
@@ -11,9 +13,20 @@
     <a class="@(Active == "remote-access" ? "active" : null)"
        aria-current="@(Active == "remote-access" ? "page" : null)"
        href="/settings/remote-access">Remote access</a>
+    @if (DebugResetEnabled)
+    {
+        <a class="@(Active == "debug" ? "active" : null)"
+           aria-current="@(Active == "debug" ? "page" : null)"
+           href="/settings/debug">Debug</a>
+    }
+    <a class="@(Active == "about" ? "active" : null)"
+       aria-current="@(Active == "about" ? "page" : null)"
+       href="/settings/about">About</a>
 </nav>
 
 @code {
     [Parameter, EditorRequired]
     public string Active { get; set; } = string.Empty;
+
+    private bool DebugResetEnabled => Configuration.GetValue<bool>("Monkeysphere:Debug:AllowDatabaseReset");
 }

@@ -8,6 +8,7 @@ services:
       MONKEYSPHERE_ADMIN_USERNAME: "${MONKEYSPHERE_ADMIN_USERNAME:-admin}"
       MONKEYSPHERE_ADMIN_PASSWORD: "${MONKEYSPHERE_ADMIN_PASSWORD:-admin}"
       DnaX__RemoteAccess__Enabled: "false"
+      Monkeysphere__Debug__AllowDatabaseReset: "${MONKEYSPHERE_DEBUG_ALLOW_DATABASE_RESET:-false}"
       Monkeysphere__Backups__Frequency: "${MONKEYSPHERE_BACKUP_FREQUENCY:-Off}"
       Monkeysphere__Backups__Time: "${MONKEYSPHERE_BACKUP_TIME:-02:00}"
       Monkeysphere__Backups__DayOfWeek: "${MONKEYSPHERE_BACKUP_DAY_OF_WEEK:-Sunday}"

@@ -1,0 +1,20 @@
+@page "/settings/about"
+@attribute [Authorize]
+
+<PageTitle>About · Monkeysphere</PageTitle>
+
+<SettingsTabs Active="about" />
+<div class="page-heading"><div><p class="eyebrow">Application information</p><h1>About Monkeysphere</h1><p>A private, self-hosted place for remembering people, places, interests, and the connections between them.</p></div></div>
+
+<section class="panel about-panel">
+    <img class="about-logo" src="@Assets["favicon.svg"]" alt="" />
+    <div>
+        <h2>Monkeysphere</h2>
+        <dl class="about-details"><dt>Current release</dt><dd>@Version</dd><dt>Database schema</dt><dd>@MonkeysphereSchema.Manifest.CurrentVersion</dd></dl>
+        <p><a class="button" href="https://github.com/Wixely/Monkeysphere" target="_blank" rel="noopener noreferrer">View Monkeysphere on GitHub</a></p>
+    </div>
+</section>
+
+@code {
+    private static string Version => typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "Unknown";
+}

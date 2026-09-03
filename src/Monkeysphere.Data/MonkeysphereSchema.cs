@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 16,
+        currentVersion: 17,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -518,6 +518,18 @@ public static class MonkeysphereSchema
 
                 CREATE INDEX IX_GraphViewRecords_RecordId ON GraphViewRecords (RecordId);
                 CREATE INDEX IX_GraphViewRecordTypes_RecordTypeId ON GraphViewRecordTypes (RecordTypeId);
+                """),
+            DnaXMigration.Sql(17, "ordered-dashboard-categories", "Allow multiple ordered record categories on the dashboard", """
+                CREATE TABLE DashboardCategories (
+                    RecordTypeId TEXT NOT NULL PRIMARY KEY,
+                    SortOrder INTEGER NOT NULL UNIQUE CHECK (SortOrder >= 0),
+                    FOREIGN KEY (RecordTypeId) REFERENCES RecordTypes(Id) ON DELETE CASCADE
+                );
+
+                INSERT INTO DashboardCategories (RecordTypeId, SortOrder)
+                SELECT RecordTypeId, 0
+                FROM DashboardSettings
+                WHERE Singleton = 1 AND RecordTypeId IS NOT NULL;
                 """),
         ]);
 }

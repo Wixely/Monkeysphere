@@ -824,6 +824,7 @@ public sealed class RecordWorkflowTests
         IDashboardService dashboard = application.Services.GetRequiredService<IDashboardService>();
 
         RecordType person = await records.CreateRecordTypeAsync("Person");
+        RecordType pet = await records.CreateRecordTypeAsync("Pet");
         FieldDefinition birthday = await records.CreateAndAttachFieldAsync(
             person.Id,
             new CreateFieldRequest("Birthday", FieldTypes.ExactDate, false));
@@ -840,11 +841,12 @@ public sealed class RecordWorkflowTests
         ]);
 
         DashboardConfiguration saved = await dashboard.SaveConfigurationAsync(new(
-            person.Id,
+            [pet.Id, person.Id],
             [birthday.Id, anniversary.Id],
             30));
         DashboardConfiguration reloaded = await dashboard.GetConfigurationAsync();
-        Assert.Equal(saved.RecordTypeId, reloaded.RecordTypeId);
+        Assert.Equal(saved.RecordTypeIds, reloaded.RecordTypeIds);
+        Assert.Equal([pet.Id, person.Id], reloaded.RecordTypeIds);
         Assert.Equal(saved.UpcomingDays, reloaded.UpcomingDays);
         Assert.Equal(saved.RecurringFieldDefinitionIds.ToArray(), reloaded.RecurringFieldDefinitionIds.ToArray());
 
@@ -856,9 +858,26 @@ public sealed class RecordWorkflowTests
         Assert.Equal(new DateTimeOffset(2026, 9, 5, 0, 0, 0, TimeSpan.Zero), upcoming[1].OccursAt);
 
         await Assert.ThrowsAsync<DomainValidationException>(() => dashboard.SaveConfigurationAsync(new(
-            person.Id,
+            [person.Id],
             [notes.Id],
             30)));
+    }
+
+    [Fact]
+    public async Task DebugResetReturnsTheApplicationToAnEmptyFirstRunState()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IPresetService presets = application.Services.GetRequiredService<IPresetService>();
+        IDebugDatabaseResetService reset = application.Services.GetRequiredService<IDebugDatabaseResetService>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Temporary");
+        _ = await records.CreateRecordAsync(type.Id, "Delete me", []);
+
+        await reset.ResetAsync();
+
+        Assert.Empty(await records.ListRecordTypesAsync());
+        Assert.False((await presets.GetSetupStatusAsync()).IsComplete);
     }
 
     private sealed class TestApplication : IAsyncDisposable
@@ -880,6 +899,7 @@ public sealed class RecordWorkflowTests
             Directory.CreateDirectory(dataRoot);
             ServiceCollection services = new();
             services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(dataRoot));
+            services.AddSingleton(new DebugResetAvailability(true));
             if (timeProvider is not null)
             {
                 services.AddSingleton(timeProvider);

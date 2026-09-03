@@ -1,0 +1,56 @@
+@page "/settings/debug"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IConfiguration Configuration
+@inject IDebugDatabaseResetService ResetService
+@inject NavigationManager Navigation
+
+<PageTitle>Debug settings · Monkeysphere</PageTitle>
+
+@if (!Enabled)
+{
+    <section class="panel"><h1>Not found</h1><p>This settings section is not enabled.</p></section>
+}
+else
+{
+    <SettingsTabs Active="debug" />
+    <div class="page-heading"><div><p class="eyebrow">Testing tools</p><h1>Debug</h1><p>Destructive controls intended only for disposable test environments.</p></div></div>
+    <section class="panel danger-zone">
+        <h2>Reset application data</h2>
+        <p>Delete all records, structures, views, dashboard choices, imports, reminders, and record images. Backups, login configuration, data-protection keys, and remote-access settings are retained.</p>
+        <button class="button danger" type="button" @onclick="() => _confirming = true">Reset database</button>
+    </section>
+
+    @if (_confirming)
+    {
+        <dialog open aria-modal="true" class="confirmation-dialog" aria-labelledby="reset-title">
+            <div class="dialog-content">
+                <p class="eyebrow">Permanent action</p>
+                <h2 id="reset-title">Reset Monkeysphere?</h2>
+                <p>This cannot be undone. Type <strong>RESET</strong> to confirm. You will return to first-run setup.</p>
+                <label>Confirmation <input autocomplete="off" autofocus @bind="_confirmation" @bind:event="oninput" /></label>
+                <div class="action-row">
+                    <button class="button subtle" type="button" @onclick="Cancel">Cancel</button>
+                    <button class="button danger" type="button" disabled="@(!CanReset || _busy)" @onclick="ResetAsync">@(_busy ? "Resetting…" : "Delete everything")</button>
+                </div>
+            </div>
+        </dialog>
+    }
+}
+
+@code {
+    private bool _confirming;
+    private bool _busy;
+    private string _confirmation = string.Empty;
+    private bool Enabled => Configuration.GetValue<bool>("Monkeysphere:Debug:AllowDatabaseReset");
+    private bool CanReset => string.Equals(_confirmation, "RESET", StringComparison.Ordinal);
+
+    private void Cancel() { _confirming = false; _confirmation = string.Empty; }
+    private async Task ResetAsync()
+    {
+        if (!Enabled || !CanReset) return;
+        _busy = true;
+        await ResetService.ResetAsync();
+        Navigation.NavigateTo("/setup", forceLoad: true);
+    }
+}

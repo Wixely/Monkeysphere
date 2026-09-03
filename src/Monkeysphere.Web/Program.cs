@@ -51,6 +51,8 @@ builder.Services.AddOptions<KeyManagementOptions>()
         DirectoryInfo keyDirectory = Directory.CreateDirectory(Path.Combine(dataRoot, "keys"));
         options.XmlRepository = new FileSystemXmlRepository(keyDirectory, loggerFactory);
     });
+builder.Services.AddSingleton(new DebugResetAvailability(
+    builder.Configuration.GetValue<bool>("Monkeysphere:Debug:AllowDatabaseReset")));
 builder.Services.AddMonkeysphereData();
 builder.Services.AddOptions<BackupScheduleOptions>()
     .Bind(builder.Configuration.GetSection("Monkeysphere:Backups"));

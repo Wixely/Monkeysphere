@@ -145,6 +145,9 @@
     private string _filterValue = string.Empty;
     private string? _message;
 
+    [SupplyParameterFromQuery(Name = "typeId")]
+    public Guid? InitialRecordTypeId { get; set; }
+
     private IReadOnlyList<ComboboxOption<string>> SavedViewOptions =>
         [new ComboboxOption<string>(string.Empty, "Ad hoc search"), .. _savedViews.Select(view => new ComboboxOption<string>(view.Id.ToString(), view.Name))];
 
@@ -161,6 +164,9 @@
     {
         _types = await Service.ListRecordTypesAsync();
         _savedViews = await SavedViews.ListAsync();
+        _recordTypeValue = InitialRecordTypeId is Guid typeId && _types.Any(type => type.Id == typeId)
+            ? typeId.ToString()
+            : string.Empty;
         await SearchAsync();
     }
 

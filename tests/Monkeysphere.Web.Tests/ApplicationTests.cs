@@ -179,6 +179,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
     [InlineData("/settings/dashboard")]
     [InlineData("/settings/backups")]
     [InlineData("/settings/remote-access")]
+    [InlineData("/settings/debug")]
+    [InlineData("/settings/about")]
     [InlineData("/saved-views")]
     [InlineData("/calendar")]
     [InlineData("/map")]
@@ -195,6 +197,30 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/login", response.Headers.Location?.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task DebugResetControlsRenderOnlyWhenExplicitlyEnabled()
+    {
+        await using DebugEnabledApplicationFactory factory = new();
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IPresetService>().CompleteSetupAsync("blank", []);
+        }
+        using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        string loginHtml = await client.GetStringAsync("/login");
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = ExtractAntiforgeryToken(loginHtml),
+            ["username"] = "admin",
+            ["password"] = AdministratorPassword,
+            ["returnUrl"] = "/settings/debug",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", form)).StatusCode);
+
+        string html = await client.GetStringAsync("/settings/debug");
+        Assert.Contains("Reset database", html, StringComparison.Ordinal);
+        Assert.Contains("href=\"/settings/debug\"", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -249,7 +275,7 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
                 RelationshipGraphDisplayMode.Connected,
                 [recordId],
                 [type.Id]));
-            _ = await dashboard.SaveConfigurationAsync(new(type.Id, [occasion.Id], 90));
+            _ = await dashboard.SaveConfigurationAsync(new([type.Id], [occasion.Id], 90));
         }
 
         using HttpClient client = CreateClient(allowRedirect: false);
@@ -269,6 +295,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         string recordsHtml = await client.GetStringAsync("/records");
         string dashboardHtml = await client.GetStringAsync("/");
         string dashboardSettingsHtml = await client.GetStringAsync("/settings/dashboard");
+        string aboutHtml = await client.GetStringAsync("/settings/about");
+        string debugHtml = await client.GetStringAsync("/settings/debug");
         string calendarHtml = await client.GetStringAsync("/calendar");
         string mapHtml = await client.GetStringAsync("/map");
         string graphHtml = await client.GetStringAsync("/graph");
@@ -293,12 +321,18 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Grid view " + suffix, recordsHtml, StringComparison.Ordinal);
         Assert.Contains("<h1>Dashboard</h1>", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("Upcoming dates", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("Category order", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Upcoming-date order", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Current release", aboutHtml, StringComparison.Ordinal);
+        Assert.Contains("https://github.com/Wixely/Monkeysphere", aboutHtml, StringComparison.Ordinal);
+        Assert.Contains("This settings section is not enabled.", debugHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reset database", debugHtml, StringComparison.Ordinal);
         Assert.Contains("Configure dashboard", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("dashboard-record-avatar", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("dashboard-record-placeholder", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains($"/images/{dashboardImageId:D}/thumbnail", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("View record " + suffix, dashboardHtml, StringComparison.Ordinal);
-        Assert.Contains("Dashboard record category", dashboardSettingsHtml, StringComparison.Ordinal);
+        Assert.Contains("Dashboard categories", dashboardSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("Annually recurring date fields", dashboardSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("Occasion " + suffix, dashboardSettingsHtml, StringComparison.Ordinal);
         Assert.Contains("role=\"combobox\"", recordsHtml, StringComparison.Ordinal);
@@ -734,6 +768,16 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
     }
 
     private const string AdministratorPasswordForFactory = "test-only-LongPassword-2048!";
+}
+
+public sealed class DebugEnabledApplicationFactory : MonkeysphereApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Monkeysphere:Debug:AllowDatabaseReset"] = "true" }));
+    }
 }
 
 public sealed class RestartPersistenceTests

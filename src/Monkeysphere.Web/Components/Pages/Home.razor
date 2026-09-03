@@ -9,11 +9,7 @@
 <PageTitle>Dashboard · Monkeysphere</PageTitle>
 
 <div class="page-heading dashboard-heading">
-    <div>
-        <p class="eyebrow">At a glance</p>
-        <h1>Dashboard</h1>
-        <p>Upcoming moments and the records you want close at hand.</p>
-    </div>
+    <div><p class="eyebrow">At a glance</p><h1>Dashboard</h1><p>Upcoming moments and the records you want close at hand.</p></div>
     <a class="button" href="/settings/dashboard">Configure dashboard</a>
 </div>
 
@@ -25,10 +21,7 @@ else
 {
     <section class="panel dashboard-upcoming" aria-labelledby="upcoming-heading">
         <div class="section-heading">
-            <div>
-                <p class="eyebrow">Next @_configuration.UpcomingDays days</p>
-                <h2 id="upcoming-heading">Upcoming dates</h2>
-            </div>
+            <div><p class="eyebrow">Next @_configuration.UpcomingDays days</p><h2 id="upcoming-heading">Upcoming dates</h2></div>
             <a class="button subtle" href="/calendar">Open calendar</a>
         </div>
         @if (_upcoming.Count == 0)
@@ -41,14 +34,8 @@ else
                 @foreach (DashboardUpcomingDate item in _upcoming)
                 {
                     <article class="dashboard-date-item">
-                        <div class="dashboard-date-marker" aria-hidden="true">
-                            <strong>@item.OccursAt.Day</strong>
-                            <span>@item.OccursAt.ToString("MMM", CultureInfo.CurrentCulture)</span>
-                        </div>
-                        <div class="dashboard-date-details">
-                            <a href="/records/@item.Source.RecordId">@item.Source.RecordDisplayName</a>
-                            <span>@item.Source.FieldName · @OccurrenceLabel(item)</span>
-                        </div>
+                        <div class="dashboard-date-marker" aria-hidden="true"><strong>@item.OccursAt.Day</strong><span>@item.OccursAt.ToString("MMM", CultureInfo.CurrentCulture)</span></div>
+                        <div class="dashboard-date-details"><a href="/records/@item.Source.RecordId">@item.Source.RecordDisplayName</a><span>@item.Source.FieldName · @OccurrenceLabel(item)</span></div>
                         <strong class="dashboard-distance">@DistanceLabel(item)</strong>
                     </article>
                 }
@@ -56,96 +43,81 @@ else
         }
     </section>
 
-    <section class="panel dashboard-records" aria-labelledby="dashboard-records-heading">
-        <div class="section-heading">
-            <div>
-                <p class="eyebrow">Front-page records</p>
-                <h2 id="dashboard-records-heading">@_recordTypeName</h2>
+    @if (_categories.Count == 0)
+    {
+        <section class="panel dashboard-records"><p class="empty-state">Choose one or more record categories in Dashboard settings.</p></section>
+    }
+    @foreach (DashboardCategory category in _categories)
+    {
+        <section class="panel dashboard-records" aria-labelledby="dashboard-records-@category.Type.Id">
+            <div class="section-heading">
+                <div><p class="eyebrow">Front-page records</p><h2 id="dashboard-records-@category.Type.Id">@category.DisplayName</h2></div>
+                <div class="action-row wrap">
+                    <a class="button" href="/records/new?typeId=@category.Type.Id">Add @category.Type.Name</a>
+                    <a class="button subtle" href="/records?typeId=@category.Type.Id">View all</a>
+                </div>
             </div>
-            <div class="action-row wrap">
-                @if (_configuration.RecordTypeId is Guid selectedTypeId)
-                {
-                    <a class="button" href="/records/new?typeId=@selectedTypeId">Add @_recordTypeSingular</a>
-                }
-                <a class="button subtle" href="/records">All records</a>
-            </div>
-        </div>
-        @if (_configuration.RecordTypeId is null)
-        {
-            <p class="empty-state">Choose a record category in Dashboard settings.</p>
-        }
-        else if (_records.Items.Count == 0)
-        {
-            <p class="empty-state">No @_recordTypeName.ToLower(CultureInfo.CurrentCulture) yet.</p>
-        }
-        else
-        {
-            <ul class="item-list dashboard-record-list">
-                @foreach (DashboardRecordRow row in _recordRows)
-                {
-                    <li>
-                        <div class="dashboard-record-identity">
-                            <a class="dashboard-record-avatar" href="/records/@row.Record.Id" aria-label="Open @row.Record.DisplayName">
-                                @if (row.ImageId is Guid imageId)
-                                {
-                                    <img src="/records/@row.Record.Id/images/@imageId/thumbnail"
-                                         alt=""
-                                         loading="lazy" />
-                                }
-                                else
-                                {
-                                    <span class="dashboard-record-placeholder" aria-hidden="true">@_recordTypeSymbol</span>
-                                }
-                            </a>
-                            <a href="/records/@row.Record.Id">@row.Record.DisplayName</a>
-                        </div>
-                        <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
-                    </li>
-                }
-            </ul>
-            @if (_records.TotalCount > _records.Items.Count)
+            @if (category.Records.TotalCount == 0)
             {
-                <p class="dashboard-more"><a href="/records">View all @_records.TotalCount @_recordTypeName.ToLower(CultureInfo.CurrentCulture)</a></p>
+                <p class="empty-state">No @category.DisplayName.ToLower(CultureInfo.CurrentCulture) yet.</p>
             }
-        }
-    </section>
+            else
+            {
+                <ul class="item-list dashboard-record-list">
+                    @foreach (DashboardRecordRow row in category.Rows)
+                    {
+                        <li>
+                            <div class="dashboard-record-identity">
+                                <a class="dashboard-record-avatar" href="/records/@row.Record.Id" aria-label="Open @row.Record.DisplayName">
+                                    @if (row.ImageId is Guid imageId)
+                                    {
+                                        <img src="/records/@row.Record.Id/images/@imageId/thumbnail" alt="" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="dashboard-record-placeholder" aria-hidden="true">@category.Symbol</span>
+                                    }
+                                </a>
+                                <a href="/records/@row.Record.Id">@row.Record.DisplayName</a>
+                            </div>
+                            <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
+                        </li>
+                    }
+                </ul>
+                @if (category.Records.TotalCount > category.Records.Items.Count)
+                {
+                    <p class="dashboard-more"><a href="/records?typeId=@category.Type.Id">View all @category.Records.TotalCount @category.DisplayName.ToLower(CultureInfo.CurrentCulture)</a></p>
+                }
+            }
+        </section>
+    }
 }
 
 @code {
-    private DashboardConfiguration _configuration = new(null, []);
+    private DashboardConfiguration _configuration = new([], []);
     private IReadOnlyList<DashboardUpcomingDate> _upcoming = [];
-    private PagedResult<RecordSummary> _records = new([], 1, 12, 0);
-    private readonly List<DashboardRecordRow> _recordRows = [];
-    private string _recordTypeName = "Records";
-    private string _recordTypeSingular = "record";
-    private string _recordTypeSymbol = "·";
+    private readonly List<DashboardCategory> _categories = [];
     private bool _loading = true;
 
     protected override async Task OnInitializedAsync()
     {
         _configuration = await Dashboard.GetConfigurationAsync();
         _upcoming = await Dashboard.ListUpcomingAsync(_configuration);
-        if (_configuration.RecordTypeId is Guid recordTypeId)
+        Dictionary<Guid, RecordType> types = (await Records.ListRecordTypesAsync()).ToDictionary(type => type.Id);
+        foreach (Guid recordTypeId in _configuration.RecordTypeIds)
         {
-            RecordType? type = (await Records.ListRecordTypesAsync()).FirstOrDefault(item => item.Id == recordTypeId);
-            if (type is not null)
-            {
-                _recordTypeSingular = type.Name;
-                _recordTypeSymbol = type.Symbol ?? type.Name[..1].ToUpper(CultureInfo.CurrentCulture);
-                _recordTypeName = string.Equals(type.PresetKey, "monkeysphere.person", StringComparison.Ordinal)
-                    ? "People"
-                    : type.Name;
-            }
-
-            _records = await Records.SearchRecordsAsync(new RecordSearch(RecordTypeId: recordTypeId, PageSize: 12));
-            foreach (RecordSummary summary in _records.Items)
+            if (!types.TryGetValue(recordTypeId, out RecordType? type)) continue;
+            PagedResult<RecordSummary> results = await Records.SearchRecordsAsync(new RecordSearch(RecordTypeId: recordTypeId, PageSize: 12));
+            List<DashboardRecordRow> rows = [];
+            foreach (RecordSummary summary in results.Items)
             {
                 RecordDetails? details = await Records.GetRecordAsync(summary.Id);
                 RecordImage? image = details?.Images.FirstOrDefault(item => item.IsCover) ?? details?.Images.FirstOrDefault();
-                _recordRows.Add(new(summary, image?.Id));
+                rows.Add(new(summary, image?.Id));
             }
+            string displayName = string.Equals(type.PresetKey, "monkeysphere.person", StringComparison.Ordinal) ? "People" : type.Name;
+            _categories.Add(new(type, displayName, type.Symbol ?? type.Name[..1].ToUpper(CultureInfo.CurrentCulture), results, rows));
         }
-
         _loading = false;
     }
 
@@ -155,23 +127,15 @@ else
         if (!item.HasTime)
         {
             int days = DateOnly.FromDateTime(item.OccursAt.DateTime).DayNumber - DateOnly.FromDateTime(now.DateTime).DayNumber;
-            return days switch
-            {
-                0 => "Today",
-                1 => "Tomorrow",
-                _ => $"In {days} days",
-            };
+            return days switch { 0 => "Today", 1 => "Tomorrow", _ => $"In {days} days" };
         }
-
         double hours = Math.Max(0, (item.OccursAt - now).TotalHours);
         if (hours < 48)
         {
             int roundedHours = Math.Max(1, (int)Math.Ceiling(hours));
             return $"In {roundedHours} hour{(roundedHours == 1 ? string.Empty : "s")}";
         }
-
-        int roundedDays = (int)Math.Ceiling(hours / 24);
-        return $"In {roundedDays} days";
+        return $"In {(int)Math.Ceiling(hours / 24)} days";
     }
 
     private static string OccurrenceLabel(DashboardUpcomingDate item) => item.HasTime
@@ -179,4 +143,5 @@ else
         : item.OccursAt.ToString("dddd d MMMM", CultureInfo.CurrentCulture);
 
     private sealed record DashboardRecordRow(RecordSummary Record, Guid? ImageId);
+    private sealed record DashboardCategory(RecordType Type, string DisplayName, string Symbol, PagedResult<RecordSummary> Records, IReadOnlyList<DashboardRecordRow> Rows);
 }

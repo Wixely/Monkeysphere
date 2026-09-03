@@ -1,7 +1,7 @@
 namespace Monkeysphere.Core;
 
 public sealed record DashboardConfiguration(
-    Guid? RecordTypeId,
+    IReadOnlyList<Guid> RecordTypeIds,
     IReadOnlyList<Guid> RecurringFieldDefinitionIds,
     int UpcomingDays = 90);
 
@@ -83,7 +83,7 @@ public sealed class DashboardService(
                 StringComparison.Ordinal))
             .Select(field => field.Id)
             .ToArray();
-        return new(defaultTypeId, birthdayFields, DefaultUpcomingDays);
+        return new(defaultTypeId is Guid id ? [id] : [], birthdayFields, DefaultUpcomingDays);
     }
 
     public async Task<DashboardConfiguration> SaveConfigurationAsync(
@@ -95,14 +95,13 @@ public sealed class DashboardService(
             throw new DomainValidationException($"Dashboard look-ahead must be between 1 and {MaximumUpcomingDays} days.");
         }
 
-        if (configuration.RecordTypeId is Guid typeId)
+        Guid[] typeIds = configuration.RecordTypeIds.Distinct().ToArray();
+        Dictionary<Guid, RecordType> activeTypes = (await records.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false))
+            .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
+            .ToDictionary(type => type.Id);
+        if (typeIds.Any(id => !activeTypes.ContainsKey(id)))
         {
-            RecordTypeDetails type = await records.GetRecordTypeAsync(typeId, cancellationToken).ConfigureAwait(false)
-                ?? throw new DomainValidationException("Dashboard record type was not found.");
-            if (type.RecordType.Lifecycle != RecordTypeLifecycle.Active)
-            {
-                throw new DomainValidationException("Dashboard record type must be active.");
-            }
+            throw new DomainValidationException("Dashboard record categories must be active.");
         }
 
         Guid[] fieldIds = configuration.RecurringFieldDefinitionIds.Distinct().ToArray();
@@ -118,7 +117,11 @@ public sealed class DashboardService(
             throw new DomainValidationException("Dashboard recurring fields must be active date or temporal fields.");
         }
 
-        DashboardConfiguration normalized = configuration with { RecurringFieldDefinitionIds = fieldIds };
+        DashboardConfiguration normalized = configuration with
+        {
+            RecordTypeIds = typeIds,
+            RecurringFieldDefinitionIds = fieldIds,
+        };
         await store.SaveConfigurationAsync(normalized, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         return normalized;
     }
