@@ -1616,6 +1616,27 @@ input[type="checkbox"] {
     line-height: 1;
 }
 
+.graph-multi-selection {
+    position: absolute;
+    z-index: 3;
+    top: .65rem;
+    left: .65rem;
+    max-width: calc(100% - 1.3rem);
+    padding: .4rem .6rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .45rem;
+    color: var(--ink);
+    background: var(--panel-translucent-strong);
+    box-shadow: var(--shadow-small);
+    font-size: .86rem;
+    font-weight: 700;
+    pointer-events: none;
+}
+
+.graph-multi-selection[hidden] {
+    display: none;
+}
+
 .graph-record-menu {
     position: absolute;
     z-index: 3;

@@ -16,6 +16,15 @@ function graphStyles() {
 
     return [
         {
+            selector: 'core',
+            style: {
+                'selection-box-color': selected,
+                'selection-box-border-color': selected,
+                'selection-box-opacity': 0.16,
+                'selection-box-border-width': 2
+            }
+        },
+        {
             selector: 'node',
             style: {
                 'background-color': node,
@@ -109,6 +118,7 @@ function elements(graph, positions) {
         })),
         ...graph.edges.map(edge => ({
             group: 'edges',
+            selectable: false,
             data: {
                 id: edge.relationshipId,
                 source: edge.sourceRecordId,
@@ -308,15 +318,67 @@ function runLayout(cy, savedPositions, preservedPositions, badgeState, viewport)
     queueBadgePositions(cy, badgeState);
 }
 
-function separateDraggedNode(cy, node) {
-    const occupied = cy.nodes().toArray()
-        .filter(other => other.id() !== node.id())
-        .map(other => other.position());
-    const current = node.position();
-    const position = findFreePosition(current, occupied, node.id());
-    if (position.x !== current.x || position.y !== current.y) {
-        node.animate({ position }, { duration: 180, easing: 'ease-out' });
+function isGroupPositionFree(nodes, occupied, offset) {
+    return nodes.every(node => {
+        const position = node.position();
+        return isPositionFree({ x: position.x + offset.x, y: position.y + offset.y }, occupied);
+    });
+}
+
+function findFreeGroupOffset(nodes, occupied, id) {
+    const origin = { x: 0, y: 0 };
+    if (isGroupPositionFree(nodes, occupied, origin)) {
+        return origin;
     }
+
+    const angle = angleOffset(id);
+    for (let ring = 1; ring <= 80; ring++) {
+        const candidates = Math.max(12, ring * 12);
+        const radius = minimumNodeDistance * ring;
+        for (let index = 0; index < candidates; index++) {
+            const candidateAngle = angle + (index * Math.PI * 2 / candidates);
+            const candidate = {
+                x: Math.cos(candidateAngle) * radius,
+                y: Math.sin(candidateAngle) * radius
+            };
+            if (isGroupPositionFree(nodes, occupied, candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    return { x: occupied.length * minimumNodeDistance, y: 0 };
+}
+
+function separateDraggedNodes(cy, draggedNode) {
+    const selected = cy.nodes(':selected').toArray();
+    const moved = draggedNode.selected() && selected.length > 1 ? selected : [draggedNode];
+    const movedIds = new Set(moved.map(node => node.id()));
+    const occupied = cy.nodes().toArray()
+        .filter(node => !movedIds.has(node.id()))
+        .map(node => node.position());
+    const offset = findFreeGroupOffset(moved, occupied, draggedNode.id());
+    if (offset.x !== 0 || offset.y !== 0) {
+        moved.forEach(node => {
+            const position = node.position();
+            node.animate({
+                position: { x: position.x + offset.x, y: position.y + offset.y }
+            }, { duration: 180, easing: 'ease-out' });
+        });
+    }
+}
+
+function updateSelectionSummary(cy, summary) {
+    const count = cy.nodes(':selected').length;
+    summary.hidden = count < 2;
+    summary.textContent = count < 2
+        ? ''
+        : `${count} records selected · Drag any selected record to move the group.`;
+}
+
+function isAdditiveSelection(event) {
+    const original = event.originalEvent;
+    return Boolean(original?.ctrlKey || original?.metaKey || original?.shiftKey);
 }
 
 function hideRecordMenu(menu) {
@@ -354,11 +416,14 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         layout: { name: 'preset', fit: false },
         minZoom: 0.15,
         maxZoom: 3,
+        boxSelectionEnabled: true,
+        selectionType: 'additive',
         style: graphStyles()
     });
     const shell = element.parentElement;
     const menu = shell.querySelector('.graph-record-menu');
     const badgeLayer = shell.querySelector('.graph-type-badges');
+    const selectionSummary = shell.querySelector('.graph-multi-selection');
     const badgeState = { elements: new globalThis.Map(), frame: undefined };
     const changeState = { frame: undefined };
     const notifyGraphChanged = () => {
@@ -373,11 +438,18 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
     rebuildBadges(badgeLayer, graph, badgeState);
     cy.on('render', () => queueBadgePositions(cy, badgeState));
     cy.on('tap', 'node', event => {
+        if (isAdditiveSelection(event)) {
+            return;
+        }
+
+        cy.nodes().unselect();
+        event.target.select();
         const recordId = event.target.data('recordId');
         if (recordId) {
             callback.invokeMethodAsync('NodeSelected', recordId);
         }
     });
+    cy.on('select unselect', 'node', () => updateSelectionSummary(cy, selectionSummary));
     cy.on('cxttap', 'node', event => {
         const node = event.target;
         if (!node.data('recordId')) {
@@ -385,8 +457,10 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         }
 
         event.originalEvent?.preventDefault();
-        cy.nodes().unselect();
-        node.select();
+        if (!node.selected()) {
+            cy.nodes().unselect();
+            node.select();
+        }
         showRecordMenu(element, menu, node, event.renderedPosition);
     });
     cy.on('tap drag', () => hideRecordMenu(menu));
@@ -397,7 +471,7 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         }
     });
     cy.on('dragfree', 'node', event => {
-        separateDraggedNode(cy, event.target);
+        separateDraggedNodes(cy, event.target);
         notifyGraphChanged();
     });
 
@@ -440,7 +514,7 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         });
     });
     observer.observe(element);
-    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState });
+    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState, selectionSummary });
     runLayout(cy, savedPositions, new globalThis.Map(), badgeState, savedViewport);
 }
 
@@ -456,6 +530,7 @@ export function update(element, graph, savedPositions) {
     cy.elements().remove();
     cy.add(elements(graph, savedPositions));
     rebuildBadges(badgeLayer, graph, badgeState);
+    updateSelectionSummary(cy, instance.selectionSummary);
     runLayout(cy, savedPositions, preservedPositions, badgeState, preservedViewport);
 }
 
@@ -501,6 +576,7 @@ export function centerOn(element, recordId) {
         return;
     }
 
+    cy.nodes().unselect();
     node.select();
     cy.animate({
         center: { eles: node },

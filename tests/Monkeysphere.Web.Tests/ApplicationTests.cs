@@ -388,6 +388,8 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
         Assert.Contains("Save graph view", graphHtml, StringComparison.Ordinal);
         Assert.Contains("record positions", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Reset viewport", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Shift-drag an empty area", graphHtml, StringComparison.Ordinal);
+        Assert.Contains("Ctrl-click", graphHtml, StringComparison.Ordinal);
         Assert.Contains("viewport", graphHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("Relationship type", graphHtml, StringComparison.Ordinal);
         Assert.Contains("Skip to main content", graphHtml, StringComparison.Ordinal);
