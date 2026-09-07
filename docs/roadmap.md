@@ -39,6 +39,16 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 
 Dates are review checkpoints, not delivery commitments. Recommended next action: Agent implements bounded authenticated contact export while closing the remaining M0-M1 gates. Image transfer follows export to complete M3.
 
+## Android contact importer
+
+Status: Planned; depends on the M3 contact-import contract and deployed-client verification.
+
+Build an Android application that lets the user select contacts from the device address book, choose a Monkeysphere domain, review the proposed create/skip/merge/replace decisions, and import them through Monkeysphere's authenticated MCP contact workflow. The app must request Android contact access only when the user starts selection, keep the chosen data on-device until upload, show transfer and per-contact outcomes, and support safe retry without duplicate records.
+
+MCP disposition: **Included**. Reuse capability discovery plus the existing `contacts.import` upload, validation, preview, inspection, and apply tools. Do not add a separate privileged mobile ingestion path. Before implementation, verify the target Android MCP client transport, TLS trust and credential-storage model against a disposable Monkeysphere instance. Contact export to the device is outside this initial item and requires a separate privacy and conflict-resolution design.
+
+Owner: TBD. Next action: Agent completes M3 contact export and deployed MCP transfer verification; then owner TBD writes the Android client architecture and permission-flow plan. Review: 2026-10-01.
+
 ## Domain-separated spheres
 
 Status: Implemented on `feature/domains`; pending review and merge.
