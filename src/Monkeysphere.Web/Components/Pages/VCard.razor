@@ -30,7 +30,7 @@
         <p>The Person preset must be installed. Files are read in memory, limited to 5 MiB and 1,000 contacts, and are not applied until you confirm every row. Possible duplicates are checked against saved people and earlier contacts in the file.</p>
         <label>
             vCard file
-            <InputFile OnChange="PreviewAsync" accept=".vcf,text/vcard,text/x-vcard" />
+            <InputFile @key="_fileInputVersion" OnChange="PreviewAsync" accept=".vcf,text/vcard,text/x-vcard" />
         </label>
     </section>
 
@@ -157,6 +157,7 @@
 
 @code {
     private VCardImportPreview? _preview;
+    private int _fileInputVersion;
     private readonly List<ImportEditor> _importEditors = [];
     private IReadOnlyList<RecordSummary> _people = [];
     private int _peopleTotal;
@@ -195,15 +196,13 @@
         try
         {
             await using Stream stream = args.File.OpenReadStream(VCardParser.MaximumBytes);
-            using MemoryStream content = new();
-            await stream.CopyToAsync(content);
-            _preview = await VCards.PreviewAsync(content.ToArray());
+            _preview = await VCards.PreviewAsync(stream);
             _importEditors.Clear();
             _importEditors.AddRange(_preview.Contacts.Select(contact => new ImportEditor(contact)));
             _message = $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying.";
             _isError = false;
         }
-        catch (Exception exception) when (exception is DomainValidationException or IOException)
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException or IOException)
         {
             _preview = null;
             _importEditors.Clear();
@@ -232,8 +231,14 @@
             _importEditors.Clear();
             await ReloadPeopleAsync();
         }
-        catch (DomainValidationException exception)
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
         {
+            if (exception is ConcurrencyConflictException)
+            {
+                _preview = null;
+                _importEditors.Clear();
+                _fileInputVersion++;
+            }
             _message = exception.Message;
             _isError = true;
         }

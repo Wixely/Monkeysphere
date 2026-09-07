@@ -6,6 +6,15 @@ namespace Monkeysphere.Data.Tests;
 public sealed class MigrationTests
 {
     [Fact]
+    public async Task UploadStagingSchemaUpgradesToItsCanonicalSchema()
+    {
+        DnaXHistoricalMigrationVerification result =
+            await DnaXSqliteMigrationVerifier.VerifyAllHistoricalVersionsAsync(RemoteUploadSchema.Manifest);
+        Assert.Equal(RemoteUploadSchema.Manifest.CurrentVersion, result.HistoricalVersions.Count);
+        Assert.All(result.HistoricalVersions, version => Assert.Equal(result.CanonicalSchemaSnapshot, version.SchemaSnapshot));
+    }
+
+    [Fact]
     public async Task EveryHistoricalSchemaUpgradesToTheCanonicalSchema()
     {
         DnaXHistoricalMigrationVerification result =

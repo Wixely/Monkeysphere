@@ -46,7 +46,7 @@ internal sealed partial class DomainCatalog : IDomainCommands
 
     public async Task RecordFailureAsync(ApplicationCommandEvent entry, CancellationToken cancellationToken = default)
     {
-        if (entry.DomainId == Guid.Empty || entry.Surface != "mcp" || entry.Action != "domains.rename" ||
+        if (entry.DomainId == Guid.Empty || entry.Surface != "mcp" || entry.Action is not ("domains.rename" or "domains.create") ||
             entry.Outcome.Length is < 1 or > 64 || entry.Outcome.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '_' or '.')) ||
             entry.CorrelationId.Length > 128) throw new DomainValidationException("The registry audit metadata is invalid.");
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -84,7 +84,7 @@ internal sealed partial class DomainCatalog : IDomainCommands
             DELETE FROM DomainCommandReceipts WHERE ForgetAfterUtc <= @Now;
             UPDATE DomainCommandReceipts SET ReceiptJson = NULL WHERE RetryUntilUtc <= @Now AND ReceiptJson IS NOT NULL;
             """, new { Now = Timestamp(now) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        int count = await connection.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) FROM DomainCommandReceipts;",
+        int count = await connection.ExecuteScalarAsync<int>(new CommandDefinition("SELECT (SELECT COUNT(*) FROM DomainCommandReceipts) + (SELECT COUNT(*) FROM DomainCreations WHERE Surface = 'mcp');",
             transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (count >= DomainCommandLimits.MaximumRetainedCommands)
             throw new DomainValidationException("The registry command history limit has been reached. Retry after older commands expire.");

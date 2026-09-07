@@ -88,7 +88,7 @@ public sealed record RemoteLocationValue(
 
 public sealed record RemotePage<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
-public sealed class MonkeysphereRemoteQueries(
+public sealed partial class MonkeysphereRemoteQueries(
     IMonkeysphereService service,
     IRelationshipService relationshipService,
     IDomainCatalog domains,

@@ -52,7 +52,8 @@ public sealed record VCardContactPreview(
 public sealed record VCardImportPreview(
     Guid RecordTypeId,
     string RecordTypeName,
-    IReadOnlyList<VCardContactPreview> Contacts);
+    IReadOnlyList<VCardContactPreview> Contacts,
+    string Revision = "");
 
 public sealed record VCardImportSelection(
     int ContactIndex,
@@ -87,12 +88,14 @@ public sealed record VCardStoredProperty(
 
 public interface IVCardStore
 {
+    Task<string> GetImportRevisionAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<VCardExistingContact>> ListExistingAsync(
         Guid recordTypeId,
         CancellationToken cancellationToken = default);
 
     Task<VCardImportResult> ApplyAsync(
         IReadOnlyList<VCardPreparedImport> contacts,
+        string expectedRevision,
         DateTimeOffset now,
         CancellationToken cancellationToken = default);
 
@@ -104,6 +107,9 @@ public interface IVCardStore
 public interface IVCardService
 {
     Task<VCardImportPreview> PreviewAsync(ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default);
+    Task<VCardImportPreview> PreviewAsync(Stream content, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<VCardPreparedImport>> PrepareImportAsync(VCardImportPreview preview,
+        IReadOnlyList<VCardImportSelection> selections, CancellationToken cancellationToken = default);
 
     Task<VCardImportResult> ApplyAsync(
         VCardImportPreview preview,
@@ -132,8 +138,14 @@ public sealed class VCardService(
     public async Task<VCardImportPreview> PreviewAsync(
         ReadOnlyMemory<byte> content,
         CancellationToken cancellationToken = default)
+        => await PreviewCardsAsync(VCardParser.Parse(content.Span), cancellationToken).ConfigureAwait(false);
+
+    public async Task<VCardImportPreview> PreviewAsync(Stream content, CancellationToken cancellationToken = default)
+        => await PreviewCardsAsync(await VCardParser.ParseAsync(content, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+    private async Task<VCardImportPreview> PreviewCardsAsync(IReadOnlyList<VCard> cards, CancellationToken cancellationToken)
     {
-        IReadOnlyList<VCard> cards = VCardParser.Parse(content.Span);
+        string revision = await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false);
         RecordType person = (await records.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(type =>
                 type.Lifecycle == RecordTypeLifecycle.Active &&
@@ -163,7 +175,9 @@ public sealed class VCardService(
             };
         }
 
-        return new(person.Id, person.Name, contacts);
+        if (revision != await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false))
+            throw new ConcurrencyConflictException("Contacts or structures changed while preparing this preview. Preview the file again.");
+        return new(person.Id, person.Name, contacts, revision);
     }
 
     public async Task<VCardImportResult> ApplyAsync(
@@ -171,6 +185,15 @@ public sealed class VCardService(
         IReadOnlyList<VCardImportSelection> selections,
         CancellationToken cancellationToken = default)
     {
+        IReadOnlyList<VCardPreparedImport> prepared = await PrepareImportAsync(preview, selections, cancellationToken).ConfigureAwait(false);
+        return await store.ApplyAsync(prepared, preview.Revision, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<VCardPreparedImport>> PrepareImportAsync(VCardImportPreview preview,
+        IReadOnlyList<VCardImportSelection> selections, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(preview.Revision) || preview.Revision != await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false))
+            throw new ConcurrencyConflictException("Contacts or structures changed since this preview. Preview the file again.");
         if (selections.Count != preview.Contacts.Count ||
             selections.Select(selection => selection.ContactIndex).Distinct().Count() != preview.Contacts.Count)
         {
@@ -208,7 +231,7 @@ public sealed class VCardService(
             prepared.Add(new(contact, selection.Action, selection.ExistingRecordId, normalized));
         }
 
-        return await store.ApplyAsync(prepared, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        return prepared;
     }
 
     public async Task<byte[]> ExportAsync(IReadOnlyList<Guid> recordIds, CancellationToken cancellationToken = default)

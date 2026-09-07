@@ -97,3 +97,35 @@ Remaining work: implement relationship/setup commands, other preview state, oper
 Contract 1.7 extends structure.write to custom record-type creation and field creation/attachment. Type and reusable-field revisions are checked transactionally. Shared browser paths enforce the same revision and required-value rules. Schema commands reuse the existing command history and return ordered receipt items: created field then updated type for create-and-attach, or just updated type for reuse. Other schema lifecycle operations remain planned.
 
 Contract 1.8 extends structure.write to onboarding and preset installation. A read-only domain setup revision and a packaged-catalog revision bind new requests to reviewed state. Blank selections require acknowledgement. Command receipts are checked before current-catalog validation, and installation/completion commits with receipt and audit. Domain creation/rename requires a separate registry transaction and recovery design; it is not exposed yet.
+
+
+## Contact staging implementation checkpoint
+
+Reviewed 2026-09-07. Owner: Agent. Next review: 2026-09-14.
+
+The Core/Data upload store is implemented and locally tested. It is not yet registered as MCP tools; the production contract remains 1.11 with supportsFileTransfer=false. The proposed complete_upload operation still requires content validation and auditing before exposure. Internal sealing currently verifies only declared length and whole-file SHA-256; sealed bytes are not validated contacts and do not authorize import.
+
+A separate DnaX-managed remote-transfers.db holds credential/domain-bound sessions and binary chunks. No client filename or server path is accepted. Initial purposes are limited internally to contact staging with text/vcard or text/x-vcard and 1 byte through 5 MiB declared length. Begin uses a UUID retry key bound to normalized type, length and SHA-256; exact retries return the current session status. Writes are sequential, at most 256 KiB decoded, with at most 256 chunks per session. An identical accepted offset and byte sequence replays without appending; gaps, changed boundaries, checksum mismatch and declared-length overflow fail before persistence. Byte insertion and accepted-offset advancement share a transaction. Hashing and internal copying consume one chunk at a time.
+
+| Bound | Implemented value |
+| --- | --- |
+| Active reserved payload, deployment-wide | 64 MiB |
+| Active sessions, deployment-wide | 64 |
+| Active sessions per domain | 8 |
+| Active sessions per credential within a domain | 4 |
+| Retained session metadata, deployment-wide | 1000 |
+| Payload lifetime | 60 minutes from begin; no extension |
+| Begin-key replay | 24 hours from begin |
+| Metadata tombstones after replay expiry | 7 additional days |
+
+Declared bytes reserve quota before any payload arrives. Completed/sealed payloads continue to occupy quota until cancellation or expiry. Pending allocations and chunk writes check free space with a two-times growth allowance and 16 MiB headroom. Small-chunk metadata growth is bounded independently. Existing begin/chunk retries remain usable when new allocations reach quota. The future transport adapter must reduce decoded chunk size for configured request limits, ensure the declared upload fits within 256 chunks, and advertise the resulting bounds before accepting it.
+
+Cancellation deletes staged chunks transactionally and preserves terminal metadata. Expiry is enforced on use; startup, five-minute background sweeps and begin requests clean expired bytes and old metadata. SQLite secure_delete is enabled on staging connections, but this is not a forensic-erasure guarantee for filesystem journals or storage devices. Upload state is excluded from backup archives. Successful offline restore discards the former staging database, including from the generated rollback directory, and invalidates old handles; failed restore can recover prior staging alongside the original deployment.
+
+Remaining before exposing uploads: authenticated contacts.import adapters with permission checks on every call, effective transport limits, redacted mutation audit, vCard content validation, and protocol-level cancellation/revocation/retry tests. Next implement durable credential/domain-bound contact previews and revision-checked apply using the existing Core mapping and conflict decisions. Deployed MCPHub transfer remains unverified and no integration changes are authorized by this checkpoint.
+
+
+2026-09-07 validation checkpoint: ContactUploadService now seals upload integrity and invokes the shared vCard parser through a scoped asynchronous stream over stored chunks. ParseAsync reads at most 16 KiB per request and enforces the existing 5 MiB, 1000-card and 2000-properties/card bounds with strict incremental UTF-8 decoding. It handles split multi-byte characters and folded lines without a complete decoded-file copy or repeated concatenation of the growing folded value. Parsed cards and the largest logical line still occupy memory proportional to their bounded content; this is not a constant-memory object model. The synchronous browser parser shares the same state machine and fingerprint rules. Read leases are disposed after their callback, require complete consumption and recheck upload availability before returning. Semantic failure leaves integrity-sealed staging, not a validated/imported contact. Remaining exposure gates: authenticated contacts.import tools, effective request/chunk limits and redacted audit, followed by durable preview/apply. Owner: Agent; review: 2026-09-14.
+
+
+2026-09-07 remote upload checkpoint: contract 1.12 exposes begin_upload, write_upload_chunk, get_upload_status, complete_upload and cancel_upload under contacts.import. The adapter derives ownership only from authenticated MCP credentials and rechecks the purpose grant on every call. It advertises request-aware Base64 chunk capacity with 8192-byte envelope headroom and a file limit bounded by 256 chunks. Existing begin retries survive lowered runtime limits; new allocations must fit current limits. Staging schema 2 records bounded redacted audit in mutation transactions and logs validation/failure outcomes separately. Full 5 MiB transfer, malformed content, retry, scope, expiry, audit rollback and revocation tests pass locally. Earlier exposure-gate notes are superseded. Contact preview/apply/export and live MCPHub transfer remain incomplete. Owner: Agent; next action: durable contact previews and revision-checked apply; review: 2026-09-14.

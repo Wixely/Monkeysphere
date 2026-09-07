@@ -43,81 +43,106 @@ public static class VCardParser
             throw new DomainValidationException("vCard files must use valid UTF-8.", exception);
         }
 
-        List<string> unfolded = [];
-        foreach (string physicalLine in text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
-        {
-            if (physicalLine.Length > 0 && physicalLine[0] is ' ' or '\t')
-            {
-                if (unfolded.Count == 0)
-                {
-                    throw new DomainValidationException("A vCard continuation line has no preceding content line.");
-                }
-
-                unfolded[^1] += physicalLine[1..];
-            }
-            else if (physicalLine.Length > 0)
-            {
-                unfolded.Add(physicalLine);
-            }
-        }
-
-        List<VCard> cards = [];
-        List<VCardProperty>? properties = null;
-        foreach (string line in unfolded)
-        {
-            if (string.Equals(line, "BEGIN:VCARD", StringComparison.OrdinalIgnoreCase))
-            {
-                if (properties is not null)
-                {
-                    throw new DomainValidationException("Nested vCards are not valid.");
-                }
-
-                properties = [];
-                continue;
-            }
-
-            if (string.Equals(line, "END:VCARD", StringComparison.OrdinalIgnoreCase))
-            {
-                if (properties is null)
-                {
-                    throw new DomainValidationException("A vCard end marker has no matching start marker.");
-                }
-
-                cards.Add(CreateCard(properties));
-                if (cards.Count > MaximumCards)
-                {
-                    throw new DomainValidationException($"A vCard file cannot contain more than {MaximumCards} contacts.");
-                }
-
-                properties = null;
-                continue;
-            }
-
-            if (properties is null)
-            {
-                throw new DomainValidationException("Content outside a vCard is not supported.");
-            }
-
-            properties.Add(ParseProperty(line));
-            if (properties.Count > MaximumPropertiesPerCard)
-            {
-                throw new DomainValidationException($"A contact cannot contain more than {MaximumPropertiesPerCard} properties.");
-            }
-        }
-
-        if (properties is not null)
-        {
-            throw new DomainValidationException("A vCard is missing its end marker.");
-        }
-
-        if (cards.Count == 0)
-        {
-            throw new DomainValidationException("No vCards were found.");
-        }
-
-        return cards;
+        ParserState parser = new();
+        parser.Append(text.AsSpan());
+        return parser.Complete();
     }
 
+    public static async Task<IReadOnlyList<VCard>> ParseAsync(Stream content, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        byte[] bytes = new byte[16 * 1024];
+        char[] characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
+        Decoder decoder = new UTF8Encoding(false, true).GetDecoder();
+        ParserState parser = new();
+        int total = 0;
+        try
+        {
+            while (true)
+            {
+                int count = await content.ReadAsync(bytes.AsMemory(), cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                total += count;
+                if (total > MaximumBytes) throw new DomainValidationException($"vCard files cannot exceed {MaximumBytes} bytes.");
+                int decoded = decoder.GetChars(bytes, 0, count, characters, 0, flush: count == 0);
+                parser.Append(characters.AsSpan(0, decoded));
+                if (count == 0) break;
+            }
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new DomainValidationException("vCard files must use valid UTF-8.", exception);
+        }
+        if (total == 0) throw new DomainValidationException("vCard files cannot be empty.");
+        return parser.Complete();
+    }
+
+    private sealed class ParserState
+    {
+        private readonly StringBuilder _physical = new();
+        private readonly StringBuilder _logical = new();
+        private readonly List<VCard> _cards = [];
+        private List<VCardProperty>? _properties;
+
+        internal void Append(ReadOnlySpan<char> characters)
+        {
+            foreach (char character in characters)
+            {
+                if (character is '\r' or '\n') FinishPhysicalLine();
+                else _physical.Append(character);
+            }
+        }
+
+        private void FinishPhysicalLine()
+        {
+            if (_physical.Length == 0) return;
+            if (_physical[0] is ' ' or '\t')
+            {
+                if (_logical.Length == 0) throw new DomainValidationException("A vCard continuation line has no preceding content line.");
+                _logical.Append(_physical.ToString(1, _physical.Length - 1));
+            }
+            else
+            {
+                FinishLogicalLine();
+                _logical.Append(_physical);
+            }
+            _physical.Clear();
+        }
+
+        private void FinishLogicalLine()
+        {
+            if (_logical.Length == 0) return;
+            string line = _logical.ToString();
+            _logical.Clear();
+            if (string.Equals(line, "BEGIN:VCARD", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_properties is not null) throw new DomainValidationException("Nested vCards are not valid.");
+                _properties = [];
+            }
+            else if (string.Equals(line, "END:VCARD", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_properties is null) throw new DomainValidationException("A vCard end marker has no matching start marker.");
+                _cards.Add(CreateCard(_properties));
+                if (_cards.Count > MaximumCards) throw new DomainValidationException($"A vCard file cannot contain more than {MaximumCards} contacts.");
+                _properties = null;
+            }
+            else
+            {
+                if (_properties is null) throw new DomainValidationException("Content outside a vCard is not supported.");
+                _properties.Add(ParseProperty(line));
+                if (_properties.Count > MaximumPropertiesPerCard) throw new DomainValidationException($"A contact cannot contain more than {MaximumPropertiesPerCard} properties.");
+            }
+        }
+
+        internal List<VCard> Complete()
+        {
+            FinishPhysicalLine();
+            FinishLogicalLine();
+            if (_properties is not null) throw new DomainValidationException("A vCard is missing its end marker.");
+            if (_cards.Count == 0) throw new DomainValidationException("No vCards were found.");
+            return _cards;
+        }
+    }
     private static VCard CreateCard(IReadOnlyList<VCardProperty> properties)
     {
         string[] versions = properties

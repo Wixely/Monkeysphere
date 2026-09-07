@@ -1326,9 +1326,10 @@ public sealed partial class SqliteMonkeysphereStore(
         }
 
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
         int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT COUNT(*) FROM Records r" + where + ";",
-            parameters,
+            parameters, transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         parameters.Add("Limit", search.PageSize);
@@ -1339,7 +1340,7 @@ public sealed partial class SqliteMonkeysphereStore(
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
             """ + where + orderBy + " LIMIT @Limit OFFSET @Offset;",
-            parameters,
+            parameters, transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return new PagedResult<RecordSummary>(rows.Select(MapSummary).ToArray(), search.Page, search.PageSize, total);
     }
@@ -1366,8 +1367,8 @@ public sealed partial class SqliteMonkeysphereStore(
                 $"(fv.TextValue LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM FieldValueTags ft WHERE ft.FieldValueId = fv.Id AND ft.Value LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE) OR EXISTS (SELECT 1 FROM FieldValueLocations fl WHERE fl.FieldValueId = fv.Id AND fl.DisplayContext LIKE @{patternParameter} ESCAPE '\\' COLLATE NOCASE))",
             FieldFilterOperator.GreaterThan => $"fv.NumberSortValue > @{numberParameter}",
             FieldFilterOperator.LessThan => $"fv.NumberSortValue < @{numberParameter}",
-            FieldFilterOperator.Before => $"COALESCE(fv.TemporalSortKey, fv.DateValue) < @{dateParameter}",
-            FieldFilterOperator.After => $"COALESCE(fv.TemporalSortKey, fv.DateValue) > @{dateParameter}",
+            FieldFilterOperator.Before => $"COALESCE(fv.TemporalSortKey, fv.DateValue || 'T00:00:00') < @{dateParameter}",
+            FieldFilterOperator.After => $"COALESCE(fv.TemporalSortKey, fv.DateValue || 'T00:00:00') > @{dateParameter}",
             _ => throw new DomainValidationException("Unsupported field filter operator."),
         };
 
@@ -1375,7 +1376,7 @@ public sealed partial class SqliteMonkeysphereStore(
         parameters.Add(patternParameter, $"%{EscapeLike(filter)}%");
         if (operation is FieldFilterOperator.GreaterThan or FieldFilterOperator.LessThan)
         {
-            if (!double.TryParse(filter, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+            if (!double.TryParse(filter, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) || !double.IsFinite(number))
             {
                 throw new DomainValidationException("Numeric filters require an invariant number.");
             }

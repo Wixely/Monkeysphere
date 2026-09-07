@@ -12,6 +12,13 @@ public sealed class SqliteVCardStore(
 {
     private const string PersonPresetKey = "monkeysphere.person";
 
+    public async Task<string> GetImportRevisionAsync(CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await connection.QuerySingleAsync<string>(new CommandDefinition("SELECT Revision FROM ContactImportState WHERE Id = 1;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<VCardExistingContact>> ListExistingAsync(
         Guid recordTypeId,
         CancellationToken cancellationToken = default)
@@ -31,10 +38,11 @@ public sealed class SqliteVCardStore(
             """, new { Ids = ids }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         ExistingValueRow[] values = (await connection.QueryAsync<ExistingValueRow>(new CommandDefinition("""
             SELECT fv.RecordId, fd.CanonicalKey,
-                   COALESCE(fv.TextValue, fv.DateValue, fv.TemporalValue) AS Value
+                   CAST(COALESCE(fv.TextValue, fv.DateValue, fv.TemporalValue) AS TEXT) AS Value
             FROM FieldValues fv
             INNER JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
             WHERE fv.RecordId IN @Ids AND fd.CanonicalKey IS NOT NULL
+              AND COALESCE(fv.TextValue, fv.DateValue, fv.TemporalValue) IS NOT NULL
             ORDER BY fv.RecordId, fd.CanonicalKey, fv.Ordinal;
             """, new { Ids = ids }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         ImportRow[] fingerprints = (await connection.QueryAsync<ImportRow>(new CommandDefinition("""
@@ -58,16 +66,30 @@ public sealed class SqliteVCardStore(
 
     public async Task<VCardImportResult> ApplyAsync(
         IReadOnlyList<VCardPreparedImport> contacts,
+        string expectedRevision,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        VCardImportResult result = await ApplyCoreAsync(connection, transaction, contacts, expectedRevision, now, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+        return result;
+    }
+
+    internal static async Task<VCardImportResult> ApplyCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        IReadOnlyList<VCardPreparedImport> contacts, string expectedRevision, DateTimeOffset now, CancellationToken cancellationToken)
     {
         string timestamp = Timestamp(now);
         int created = 0;
         int merged = 0;
         int replaced = 0;
         int skipped = 0;
-        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string revision = await connection.QuerySingleAsync<string>(new CommandDefinition("SELECT Revision FROM ContactImportState WHERE Id = 1;",
+            transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(expectedRevision) || revision != expectedRevision)
+            throw new ConcurrencyConflictException("Contacts or structures changed since this preview. Preview the file again.");
         foreach (VCardPreparedImport contact in contacts)
         {
             if (contact.Action == VCardImportAction.Skip)
@@ -146,7 +168,6 @@ public sealed class SqliteVCardStore(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(created, merged, replaced, skipped);
     }
 
@@ -411,7 +432,12 @@ public sealed class SqliteVCardStore(
     private sealed record StoredScalar(string Value);
     private sealed record ExistingRow(string Id, string DisplayName);
     private sealed record AliasRow(string RecordId, string Value);
-    private sealed record ExistingValueRow(string RecordId, string CanonicalKey, string Value);
+    private sealed class ExistingValueRow
+    {
+        public string RecordId { get; set; } = "";
+        public string CanonicalKey { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
     private sealed record ImportRow(string RecordId, string Fingerprint);
 
     private sealed class PropertyRow

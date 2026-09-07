@@ -7,7 +7,7 @@ public sealed record RecordCommandIdentity(Guid DomainId, string Surface, string
         if (DomainId == Guid.Empty || IdempotencyKey == Guid.Empty || Surface is not ("mcp" or "api") ||
             Action is not ("records.create" or "records.patch" or "records.batch" or "records.delete" or
                 "relationships.create" or "relationships.delete" or "relationship_types.create" or
-                "record_types.create" or "fields.create_attach" or "fields.attach" or "presets.install" or "setup.complete" or "domains.rename") || !IsDigest(CredentialFingerprint) || !IsDigest(RequestHash))
+                "record_types.create" or "fields.create_attach" or "fields.attach" or "presets.install" or "setup.complete" or "domains.rename" or "domains.create") || !IsDigest(CredentialFingerprint) || !IsDigest(RequestHash))
         {
             throw new DomainValidationException("The command identity is invalid.");
         }

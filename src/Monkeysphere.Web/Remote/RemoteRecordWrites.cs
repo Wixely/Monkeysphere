@@ -134,13 +134,13 @@ public sealed partial class RemoteRecordWriter(RecordCommandService commands, Re
 
     private async Task RecordFailureAsync(Guid domainId, string action, string outcome)
     {
-        if (domainId == Guid.Empty || (action != "domains.rename" && !domains.TryGet(domainId, out _))) return;
+        if (domainId == Guid.Empty || (action is not ("domains.rename" or "domains.create") && !domains.TryGet(domainId, out _))) return;
         string correlation = accessor.HttpContext?.TraceIdentifier ?? "";
         try
         {
             using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(2));
             ApplicationCommandEvent entry = new(domainId, "mcp", action, outcome, correlation, timeProvider.GetUtcNow());
-            if (action == "domains.rename")
+            if (action is "domains.rename" or "domains.create")
                 await domainCommands.RecordFailureAsync(entry, deadline.Token).ConfigureAwait(false);
             else
             {

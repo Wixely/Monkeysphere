@@ -14,7 +14,7 @@ public static class DomainRegistrySchema
     public const string DatabaseName = "MonkeysphereDomains";
 
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 3,
+        currentVersion: 4,
         migrations:
         [
             DnaXMigration.Sql(1, "domain-registry", "Create the Monkeysphere domain registry", """
@@ -62,6 +62,28 @@ public static class DomainRegistrySchema
                     CorrelationId TEXT NOT NULL,
                     OccurredAtUtc TEXT NOT NULL
                 );
+                """),
+            DnaXMigration.Sql(4, "domain-creation-reservations", "Reserve domain creation before initializing storage", """
+                CREATE TABLE DomainCreations (
+                    DomainId TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    Surface TEXT NOT NULL,
+                    CredentialFingerprint TEXT NOT NULL,
+                    Action TEXT NOT NULL,
+                    IdempotencyKey TEXT NOT NULL,
+                    RequestHash TEXT NOT NULL,
+                    CreatedAtUtc TEXT NOT NULL,
+                    UNIQUE (Surface, CredentialFingerprint, Action, IdempotencyKey)
+                );
+                CREATE TRIGGER DomainCreations_Reserve BEFORE INSERT ON DomainCreations
+                WHEN EXISTS (SELECT 1 FROM Domains WHERE Id = NEW.DomainId OR Name = NEW.Name)
+                BEGIN SELECT RAISE(ABORT, 'Domain already exists'); END;
+                CREATE TRIGGER Domains_Reserved_Insert BEFORE INSERT ON Domains
+                WHEN EXISTS (SELECT 1 FROM DomainCreations WHERE Name = NEW.Name AND DomainId <> NEW.Id)
+                BEGIN SELECT RAISE(ABORT, 'Domain name is reserved'); END;
+                CREATE TRIGGER Domains_Reserved_Rename BEFORE UPDATE OF Name ON Domains
+                WHEN EXISTS (SELECT 1 FROM DomainCreations WHERE Name = NEW.Name AND DomainId <> NEW.Id)
+                BEGIN SELECT RAISE(ABORT, 'Domain name is reserved'); END;
                 """),
         ]);
 }
@@ -211,8 +233,9 @@ internal sealed partial class DomainCatalog(
             string now = Timestamp(timeProvider.GetUtcNow());
             await connection.ExecuteAsync(new CommandDefinition("""
                 INSERT OR IGNORE INTO Domains (Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc)
-                VALUES (@Id, 'Default', 1, @Now, @Now);
+                SELECT @Id, 'Default', 1, @Now, @Now WHERE NOT EXISTS (SELECT 1 FROM Domains WHERE Id = @Id);
                 """, new { Id = Key(MonkeysphereDomains.DefaultId), Now = now }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            await RecoverCreationsAsync(connection, cancellationToken).ConfigureAwait(false);
             await RefreshAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -224,43 +247,12 @@ internal sealed partial class DomainCatalog(
     public async Task<MonkeysphereDomain> CreateAsync(string name, CancellationToken cancellationToken = default)
     {
         string normalized = MonkeysphereDomains.NormalizeName(name);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         Guid id = Guid.CreateVersion7();
-        bool registered = false;
-        string domainDirectory = paths.ResolveWritable(Path.Combine("domains", id.ToString("N")));
-        try
-        {
-            if (_domains.Any(domain => string.Equals(domain.Name, normalized, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new DomainValidationException("A domain with that name already exists.");
-            }
-
-            await domainDatabases.MigrateAsync(id, cancellationToken).ConfigureAwait(false);
-            DateTimeOffset now = timeProvider.GetUtcNow();
-            await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await connection.ExecuteAsync(new CommandDefinition("""
-                INSERT INTO Domains (Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc)
-                VALUES (@Id, @Name, 0, @Now, @Now);
-                """, new { Id = Key(id), Name = normalized, Now = Timestamp(now) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
-            registered = true;
-            await RefreshAsync(connection, cancellationToken).ConfigureAwait(false);
-            return _domains.Single(domain => domain.Id == id);
-        }
-        catch
-        {
-            if (!registered && Directory.Exists(domainDirectory))
-            {
-                Directory.Delete(domainDirectory, recursive: true);
-            }
-
-            throw;
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        RecordCommandIdentity identity = new(id, "browser", new string('0', 64), "domains.create", Guid.CreateVersion7(),
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized))));
+        RecordCommandReceipt receipt = await CreateReservedAsync(identity, normalized, cancellationToken).ConfigureAwait(false);
+        return _domains.Single(domain => domain.Id == receipt.Items[0].Id);
     }
-
     public async Task<MonkeysphereDomain> RenameAsync(Guid id, string name, string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         string normalized = MonkeysphereDomains.NormalizeName(name);

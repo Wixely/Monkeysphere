@@ -49,7 +49,7 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal([scope], capabilities.GrantedScopes);
         Assert.True(capabilities.SupportsDomainSelection);
         Assert.True(capabilities.SupportsWrites);
-        Assert.False(capabilities.SupportsFileTransfer);
+        Assert.True(capabilities.SupportsFileTransfer);
         Assert.Equal(1_048_576, capabilities.RequestLimits.MaximumRequestBodyBytes);
         Assert.Equal(8, capabilities.RequestLimits.MaximumConcurrentRequests);
         Assert.Equal(30, capabilities.RequestLimits.RequestTimeoutSeconds);

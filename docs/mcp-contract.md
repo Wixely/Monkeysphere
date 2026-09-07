@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.9
+- Contract version: 1.12
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -10,12 +10,19 @@
 
 | Tool | Required grant | Inputs / result |
 | --- | --- | --- |
-| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` | No inputs. Application name, release version without build metadata, database schema version, contract version |
-| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import` | No inputs. Application name, release version without build metadata, database schema version, contract version |
+| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `create_domain` | `domains.manage` | Required new non-Default `domainId` UUID, `name`, UUID `idempotencyKey`. Creates an isolated blank domain using a durable reservation |
 | `rename_domain` | `domains.manage` | Required `domainId`, `name`, `expectedRevision`, UUID `idempotencyKey`. Revision-checked rename with durable receipt |
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
 | `list_record_types` | `records.read` | Optional `domainId`. Up to 100 record types with their field definitions |
 | `get_record_type` | `records.read` | Required `id`, optional `domainId`. One type or null |
+| `begin_upload` | `contacts.import` | Required `domainId`, `purpose` (`contact_import`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session |
+| `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
+| `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
+| `complete_upload` | `contacts.import` | Required `domainId`, `uploadId`. Integrity and UTF-8 vCard validation; returns upload status, contact count and `contentValidated` |
+| `cancel_upload` | `contacts.import` | Required `domainId`, `uploadId`. Removes staged bytes and retains bounded terminal metadata |
+| `query_records` | `records.read` | Optional `query`, `recordTypeId`, up to 10 `filters`, `sort`, `page`, `pageSize`, `domainId`. Structured filtering and sorting with strict bounds and snapshot-consistent totals |
 | `search_records` | `records.read` | Optional `query`, `recordTypeId`, `page` (1), `pageSize` (25), `domainId`. Bounded result with total count |
 | `get_record` | `records.read` | Required `id`, optional `domainId`. One record or null, including aliases, values, image metadata and up to 100 relationships |
 | `get_record_relationships` | `records.read` | Required `id`, optional `domainId`. Up to 100 relationships |
@@ -50,13 +57,13 @@
 | `install_preset` | `structure.write` | Required `domainId`, `presetKey`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`. Atomic single-preset installation with receipt |
 | `complete_setup` | `structure.write` | Required `domainId`, `starterPackKey`, `selectedPresetKeys`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`; `acknowledgeBlank` defaults false. Atomic selected installation and setup completion |
 
-Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is false. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
+Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is true for contact upload/validation; contact import/apply, export and image transfer remain planned. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
 
-Both list_domains and query_domains include an opaque domain `revision`. Domain registry migration 2 persists these tokens and changes them on renaming, including a rename back to an earlier name. Browser rename submits its captured revision; the registry update checks it transactionally and publishes the matching cached catalog only after commit. Contract 1.9 adds registry-owned rename receipts and the separate `domains.manage` grant. Domain creation still awaits recoverable creation.
+Both list_domains and query_domains include an opaque domain `revision`. Domain registry migration 2 persists these tokens and changes them on renaming, including a rename back to an earlier name. Browser rename submits its captured revision; the registry update checks it transactionally and publishes the matching cached catalog only after commit. Contract 1.9 adds registry-owned rename receipts and the separate `domains.manage` grant. Contract 1.10 adds recoverable creation.
 
 Omitted domain selectors retain the Default domain for backwards compatibility. Explicit malformed or unknown domain selectors fail closed. Domain listing is still under the single-administrator trust boundary. New paged tools accept page 1-10000 and page size 1-100, rejecting invalid values. They preserve deterministic ordering and report total count; empty pages do not lose that count. Legacy tools keep their response shapes and caps. Metadata catalogs currently use the shared application list services before paging; relationship rows are paged directly in SQLite.
 
-Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write` and `domains.manage`; HTTP API offers `records.read`. Selections take effect only on rotation, which replaces the one credential for that surface. Write grants do not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records. Both new write grants permit instance/capability discovery; they do not permit unrelated record mutations.
+Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` and `contacts.import`; HTTP API offers `records.read`. Selections take effect only on rotation, which replaces the one credential for that surface. Write grants do not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records. Both new write grants permit instance/capability discovery; they do not permit unrelated record mutations.
 
 ## Additive typed information in 1.1
 
@@ -64,7 +71,7 @@ Field definitions retain existing properties and add `configurationJson`, `lifec
 
 Record values retain the formatted `value`, `tags` and structured `location`. They additionally expose `ordinal`, `scalarValue` and `temporal`. Temporal values contain canonical stored `value`, lowercase precision, `isApproximate` and `approximationNote`. For example, a decade entered as `2010s` is returned as canonical `2010` with precision `decade`; clients must preserve both fields rather than interpreting it as an exact year. The legacy formatted value remains available for display.
 
-Clients must ignore unknown additive response fields. Future incompatible request/result changes require a new tool or an explicitly versioned contract; existing read names remain stable. Version 1.2 adds the record-write tools below; file transfer remains planned.
+Clients must ignore unknown additive response fields. Future incompatible request/result changes require a new tool or an explicitly versioned contract; existing read names remain stable. Version 1.2 adds the record-write tools below; contact upload is available in 1.12; other file workflows remain planned.
 
 Record/type reads include an opaque `revision` token. Record tokens cover content and attached validation schema changes; they are independent of media-only updates. The browser and MCP use record tokens to reject stale edits. Deletion uses a separate impact revision as described below; individual media tools remain planned.
 
@@ -137,7 +144,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.9",
+  "contractVersion": "1.12",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -145,7 +152,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
   ],
   "supportsDomainSelection": true,
   "supportsWrites": true,
-  "supportsFileTransfer": false
+  "supportsFileTransfer": true
 }
 ```
 
@@ -199,7 +206,7 @@ get_setup_state performs one read transaction and never persists the implicit co
 
 New installation commands require both the domain revision from get_setup_state and the catalog revision from discovery. Invalid selections and name/identity collisions fail without partial installation. complete_setup accepts a distinct subset of the chosen pack (at most the number of packaged presets). Any empty selection requires acknowledgeBlank=true, acknowledging that preset-dependent features may need presets installed later. It rejects already completed setup, including domains that already contain custom record types. install_preset can add a missing preset after setup; it does not replace local structures or upgrade a previously installed key.
 
-Installation uses the same Core definitions and selection rules as the browser, including relationships applicable to the current installation selection. It does not retroactively add all possible relationships between separately installed presets. Mutations, stored setup completion, receipt and redacted audit commit in one domain transaction. Receipt items contain created record/relationship type IDs and revisions, followed by the domain ID and resulting setup revision with outcome `setup_completed` or `presets_installed`. The normal bounded command history and 24-hour retry window apply. Identical retries read an existing receipt before revalidating the catalog, so a subsequent catalog or schema change does not duplicate installation. Domain creation remains planned.
+Installation uses the same Core definitions and selection rules as the browser, including relationships applicable to the current installation selection. It does not retroactively add all possible relationships between separately installed presets. Mutations, stored setup completion, receipt and redacted audit commit in one domain transaction. Receipt items contain created record/relationship type IDs and revisions, followed by the domain ID and resulting setup revision with outcome `setup_completed` or `presets_installed`. The normal bounded command history and 24-hour retry window apply. Identical retries read an existing receipt before revalidating the catalog, so a subsequent catalog or schema change does not duplicate installation. Domain creation is available in contract 1.10.
 
 ## Domain rename in 1.9
 
@@ -207,4 +214,63 @@ Installation uses the same Core definitions and selection rules as the browser, 
 
 Registry migration 3 commits the rename, receipt and redacted audit together, then publishes the matching cached catalog. Identical retries return the original receipt for 24 hours, including after later browser edits, without undoing those edits. Changed requests or targets under the same credential/action/key fail with `retry_conflict`; credential rotation starts new ownership.
 
-`get_instance_info` includes `domainRegistrySchemaVersion`. Capability `domainWriteLimits` advertises 1,000 retained registry commands, 65,536 receipt bytes, a 24-hour retry window and seven additional days of tombstones. Cleanup runs during subsequent writes. Audit retains at most 50,000 events and 90 days, with IDs/action/outcome/correlation/time only; names and bearer credentials are excluded. Registry history is included in deployment-wide database snapshots. Domain creation and deletion remain unavailable over MCP.
+`get_instance_info` includes `domainRegistrySchemaVersion`. Capability `domainWriteLimits` advertises 1,000 retained registry commands, 65,536 receipt bytes, a 24-hour retry window and seven additional days of tombstones. Cleanup runs during subsequent writes. Audit retains at most 50,000 events and 90 days, with IDs/action/outcome/correlation/time only; names and bearer credentials are excluded. Registry history is included in deployment-wide database snapshots. Domain deletion remains unavailable over MCP.
+## Recoverable domain creation in 1.10
+
+Create a client-generated domain UUID and retry UUID once, then call `create_domain` with those IDs and a name. Preserve all three on retry. This is a deployment-wide operation: `domainId` is the proposed new identity, not an existing domain selector. Empty/Default/existing IDs, duplicate names and IDs with unowned storage are rejected. Creation preserves the existing Default domain. Use `get_setup_state` and `complete_setup` separately to initialize the new domain.
+
+Registry migration 4 reserves the identity, normalized name and credential-bound request before initializing its database. Pending domains are hidden from both catalog reads and domain-scoped application access. Once storage is initialized, publication, receipt, committed audit and reservation removal share one registry transaction; cache publication follows commit. Failure during final publication leaves a resumable reservation and no visible domain or successful receipt.
+
+Cancellation before reservation leaves no intent. After reservation, a request failure or cancellation does not cancel the accepted creation: an identical retry or application startup resumes the same domain. A pending request has no automatic expiry. Startup completes reservations before serving requests and fails if recovery cannot complete; correct the underlying storage/migration fault and restart. Credential rotation or revocation prevents new calls under the old credential but does not undo previously accepted intent. Changed payloads or targets under an existing retry key fail with `retry_conflict`; a new credential cannot take over that reservation.
+
+`domainWriteLimits.maximumPendingCreations` is 16 across browser and MCP. Each MCP reservation also holds a slot in the 1,000-command registry history limit. Existing pending retries and committed receipt replay remain available when new requests hit quota. The 24-hour receipt replay window starts on completion, followed by seven days of tombstones. Browser creation uses the same reservation/migration/publication path and can resume its pending name on retry or startup.
+
+Backups include pending intent in the registry snapshot and include database/media only for published domains. Restoring such a backup recreates the still-empty reserved database and completes the same domain identity at startup. Pending files are never exposed for user writes or blindly deleted after an interrupted request. Local interruption, recovery, backup/restore, scope and retry tests pass; live MCPHub and interactive browser behavior remain unverified. Owner: Agent; review: 2026-09-14.
+## Structured search in 1.11
+
+`query_records` adds structured filtering and sorting while preserving the existing `search_records` inputs, default ordering and legacy page clamping. The new tool rejects page values outside 1-10000 and page sizes outside 1-100. Omitted `domainId` selects Default. An explicit unknown domain fails; supplied type, filter and sort IDs must exist in that domain. A valid field need not be attached to the selected record type: a filter then matches no values and a sort treats absent values as missing.
+
+`query` searches names, aliases and stored values with literal substring matching; SQL wildcard characters are escaped. Query and filter values are trimmed, limited to 500 and 2000 characters respectively. Each non-null filter has `fieldDefinitionId`, `operator` and non-blank `value`. At most 10 filters are accepted, combined with AND; each can match any stored value of its field. Operators are exact lowercase names:
+
+| Operator | Shared application behavior |
+| --- | --- |
+| `equals` | Equality against stored text, numeric/date/temporal representation, a tag, or location display context; text/tag/context comparison uses SQLite NOCASE |
+| `contains` | Literal substring in text, a tag, or location display context |
+| `greater_than`, `less_than` | Compare numeric sort values with a finite invariant number; NaN/infinity are rejected |
+| `before`, `after` | Strict comparison against normalized temporal sort keys; exact dates compare at midnight, so the same day does not match either operator |
+
+Temporal bounds accept `19c`, `1980s`, `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DDTHH:mm:ss`. Coarse and approximate values use their stored sort key; these filters do not establish an exact calendar occurrence or interval overlap.
+
+Omit `sort` for recently updated first, with display name and ID tie-breakers. An empty sort object selects display-name order; `descending` defaults false. A sort with `fieldDefinitionId` uses the first stored value by ordinal (and first tag where applicable), then display name and ID. SQLite missing-value ordering applies: missing values sort first ascending and last descending. Results contain bounded record summaries and `totalCount`; count and rows share one SQLite read transaction, including empty pages. Separate page requests see live data and do not pin a multi-request snapshot.
+
+```json
+{
+  "domainId": "10000000-0000-0000-0000-000000000001",
+  "recordTypeId": "20000000-0000-0000-0000-000000000001",
+  "query": "alias",
+  "filters": [
+    { "fieldDefinitionId": "30000000-0000-0000-0000-000000000001", "operator": "greater_than", "value": "12" }
+  ],
+  "sort": { "fieldDefinitionId": "30000000-0000-0000-0000-000000000001", "descending": true },
+  "page": 1,
+  "pageSize": 25
+}
+```
+
+Use IDs returned by discovery; the example IDs are placeholders. Application errors use `isError` and `structuredContent.error` with `permission_denied`, `not_found`, `validation_failed` or `temporarily_unavailable`, a bounded message and correlation ID. Malformed protocol arguments and unknown nested properties can fail at binding before this envelope. `records.read` is required independently of write grants. Search is read-only and does not issue command receipts.
+
+## Contact upload tools in 1.12
+
+A selected `contacts.import` credential can now upload contact files and validate their contents. This grant independently permits instance/capability discovery; select `records.read` separately to discover target domains. Existing credentials do not gain it automatically. API scopes remain unchanged. All five tools require an explicit domain and recheck the authenticated MCP credential on every request; rotation/revocation prevents the old credential from continuing, and a replacement cannot take over its upload.
+
+Begin with purpose `contact_import`, a UUID retry key, the exact byte length, whole-file SHA-256 hexadecimal digest and content type `text/vcard` or `text/x-vcard`. No filename, server path, URL fetch or image-upload purpose is supported. Send sequential chunks with their own SHA-256 digest. Identical accepted offsets and bytes replay without appending; changed metadata/bytes, gaps, overlaps, incorrect checksums and bounds fail. Begin retries report the current session, including a cancelled/expired state, rather than allocating again. Runtime chunk-limit changes do not suppress an existing begin-key replay.
+
+`uploadLimits` advertises the implemented staging quotas and effective chunk/file sizes. Chunk size is the lesser of 256 KiB and the decoded Base64 capacity of the configured request ceiling minus 8192 bytes of JSON overhead. Maximum contact bytes is the lesser of 5 MiB and 256 effective chunks. At request ceilings of 8192 bytes or less, new uploads are unavailable and the effective sizes are zero. Use compact Base64 JSON; unusually escaped or oversized RPC envelopes may hit the HTTP request ceiling, so reduce the chunk size in that case. Requests exceeding the transport ceiling can fail before tool-level structured errors.
+
+Payload expires 60 minutes after begin, with no extension. Begin-key replay lasts 24 hours, followed by seven more days of metadata retention. At most 256 chunks per upload, 64 MiB reserved bytes, 64 active sessions globally, eight active sessions per domain, four per credential/domain and 1000 metadata rows are retained. Expiry and cancellation remove staged bytes; application startup and a five-minute worker clean expired payload/metadata. Respect transport rate limits and inspect status after a lost response before resuming.
+
+`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview/apply/export and image lifecycle tools remain unfinished.
+
+Staging schema 2 adds redacted audit: domain/upload IDs, action, outcome, correlation ID and time. Begin/chunk/seal/cancel mutations commit with their audit; replay requests can add audit entries without repeating byte mutations. Completion records validation success; failures carry only bounded codes and metadata. Audit failure prevents successful mutation responses and rolls back the associated staging transaction. Staging audit is bounded to 50000 entries and seven days, excluded from backup archives and cleared with staging on successful offline restore. Names, uploaded bytes, bearer credentials, credential fingerprints and digests are absent from audit rows.
+
+Errors use `isError` plus `structuredContent.error` with `permission_denied`, `not_found`, `validation_failed`, `limit_exceeded`, `retry_conflict`, `retry_expired`, `upload_expired`, `upload_cancelled`, `upload_not_ready`, `upload_not_writable` or `temporarily_unavailable`. Body/argument binding and expired credentials may fail at the protocol/HTTP layer first. Local tests include an actual 5 MiB MCP transfer, retries, malformed content, audit rollback, configured request bounds and revocation mid-transfer. Deployed MCPHub behavior remains unverified. Owner: Agent; next action: durable contact preview/apply; review: 2026-09-14.

@@ -30,7 +30,7 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(1000, capabilities.DomainWriteLimits.MaximumRetainedCommands);
         Assert.Equal(24, capabilities.DomainWriteLimits.RetryWindowHours);
         using JsonDocument info = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_instance_info");
-        Assert.Equal(3, Structured(info).GetProperty("domainRegistrySchemaVersion").GetInt32());
+        Assert.Equal(4, Structured(info).GetProperty("domainRegistrySchemaVersion").GetInt32());
         using JsonDocument renamed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "rename_domain",
             new { domainId = original.Id, name = "Scoped rename", expectedRevision = original.Revision, idempotencyKey = Guid.CreateVersion7() });
         if (allowed)

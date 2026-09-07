@@ -47,3 +47,12 @@ Before a public release candidate, rerun the full tests and `eng\VerifySupplyCha
 
 
 Domain rename requires the separate domains.manage grant. Registry retries bind credential generation, surface, action, key, target domain and request hash. Revision checks reject stale edits; atomic receipt/audit persistence prevents unrecorded successful renames. Registry audit excludes names and bearer credentials.
+
+
+Creation reservations bind the proposed domain UUID, normalized name, authenticated credential generation, action, retry key and request hash before creating storage. Pending names cannot be claimed by another create or rename. Pending domains cannot receive records/media through normal scopes. Publication and MCP receipt/audit are atomic; interrupted creation is resumed without adopting unowned directories or deleting files on request failure. Reservations retain the requested name as necessary operation state; redacted audit excludes it. Backups preserve accepted intent, so restoring a pending reservation may complete it on startup. Caps bound pending state; persistent recovery faults fail startup instead of exposing partial domains.
+
+
+The contact staging database separates transient contact bytes from backed-up application data. Retry keys bind domain, credential generation and upload metadata; chunks cannot be appended twice or moved to a different offset without validation. Independent chunk-count and declared-byte quotas address tiny-chunk metadata exhaustion and oversized reservation attacks. Chunk/offset rollback is locally tested. Upload scopes, audit and content validation are still exposure gates; sealed internal storage must not be represented as a validated or imported vCard.
+
+
+Contract 1.12 satisfies the upload exposure gates with authenticated contacts.import calls, purpose checking, transport-aware limits, streamed validation and redacted audit. Tests prove denied record-only grants, cross-domain access failure, credential-generation isolation, revocation mid-upload, bad Base64/digest/content rejection and audit-failure rollback. Upload completion validates the file without authorizing record mutations; preview/apply remains the next gate. Audit is bounded and excluded from backups with staging.

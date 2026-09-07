@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 26,
+        currentVersion: 27,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -646,5 +646,6 @@ public static class MonkeysphereSchema
                     UPDATE FieldDefinitions SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
                 END;
                 """),
+            DnaXMigration.Sql(27, "contact-import-revisions", "Invalidate stale contact previews across shared writes", ContactImportRevisionMigration.Sql),
         ]);
 }

@@ -228,7 +228,7 @@ public sealed class PresetWorkflowTests
         VCardContactPreview adaContact = batch.Contacts[1];
         VCardDuplicateCandidate adaCandidate = Assert.Single(adaContact.DuplicateCandidates);
         Assert.True(await records.DeleteRecordAsync(ada.Id));
-        await Assert.ThrowsAsync<DomainValidationException>(() => vcards.ApplyAsync(batch, [
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => vcards.ApplyAsync(batch, [
             new(newContact.Index, VCardImportAction.CreateSeparately),
             new(adaContact.Index, VCardImportAction.MergeNonConflicting, adaCandidate.RecordId),
         ]));

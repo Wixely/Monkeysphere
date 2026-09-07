@@ -46,3 +46,18 @@ MCP setup inspection reads record-type and relationship-type metadata in one SQL
 
 
 Registry rename history is bounded separately from per-domain record history: 1,000 retained commands, 64 KiB receipts, 24-hour replay plus seven days of tombstones, cleaned during subsequent writes. Registry audit retains at most 50,000 rows and 90 days.
+
+
+Domain creation additionally caps pending reservations at 16 across browser and MCP. MCP reservations count toward the 1,000-command registry history limit; finishing an existing reservation needs no additional slot. Pending intent has no automatic expiry and is resumed by retries or startup. Database initialization is serialized by the shared domain catalog gate.
+
+
+Structured MCP queries accept up to 10 AND filters, page 1-10000, page size 1-100, trimmed query length 500 and trimmed filter length 2000. SQL performs filtering/sorting/paging; count and items share one read transaction. Reference validation currently reads the shared domain field catalog before checking requested IDs. Separate page calls are not snapshot-pinned.
+
+
+Internal contact upload staging bounds: 5 MiB/file, 256 KiB/chunk, 256 chunks/file, 64 MiB reserved deployment-wide, 64 active sessions globally, 8/domain, 4/credential/domain and 1000 retained metadata rows. Payload expires after 60 minutes; metadata supports 24-hour begin replay plus seven days of tombstones. Begin and write check available disk space. Hashing/copying read one chunk at a time. Full contact parsing and import memory behavior remain to be integrated and measured; this checkpoint claims no deployed transfer throughput.
+
+
+Streaming contact validation reads 16 KiB input buffers from the upload read lease, which retains at most one stored chunk. Unfolding uses builders instead of repeatedly copying the growing logical value. Parsed card objects and the largest physical/logical line remain bounded by file/card/property limits and scale with the accepted content; no constant-memory parsing claim is made. Tests cover the exact 5 MiB limit, one byte above it and 50000 folded continuation lines, without asserting an unmeasured throughput guarantee.
+
+
+MCP upload limits now use min(256 KiB, floor((request ceiling - 8192)/4)*3) decoded bytes, or zero when the ceiling is at most 8192 bytes. Effective file size is min(5 MiB, 256 chunks). Actual HTTP size limits still apply to escaped/large envelopes. A 5 MiB/20-chunk contact transfer passes through the local production tool registration. Staging audit retains at most 50000 entries/seven days; this is not a live-client throughput claim.

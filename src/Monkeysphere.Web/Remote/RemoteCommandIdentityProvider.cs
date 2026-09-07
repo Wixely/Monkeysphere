@@ -11,6 +11,24 @@ public sealed class RemoteCommandIdentityProvider(IHttpContextAccessor accessor)
 {
     public RecordCommandIdentity Create(Guid domainId, string requiredScope, string action, Guid idempotencyKey, string requestHash)
     {
+        var (surface, fingerprint) = Authenticate(requiredScope);
+        RecordCommandIdentity result = new(domainId, surface, fingerprint, action, idempotencyKey, requestHash);
+        result.Validate();
+        return result;
+    }
+
+    public UploadOwner CreateUploadOwner(Guid domainId)
+    {
+        var (surface, fingerprint) = Authenticate("contacts.import");
+        if (surface != "mcp") throw new UnauthorizedAccessException("Contact upload requires an authenticated MCP credential.");
+        string correlation = accessor.HttpContext?.TraceIdentifier ?? "";
+        UploadOwner owner = new(domainId, fingerprint, correlation[..Math.Min(correlation.Length, 128)]);
+        owner.Validate();
+        return owner;
+    }
+
+    private (string Surface, string Fingerprint) Authenticate(string requiredScope)
+    {
         HttpContext? context = accessor.HttpContext;
         ClaimsIdentity? identity = context?.User.Identities.FirstOrDefault(identity =>
             identity.IsAuthenticated && identity.AuthenticationType == "DnaXRemoteAccess");
@@ -22,8 +40,6 @@ public sealed class RemoteCommandIdentityProvider(IHttpContextAccessor accessor)
         }
         string surface = identity.FindFirst(DnaXRemoteClaimTypes.Surface)?.Value.ToLowerInvariant() ?? string.Empty;
         string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(authorization.Parameter)));
-        RecordCommandIdentity result = new(domainId, surface, fingerprint, action, idempotencyKey, requestHash);
-        result.Validate();
-        return result;
+        return (surface, fingerprint);
     }
 }

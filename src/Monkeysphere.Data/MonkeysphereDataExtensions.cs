@@ -27,6 +27,9 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<DomainCatalog>();
         services.AddSingleton<IDomainCatalog>(provider => provider.GetRequiredService<DomainCatalog>());
         services.AddSingleton<IDomainCommands>(provider => provider.GetRequiredService<DomainCatalog>());
+        services.AddSingleton<RemoteUploadConnections>();
+        services.AddSingleton<IRemoteUploadStore, RemoteUploadStore>();
+        services.AddSingleton<ContactUploadService>();
         services.AddScoped<MonkeysphereConnectionFactory>();
         services.AddSingleton<RecordMediaLocks>();
         services.AddScoped<IMonkeysphereStore, SqliteMonkeysphereStore>();
@@ -99,6 +102,18 @@ public static class MonkeysphereDataExtensions
                 sqlite.LockTimeout = TimeSpan.FromSeconds(30);
             });
         });
+        services.AddDnaXDataMigrations(RemoteUploadSchema.DatabaseName, options =>
+        {
+            options.ConnectionFactory = provider => provider.GetRequiredService<RemoteUploadConnections>().CreateConnection();
+            options.Manifest = RemoteUploadSchema.Manifest;
+            options.ApplicationVersion = typeof(RemoteUploadSchema).Assembly.GetName().Version?.ToString();
+            options.UseSqlite(sqlite =>
+            {
+                sqlite.EnableWriteAheadLogging = true;
+                sqlite.EnforceForeignKeys = true;
+                sqlite.LockTimeout = TimeSpan.FromSeconds(30);
+            });
+        });
         return services;
     }
 
@@ -108,6 +123,8 @@ public static class MonkeysphereDataExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         await services.MigrateDnaXDatabaseAsync(DomainRegistrySchema.DatabaseName, cancellationToken).ConfigureAwait(false);
+        await services.MigrateDnaXDatabaseAsync(RemoteUploadSchema.DatabaseName, cancellationToken).ConfigureAwait(false);
+        await services.GetRequiredService<IRemoteUploadStore>().CleanupAsync(cancellationToken).ConfigureAwait(false);
         IDomainCatalog catalog = services.GetRequiredService<IDomainCatalog>();
         await catalog.InitializeAsync(cancellationToken).ConfigureAwait(false);
         IDomainDatabaseMigrator databases = services.GetRequiredService<IDomainDatabaseMigrator>();

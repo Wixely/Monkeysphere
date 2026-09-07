@@ -97,6 +97,11 @@
             _error = true;
             _message = exception.Message;
         }
+        catch (Exception exception) when (exception is System.Data.Common.DbException or IOException or OperationCanceledException)
+        {
+            _error = true;
+            _message = "Creation could not finish. Retry with the same name to resume it. An accepted creation also resumes when the application restarts.";
+        }
     }
 
     private void BeginRename(MonkeysphereDomain domain)

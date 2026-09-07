@@ -41,6 +41,10 @@ public static class OfflineBackupRestore
                 throw;
             }
 
+            // Ephemeral uploads are excluded from packages and must not survive a successful restore.
+            foreach (string suffix in new[] { "", "-wal", "-shm", "-journal" })
+                File.Delete(Path.Combine(rollback, RemoteUploadSchema.FileName + suffix));
+
             return rollback;
         }
         finally
@@ -200,7 +204,7 @@ public static class OfflineBackupRestore
     private static void MoveCurrentToRollback(string root, string rollback)
     {
         Directory.CreateDirectory(rollback);
-        foreach (string name in new[] { "monkeysphere.db", "monkeysphere.db-wal", "monkeysphere.db-shm", "domains.db", "domains.db-wal", "domains.db-shm", "remote-access.db", "remote-access.db-wal", "remote-access.db-shm" })
+        foreach (string name in new[] { "monkeysphere.db", "monkeysphere.db-wal", "monkeysphere.db-shm", "domains.db", "domains.db-wal", "domains.db-shm", "remote-access.db", "remote-access.db-wal", "remote-access.db-shm", "remote-transfers.db", "remote-transfers.db-wal", "remote-transfers.db-shm", "remote-transfers.db-journal" })
         {
             string source = Path.Combine(root, name);
             if (File.Exists(source))
