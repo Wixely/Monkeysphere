@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.12
+- Contract version: 1.14
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -22,6 +22,11 @@
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
 | `complete_upload` | `contacts.import` | Required `domainId`, `uploadId`. Integrity and UTF-8 vCard validation; returns upload status, contact count and `contentValidated` |
 | `cancel_upload` | `contacts.import` | Required `domainId`, `uploadId`. Removes staged bytes and retains bounded terminal metadata |
+| `preview_contact_import` | `contacts.import` | Required `domainId`, `uploadId`, UUID `idempotencyKey`. Durable reviewed preview header and advisory `isCurrent`; no record mutations |
+| `get_contact_import_preview` | `contacts.import` | Required `domainId`, `previewId`; `page` (1), `pageSize` (25). Bounded contact summaries and current-revision status |
+| `read_contact_import_evidence` | `contacts.import` | Required `domainId`, `previewId`, zero-based `contactIndex`; byte `offset` (0), `count` (16384). Complete evidence through bounded Base64 byte ranges |
+| `apply_contact_import` | `contacts.import` | Required `domainId`, `previewId`, `expectedRevision`, UUID `idempotencyKey`, and one explicit selection per contact. Atomic import and durable receipt |
+| `get_contact_import_result` | `contacts.import` | Required `domainId`, import `idempotencyKey`; `page` (1), `pageSize` (100). Durable receipt and paged per-contact outcomes |
 | `query_records` | `records.read` | Optional `query`, `recordTypeId`, up to 10 `filters`, `sort`, `page`, `pageSize`, `domainId`. Structured filtering and sorting with strict bounds and snapshot-consistent totals |
 | `search_records` | `records.read` | Optional `query`, `recordTypeId`, `page` (1), `pageSize` (25), `domainId`. Bounded result with total count |
 | `get_record` | `records.read` | Required `id`, optional `domainId`. One record or null, including aliases, values, image metadata and up to 100 relationships |
@@ -57,7 +62,7 @@
 | `install_preset` | `structure.write` | Required `domainId`, `presetKey`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`. Atomic single-preset installation with receipt |
 | `complete_setup` | `structure.write` | Required `domainId`, `starterPackKey`, `selectedPresetKeys`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`; `acknowledgeBlank` defaults false. Atomic selected installation and setup completion |
 
-Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is true for contact upload/validation; contact import/apply, export and image transfer remain planned. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
+Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is true for contact upload, preview, and import; contact export and image transfer remain planned. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
 
 Both list_domains and query_domains include an opaque domain `revision`. Domain registry migration 2 persists these tokens and changes them on renaming, including a rename back to an earlier name. Browser rename submits its captured revision; the registry update checks it transactionally and publishes the matching cached catalog only after commit. Contract 1.9 adds registry-owned rename receipts and the separate `domains.manage` grant. Contract 1.10 adds recoverable creation.
 
@@ -144,7 +149,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.12",
+  "contractVersion": "1.14",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -269,8 +274,30 @@ Begin with purpose `contact_import`, a UUID retry key, the exact byte length, wh
 
 Payload expires 60 minutes after begin, with no extension. Begin-key replay lasts 24 hours, followed by seven more days of metadata retention. At most 256 chunks per upload, 64 MiB reserved bytes, 64 active sessions globally, eight active sessions per domain, four per credential/domain and 1000 metadata rows are retained. Expiry and cancellation remove staged bytes; application startup and a five-minute worker clean expired payload/metadata. Respect transport rate limits and inspect status after a lost response before resuming.
 
-`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview/apply/export and image lifecycle tools remain unfinished.
+`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview and inspection are implemented in 1.13; apply is implemented in 1.14. Export and image lifecycle tools remain unfinished.
 
 Staging schema 2 adds redacted audit: domain/upload IDs, action, outcome, correlation ID and time. Begin/chunk/seal/cancel mutations commit with their audit; replay requests can add audit entries without repeating byte mutations. Completion records validation success; failures carry only bounded codes and metadata. Audit failure prevents successful mutation responses and rolls back the associated staging transaction. Staging audit is bounded to 50000 entries and seven days, excluded from backup archives and cleared with staging on successful offline restore. Names, uploaded bytes, bearer credentials, credential fingerprints and digests are absent from audit rows.
 
 Errors use `isError` plus `structuredContent.error` with `permission_denied`, `not_found`, `validation_failed`, `limit_exceeded`, `retry_conflict`, `retry_expired`, `upload_expired`, `upload_cancelled`, `upload_not_ready`, `upload_not_writable` or `temporarily_unavailable`. Body/argument binding and expired credentials may fail at the protocol/HTTP layer first. Local tests include an actual 5 MiB MCP transfer, retries, malformed content, audit rollback, configured request bounds and revocation mid-transfer. Deployed MCPHub behavior remains unverified. Owner: Agent; next action: durable contact preview/apply; review: 2026-09-14.
+
+## Contact preview and import tools in 1.13-1.14
+
+Contract 1.13 added preview creation and inspection under contacts.import. Contract 1.14 has 51 tools and adds atomic apply plus durable result inspection under the same grant. This purpose grant includes access to matching saved-contact names, IDs and duplicate reasons required to review an import; records.read is not also required. Every call demands the current credential and explicit domain. The domain must have the Person preset. New preview creation validates the uploaded vCard using shared browser mapping and duplicate rules, without changing records.
+
+Use preview_contact_import with the complete upload and a retry UUID. It returns preview (previewId, uploadId, recordTypeId/name, revision, contactCount, expiresAtUtc) plus isCurrent. Repeating that key returns the same reviewed evidence and original expiry, even after domain edits. isCurrent is advisory at response time; apply must still validate the captured revision in its mutation transaction. A stale preview needs a new preview key. Expired keys fail during retained tombstones. Upload completion remains separate and creates no preview itself.
+
+get_contact_import_preview returns status plus page/pageSize and contacts. Pages are 1-10000, sizes 1-25. Contact summaries include zero-based contactIndex, displayName, displayNameTruncated, recommendedAction and counts of aliases, field mappings, opaque properties, saved duplicate candidates and in-file duplicate candidates. Labels are limited to 160 UTF-16 code units without splitting surrogate pairs. Truncation is explicit; use the evidence reader for the full label. An out-of-range page is empty while retaining the total contactCount.
+
+read_contact_import_evidence provides immutable formatVersion 1 evidence as base64-utf8-json byte ranges. Offset is zero-based, count is 1-16384; totalBytes remains stable for that preview/contact. Decode Base64 chunks, concatenate their bytes in offset order, then parse UTF-8 JSON. Follow nextOffset until null. Individual chunks can split Unicode sequences; do not decode them independently as text. Offset equal to totalBytes returns empty content and null nextOffset; greater offsets fail. Readers can retry an identical range safely. Every range rechecks credential/domain ownership, preview expiry and source-upload availability.
+
+Evidence JSON uses camelCase names and snake_case enum strings. Its fields are index, card (version, properties and fingerprint), displayName, aliases, fieldMappings, opaquePropertyIndexes, duplicateCandidates, recommendedAction and importDuplicateCandidates. Each source property retains group, name, parameter names/values and the raw escaped value. Mappings identify source propertyIndex, fieldDefinitionId, fieldName, canonicalKey and typed input. Saved duplicate candidates retain recordId, displayName, reasons and isExactPriorImport; in-file candidates retain contactIndex, displayName, reasons, isExactCard and isStrongMatch. Recommended actions are create_separately, skip, merge_non_conflicting and replace_mapped_values. Unknown source properties and Apple labels remain inspectable. These are server-owned review results; there is no endpoint accepting a client-modified preview.
+
+get_capabilities now includes contactPreviewLimits: page/label/evidence-chunk limits, a 128 KiB serialized tool-result ceiling (including structured content and its text copy, excluding the outer JSON-RPC/SSE envelope), storage quotas and lifetime. Evidence reads use SQLite BLOB slicing rather than loading the complete contact payload. Summary generation currently deserializes the requested contacts, bounded by the stored preview limit. Read requests cannot extend preview expiry. Cancellation removes dependent payloads; revocation or credential rotation denies old ownership. Success/failure audit contains bounded operation metadata, without labels, evidence or credential secrets.
+
+`apply_contact_import` requires the preview ID and revision, a retry UUID, and exactly one selection for each consecutive zero-based contact index. Actions use the same snake-case names as preview recommendations. Merge and replace require an `existingRecordId` listed in that contact's saved-record duplicate evidence; create and skip reject a target. The first attempt requires live preview/source staging. Preparation reuses the browser rules, then the application transaction rechecks the domain import revision. Record changes, aliases, values, opaque-property provenance, one receipt, all outcomes and redacted application audit commit together or roll back together.
+
+The response is a compact receipt with created/merged/replaced/skipped counts, contact count, completion time and 24-hour retry deadline. `get_contact_import_result` returns that receipt plus outcomes in pages of 1-100. Each outcome identifies contact index and action; creates, merges and replacements include the committed record ID and final record revision, while skips have null record data. The application database retains at most 1,000 import command headers and 100,000 live outcomes per domain. Outcomes are deleted after the retry window; the command tombstone remains seven more days. New commands fail at quota while valid existing receipts remain replayable.
+
+Exact retries return the receipt before consulting temporary preview/upload state, so clients can resolve a lost response after expiry, cancellation or restart. Reusing a key with another revision, preview or selection payload returns `retry_conflict`. A second key cannot consume an already applied preview and returns `preview_consumed`, including while its application tombstone remains. A replacement credential cannot read or replay another credential's receipt. Result pages depend on the receipt window, not staging. `get_capabilities.contactPreviewLimits` advertises import selection, outcome page, receipt/outcome quota and retention limits.
+
+Additional structured errors include `concurrency_conflict`, `preview_expired`, `preview_unavailable`, `preview_consumed`, `retry_conflict` and `retry_expired`. Selected-contact export, images and deployed MCPHub verification remain outstanding. Owner: Agent; next action: bounded authenticated contact export, then image workflows and M4-M7. Review: 2026-09-14.

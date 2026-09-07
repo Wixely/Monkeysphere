@@ -31,13 +31,13 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M0 | Source/deployment inventory, capability discovery, contract and permission design | In progress; local discovery/schema tools and chunk probe pass | Agent | 2026-09-14 |
 | M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | In progress; revisions/receipts, failure audit, batch/deletion previews and media cleanup tested; other workflows pending | Agent | 2026-09-14 |
 | M2 | Records, relationships, domain setup, and minimum structure creation | Implemented locally; full two-domain MCP setup, typed editing, relationships, structured search and reviewed deletion pass; live client/browser gates remain | Agent | 2026-09-21 |
-| M3 | File transfer, vCard preview/apply/export, and record images | In progress; audited MCP upload/validation verified locally; contact preview/apply/export and images remain | Agent | 2026-09-21 |
+| M3 | File transfer, vCard preview/apply/export, and record images | In progress; MCP upload/validation/preview/apply verified locally; contact export and images remain | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Planned; depends on M2 | Agent | 2026-09-28 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. Recommended next action: Agent implements durable contact preview/inspection/apply while closing the remaining M0-M1 gates. Contact upload/preview/apply/export is the next user-facing delivery after basic editing and its transfer prerequisites.
+Dates are review checkpoints, not delivery commitments. Recommended next action: Agent implements bounded authenticated contact export while closing the remaining M0-M1 gates. Image transfer follows export to complete M3.
 
 ## Domain-separated spheres
 

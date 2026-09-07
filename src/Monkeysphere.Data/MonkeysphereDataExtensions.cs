@@ -30,6 +30,10 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<RemoteUploadConnections>();
         services.AddSingleton<IRemoteUploadStore, RemoteUploadStore>();
         services.AddSingleton<ContactUploadService>();
+        services.AddSingleton<IContactImportPreviewStore, ContactImportPreviewStore>();
+        services.AddScoped<ContactImportPreviewService>();
+        services.AddScoped<IContactImportCommandStore, ContactImportCommandStore>();
+        services.AddScoped<ContactImportCommandService>();
         services.AddScoped<MonkeysphereConnectionFactory>();
         services.AddSingleton<RecordMediaLocks>();
         services.AddScoped<IMonkeysphereStore, SqliteMonkeysphereStore>();
@@ -161,6 +165,7 @@ internal sealed class DebugDatabaseResetService(
         command.Transaction = transaction;
         command.CommandText = """
             DELETE FROM RecordCommandReceipts;
+            DELETE FROM ContactImportReceipts;
             DELETE FROM RecordBatchPreviews;
             DELETE FROM RecordDeletionPreviews;
             DELETE FROM RecordMediaCleanup;

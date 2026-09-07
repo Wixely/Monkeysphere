@@ -32,13 +32,13 @@ public sealed record RemoteCapabilities(
     bool SupportsFileTransfer,
     RemoteRequestLimits RequestLimits,
     RemoteRecordWriteLimits RecordWriteLimits,
-    RemoteDomainWriteLimits? DomainWriteLimits = null, RemoteUploadTransferLimits? UploadLimits = null);
+    RemoteDomainWriteLimits? DomainWriteLimits = null, RemoteUploadTransferLimits? UploadLimits = null, RemoteContactPreviewLimits? ContactPreviewLimits = null);
 
 [McpServerToolType]
 [RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import")]
 public sealed class MonkeysphereDiscoveryTools
 {
-    private const string ContractVersion = "1.12";
+    private const string ContractVersion = "1.14";
 
     [McpServerTool(Name = "get_instance_info", UseStructuredContent = true, ReadOnly = true)]
     [Description("Gets the application version, database schema version, and MCP contract version without deployment secrets or host paths. Requires records.read, instance.read, records.write, records.delete, relationships.write, structure.write, domains.manage or contacts.import.")]
@@ -61,7 +61,7 @@ public sealed class MonkeysphereDiscoveryTools
         ClaimsPrincipal principal = DemandDiscoveryScope(accessor);
         string[] scopes = principal.FindAll(DnaXRemoteClaimTypes.Scope)
             .Select(claim => claim.Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools) }
+        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools), typeof(MonkeysphereContactPreviewTools) }
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static))
             .Select(method => (Method: method, Tool: method.GetCustomAttribute<McpServerToolAttribute>()))
             .Where(item => item.Tool is not null)
@@ -86,7 +86,7 @@ public sealed class MonkeysphereDiscoveryTools
                 RecordCommandLimits.MaximumPendingMediaCleanupPerDomain),
             new(DomainCommandLimits.MaximumRetainedCommands, RecordCommandLimits.MaximumReceiptBytes,
                 RecordCommandLimits.RetryWindowHours, RecordCommandLimits.TombstoneRetentionDays),
-            RemoteUploadTransferLimits.For(limits.MaximumRequestBodyBytes));
+            RemoteUploadTransferLimits.For(limits.MaximumRequestBodyBytes), new RemoteContactPreviewLimits());
     }
 
     private static ClaimsPrincipal DemandDiscoveryScope(IHttpContextAccessor accessor)

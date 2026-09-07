@@ -9,7 +9,7 @@ public static class RemoteUploadSchema
 {
     public const string DatabaseName = "MonkeysphereTransfers";
     public const string FileName = "remote-transfers.db";
-    public static DnaXMigrationManifest Manifest { get; } = new(currentVersion: 2, migrations:
+    public static DnaXMigrationManifest Manifest { get; } = new(currentVersion: 3, migrations:
     [
         DnaXMigration.Sql(1, "contact-upload-staging", "Persist bounded contact upload sessions and chunks", """
             CREATE TABLE UploadSessions (
@@ -48,6 +48,30 @@ public static class RemoteUploadSchema
                 Outcome TEXT NOT NULL,
                 CorrelationId TEXT NOT NULL,
                 OccurredAtUtc TEXT NOT NULL
+            );
+            """),
+        DnaXMigration.Sql(3, "contact-import-previews", "Persist bounded owned contact previews and paged payloads", """
+            CREATE TABLE ContactImportPreviews (
+                Id TEXT NOT NULL PRIMARY KEY,
+                UploadId TEXT NOT NULL,
+                DomainId TEXT NOT NULL,
+                CredentialFingerprint TEXT NOT NULL,
+                IdempotencyKey TEXT NOT NULL,
+                RecordTypeId TEXT NOT NULL,
+                RecordTypeName TEXT NOT NULL,
+                Revision TEXT NOT NULL,
+                ContactCount INTEGER NOT NULL CHECK (ContactCount BETWEEN 1 AND 1000),
+                StoredBytes INTEGER NOT NULL CHECK (StoredBytes BETWEEN 0 AND 33554432),
+                ExpiresAtUtc TEXT NOT NULL,
+                ForgetAfterUtc TEXT NOT NULL,
+                UNIQUE (DomainId, CredentialFingerprint, IdempotencyKey)
+            );
+            CREATE INDEX IX_ContactImportPreviews_Expiry ON ContactImportPreviews (ExpiresAtUtc);
+            CREATE TABLE ContactImportPreviewContacts (
+                PreviewId TEXT NOT NULL REFERENCES ContactImportPreviews(Id) ON DELETE CASCADE,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal BETWEEN 0 AND 999),
+                Payload BLOB NOT NULL CHECK (length(Payload) BETWEEN 1 AND 33554432),
+                PRIMARY KEY (PreviewId, Ordinal)
             );
             """)
     ]);

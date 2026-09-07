@@ -31,6 +31,9 @@ public sealed partial class RemoteDiscoveryTests
         using JsonDocument discovery = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/list");
         string[] registered = discovery.RootElement.GetProperty("result").GetProperty("tools")
             .EnumerateArray().Select(tool => tool.GetProperty("name").GetString()!).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(51, registered.Length);
+        Assert.Contains("apply_contact_import", registered);
+        Assert.Contains("get_contact_import_result", registered);
         Assert.Contains("list_domains", registered);
         Assert.Contains("get_instance_info", registered);
         Assert.Contains("get_capabilities", registered);
@@ -61,6 +64,12 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(15, capabilities.RecordWriteLimits.PreviewLifetimeMinutes);
         Assert.Equal(100, capabilities.RecordWriteLimits.MaximumRetainedPreviewsPerDomain);
         Assert.Equal(1_048_576, capabilities.RecordWriteLimits.MaximumPreviewBytes);
+        Assert.Equal(1000, capabilities.ContactPreviewLimits!.MaximumImportSelections);
+        Assert.Equal(100, capabilities.ContactPreviewLimits.MaximumOutcomePageSize);
+        Assert.Equal(1000, capabilities.ContactPreviewLimits.MaximumRetainedImportCommandsPerDomain);
+        Assert.Equal(100_000, capabilities.ContactPreviewLimits.MaximumRetainedImportOutcomesPerDomain);
+        Assert.Equal(24, capabilities.ContactPreviewLimits.ImportRetryWindowHours);
+        Assert.Equal(7, capabilities.ContactPreviewLimits.ImportTombstoneDays);
         Assert.False(capabilities.Tools.Single(tool => tool.Name == "create_record").Allowed);
         Assert.Equal(canReadRecords, capabilities.Tools.Single(tool => tool.Name == "get_record").Allowed);
         Assert.True(capabilities.Tools.Single(tool => tool.Name == "get_instance_info").Allowed);

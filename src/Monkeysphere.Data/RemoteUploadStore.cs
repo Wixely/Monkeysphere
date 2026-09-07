@@ -241,6 +241,8 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
         using SqliteTransaction transaction = connection.BeginTransaction();
         SessionRow row = await RequireOwnedAsync(connection, transaction, owner, id, cancellationToken).ConfigureAwait(false);
         await mutation(connection, transaction, row).ConfigureAwait(false);
+        if (action == "uploads.cancel")
+            await ContactImportPreviewStore.CleanupAsync(connection, transaction, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         await WriteAuditAsync(connection, transaction, new(owner.DomainId, id, action, "accepted", owner.CorrelationId), timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -281,20 +283,23 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
         if (row.State == "cancelled") throw new UploadException("upload_cancelled", "The upload was cancelled.");
     }
 
-    private static Task<int> CleanupCoreAsync(SqliteConnection connection, SqliteTransaction transaction, DateTimeOffset now, CancellationToken cancellationToken) =>
-        connection.ExecuteAsync(new CommandDefinition("""
+    private static async Task CleanupCoreAsync(SqliteConnection connection, SqliteTransaction transaction, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE UploadSessions SET State = 'expired' WHERE ExpiresAtUtc <= @Now AND State IN ('receiving', 'sealed');
             DELETE FROM UploadChunks WHERE UploadId IN (SELECT Id FROM UploadSessions WHERE State IN ('expired', 'cancelled'));
             DELETE FROM UploadSessions WHERE ForgetAfterUtc <= @Now;
             DELETE FROM UploadAudit WHERE OccurredAtUtc < @Retention;
-            """, new { Now = Timestamp(now), Retention = Timestamp(now.AddDays(-7)) }, transaction, cancellationToken: cancellationToken));
+            """, new { Now = Timestamp(now), Retention = Timestamp(now.AddDays(-7)) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        await ContactImportPreviewStore.CleanupAsync(connection, transaction, now, cancellationToken).ConfigureAwait(false);
+    }
 
     private static string NormalizeDigest(string value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit)
         ? value.ToUpperInvariant() : throw new DomainValidationException("Supply a 64-character SHA-256 hexadecimal digest.");
 
     public async Task RecordAuditAsync(UploadAudit entry, CancellationToken cancellationToken = default)
     {
-        if (entry.DomainId == Guid.Empty || entry.Action is not ("uploads.begin" or "uploads.write" or "uploads.seal" or "uploads.complete" or "uploads.cancel" or "uploads.status") ||
+        if (entry.DomainId == Guid.Empty || entry.Action is not ("uploads.begin" or "uploads.write" or "uploads.seal" or "uploads.complete" or "uploads.cancel" or "uploads.status" or "contacts.preview" or "contacts.inspect" or "contacts.evidence" or "contacts.apply" or "contacts.result") ||
             entry.Outcome.Length is < 1 or > 64 || entry.Outcome.Any(character => !(char.IsAsciiLetterOrDigit(character) || character == '_')) || entry.CorrelationId.Length > 128)
             throw new DomainValidationException("The upload audit metadata is invalid.");
         await using SqliteConnection connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -303,7 +308,7 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static Task<int> WriteAuditAsync(SqliteConnection connection, SqliteTransaction transaction, UploadAudit entry, DateTimeOffset now, CancellationToken cancellationToken) =>
+    internal static Task<int> WriteAuditAsync(SqliteConnection connection, SqliteTransaction transaction, UploadAudit entry, DateTimeOffset now, CancellationToken cancellationToken) =>
         connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO UploadAudit (DomainId, UploadId, Action, Outcome, CorrelationId, OccurredAtUtc)
             VALUES (@DomainId, @UploadId, @Action, @Outcome, @CorrelationId, @Now);

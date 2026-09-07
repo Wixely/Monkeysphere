@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 27,
+        currentVersion: 28,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -647,5 +647,32 @@ public static class MonkeysphereSchema
                 END;
                 """),
             DnaXMigration.Sql(27, "contact-import-revisions", "Invalidate stale contact previews across shared writes", ContactImportRevisionMigration.Sql),
+            DnaXMigration.Sql(28, "contact-import-receipts", "Persist atomic import receipts and paged contact outcomes", """
+                CREATE TABLE ContactImportReceipts (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    CredentialFingerprint TEXT NOT NULL,
+                    IdempotencyKey TEXT NOT NULL,
+                    PreviewId TEXT NOT NULL UNIQUE,
+                    RequestHash TEXT NOT NULL,
+                    Created INTEGER NOT NULL,
+                    Merged INTEGER NOT NULL,
+                    Replaced INTEGER NOT NULL,
+                    Skipped INTEGER NOT NULL,
+                    ContactCount INTEGER NOT NULL CHECK (ContactCount BETWEEN 1 AND 1000),
+                    CompletedAtUtc TEXT NOT NULL,
+                    RetryUntilUtc TEXT NOT NULL,
+                    ForgetAfterUtc TEXT NOT NULL,
+                    UNIQUE (CredentialFingerprint, IdempotencyKey)
+                );
+                CREATE INDEX IX_ContactImportReceipts_Retention ON ContactImportReceipts (ForgetAfterUtc);
+                CREATE TABLE ContactImportOutcomes (
+                    ReceiptId TEXT NOT NULL REFERENCES ContactImportReceipts(Id) ON DELETE CASCADE,
+                    ContactIndex INTEGER NOT NULL CHECK (ContactIndex BETWEEN 0 AND 999),
+                    Action INTEGER NOT NULL CHECK (Action BETWEEN 0 AND 3),
+                    RecordId TEXT NULL,
+                    Revision TEXT NULL,
+                    PRIMARY KEY (ReceiptId, ContactIndex)
+                );
+                """),
         ]);
 }

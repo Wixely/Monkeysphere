@@ -79,7 +79,8 @@ public sealed class SqliteVCardStore(
     }
 
     internal static async Task<VCardImportResult> ApplyCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
-        IReadOnlyList<VCardPreparedImport> contacts, string expectedRevision, DateTimeOffset now, CancellationToken cancellationToken)
+        IReadOnlyList<VCardPreparedImport> contacts, string expectedRevision, DateTimeOffset now, CancellationToken cancellationToken,
+        List<ContactImportOutcome>? outcomes = null)
     {
         string timestamp = Timestamp(now);
         int created = 0;
@@ -95,6 +96,7 @@ public sealed class SqliteVCardStore(
             if (contact.Action == VCardImportAction.Skip)
             {
                 skipped++;
+                outcomes?.Add(new(contact.Preview.Index, contact.Action, null, null));
                 continue;
             }
 
@@ -166,6 +168,18 @@ public sealed class SqliteVCardStore(
                 effectiveMappedFields,
                 timestamp,
                 cancellationToken).ConfigureAwait(false);
+            outcomes?.Add(new(contact.Preview.Index, contact.Action, recordId, null));
+        }
+
+        if (outcomes is not null)
+        {
+            for (int index = 0; index < outcomes.Count; index++)
+                if (outcomes[index].RecordId is Guid id)
+                    outcomes[index] = outcomes[index] with
+                    {
+                        Revision = await connection.QuerySingleAsync<string>(new CommandDefinition(
+                        "SELECT Revision FROM Records WHERE Id = @Id;", new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)
+                    };
         }
 
         return new(created, merged, replaced, skipped);
