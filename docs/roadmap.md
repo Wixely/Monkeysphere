@@ -193,9 +193,11 @@ Responsibility is shared and the ordering matters. Monkeysphere created the vari
 | --- | --- | --- | --- |
 | alpha.1 / alpha.2 `win-x64` ZIP | `windows-latest` | CRLF, verified from the published binary | No; startup fails |
 | alpha.1 / alpha.2 `linux-x64` ZIP | `windows-latest` | CRLF, verified from the published binary | No; startup fails |
-| alpha.1 / alpha.2 Docker image | `ubuntu-latest` | LF, inferred from the runner; not verified | Probably yes |
+| alpha.1 / alpha.2 Docker image | `ubuntu-latest` | LF, verified from the published image | Yes |
 
-Both ZIPs are produced by the same Windows release job, so they agree with each other. Only the container is built on Linux, so a data root created by the container may be unreadable by the ZIPs of the same tag, and the reverse. Confirming that needs one `docker pull` of `ghcr.io/wixely/monkeysphere:0.1.0-alpha.2` and an inspection of its `Monkeysphere.Data.dll`; no container runtime was available when this was investigated.
+Both ZIPs are produced by the same Windows release job, so they agree with each other. The container is built on Linux and is LF. This was verified by pulling both published images straight from the GHCR blob API and reading the compiled SQL out of `app/Monkeysphere.Data.dll`, without a container runtime.
+
+So the two artifacts of the same tag genuinely disagree: a data root created by the alpha container cannot be opened by the alpha ZIPs, and the reverse. That is a defect in the shipped alphas independent of any upgrade. The container ledgers match current builds, so container deployments upgrade normally; only the ZIP deployments are stranded.
 
 Every Monkeysphere-owned manifest is affected: the per-domain application schema, the domain registry, and the upload staging database. DnaX's own remote-access schema is compiled inside the DnaX package and is unaffected.
 
@@ -213,7 +215,7 @@ Supersede, do not repair. A one-time ledger repair is technically clean, and wou
 
 MCP disposition: **Not applicable.** A startup and storage-lifecycle defect with no tool surface. `get_instance_info` must keep reporting the true schema version once the database opens.
 
-Owner: Wixely / Agent. Remaining: verify the container's line endings, and publish the replacement prerelease. Review: 2026-09-14. This supersedes part of [upgrade path verification](#upgrade-path-verification), which now has its first concrete evidence, and it is negative.
+Owner: Wixely / Agent. Remaining: nothing; `v0.1.0-alpha.3` supersedes both affected releases. Review: 2026-09-14. This supersedes part of [upgrade path verification](#upgrade-path-verification), which now has its first concrete evidence, and it is negative.
 
 ## Content Security Policy completion
 
@@ -339,7 +341,6 @@ Owner: TBD. Next action: define the minimum upgrade matrix once `0.2.0` exists. 
 - Complete live privileged Windows Service and installed-systemd lifecycle verification. Owner: Wixely / Agent. Tracked in detail under [platform support verification](#platform-support-verification).
 - Confirm the GitHub Container Registry package visibility matches the documented anonymous `docker pull` instruction before the next release is announced. Owner: Wixely; review 2026-09-28.
 - Publish a replacement prerelease. Both published alphas are labelled unupgradable and should not be the newest thing a visitor finds. Owner: Wixely; review 2026-09-28. See [migration ledger compatibility](#migration-ledger-compatibility).
-- Verify the alpha container's migration line endings with one `docker pull` and an inspection of its `Monkeysphere.Data.dll`, to settle whether the container and the ZIPs of the same tag disagree. Owner: Wixely / Agent; review 2026-09-28.
 - Keep the README capability description synchronized with [verification status](verification.md) at each tag. Owner: Wixely / Agent; ongoing.
 
 ## Saved graph layouts
