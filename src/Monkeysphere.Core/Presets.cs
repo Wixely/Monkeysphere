@@ -54,6 +54,7 @@ public interface IPresetStore
     Task<SetupStatus> GetSetupStatusAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlySet<string>> ListInstalledPresetKeysAsync(CancellationToken cancellationToken = default);
     Task InstallAsync(PresetInstallation installation, CancellationToken cancellationToken = default);
+    Task<PresetInspection> InspectAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IPresetService
@@ -116,7 +117,7 @@ public sealed class PresetService(IPresetStore store, TimeProvider timeProvider)
         await store.InstallAsync(CreateInstallation(pack.Key, presets), cancellationToken).ConfigureAwait(false);
     }
 
-    private PresetInstallation CreateInstallation(string? starterPackKey, IReadOnlyList<RecordTypePreset> presets)
+    internal PresetInstallation CreateInstallation(string? starterPackKey, IReadOnlyList<RecordTypePreset> presets)
     {
         HashSet<string> keys = presets.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
         RecordTypePresetInstallation[] types = presets.Select(preset => new RecordTypePresetInstallation(
@@ -134,7 +135,7 @@ public sealed class PresetService(IPresetStore store, TimeProvider timeProvider)
         return new(starterPackKey, types, relationships, timeProvider.GetUtcNow());
     }
 
-    private static RecordTypePreset FindPreset(string key) =>
+    internal static RecordTypePreset FindPreset(string key) =>
         PresetCatalog.RecordTypes.FirstOrDefault(item => string.Equals(item.Key, key, StringComparison.Ordinal))
         ?? throw new DomainValidationException("Record-type preset was not found.");
 }

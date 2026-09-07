@@ -44,7 +44,7 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             timeProvider.GetUtcNow(),
             cancellationToken);
 
-    private static string? NormalizeRecordTypeSymbol(string? symbol)
+    internal static string? NormalizeRecordTypeSymbol(string? symbol)
     {
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -134,7 +134,7 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
     public Task<FieldDefinition> CreateAndAttachFieldAsync(
         Guid recordTypeId,
         CreateFieldRequest request,
-        CancellationToken cancellationToken = default)
+        string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         string typeId = FieldTypes.NormalizeTypeId(request.TypeId);
         return store.CreateAndAttachFieldAsync(
@@ -145,6 +145,7 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             FieldTypes.NormalizeConfiguration(typeId, request.ChoiceOptions),
             request.IsRequired,
             timeProvider.GetUtcNow(),
+            expectedRevision,
             cancellationToken);
     }
 
@@ -152,8 +153,8 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         Guid recordTypeId,
         Guid fieldDefinitionId,
         bool isRequired,
-        CancellationToken cancellationToken = default) =>
-        store.AttachFieldAsync(recordTypeId, fieldDefinitionId, isRequired, timeProvider.GetUtcNow(), cancellationToken);
+        string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default) =>
+        store.AttachFieldAsync(recordTypeId, fieldDefinitionId, isRequired, timeProvider.GetUtcNow(), expectedRevision, expectedFieldRevision, cancellationToken);
 
     public Task RenameFieldAsync(Guid id, string name, CancellationToken cancellationToken = default) =>
         store.RenameFieldAsync(id, FieldTypes.Required(name, "Field name", 200), timeProvider.GetUtcNow(), cancellationToken);

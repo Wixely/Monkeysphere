@@ -40,3 +40,9 @@ This is a regression/load-boundary test, not a benchmark or latency promise. The
 - Put an upstream request/body limit and connection limit at any external reverse proxy, matching or tightening the application limits.
 - Schedule backups outside the busiest interactive period for large media collections.
 - Treat the single-process data-root lock and single-administrator model as intentional; this release does not claim multi-instance or high-concurrency operation.
+## Onboarding inspection
+
+MCP setup inspection reads record-type and relationship-type metadata in one SQLite read transaction and hashes it with the domain ID and persisted setup state. It does not scan contact values or media, but its work grows with the number of structure definitions. Packaged/installed catalog responses use bounded pages. A completion request selects at most the packaged preset count; its receipt shares the existing command-history size and retention limits. No new throughput or maximum-instance-size guarantee is claimed.
+
+
+Registry rename history is bounded separately from per-domain record history: 1,000 retained commands, 64 KiB receipts, 24-hour replay plus seven days of tombstones, cleaned during subsequent writes. Registry audit retains at most 50,000 rows and 90 days.

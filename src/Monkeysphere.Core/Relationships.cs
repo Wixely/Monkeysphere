@@ -21,7 +21,8 @@ public sealed record RelationshipType(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     string? PresetKey = null,
-    int? PresetVersion = null);
+    int? PresetVersion = null,
+    string Revision = "");
 
 public sealed record StoredRelationship(
     Guid Id,
@@ -32,7 +33,8 @@ public sealed record StoredRelationship(
     string TargetDisplayName,
     string? Note,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Revision = "");
 
 public sealed record RelationshipView(
     Guid Id,
@@ -42,7 +44,8 @@ public sealed record RelationshipView(
     string RelatedDisplayName,
     bool IsOutgoing,
     string? Note,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Revision = "");
 
 public sealed record CreateRelationshipTypeRequest(
     string Name,
@@ -54,24 +57,24 @@ public interface IRelationshipStore
     Task<IReadOnlyList<RelationshipType>> ListTypesAsync(CancellationToken cancellationToken = default);
     Task<RelationshipType?> GetTypeAsync(Guid id, CancellationToken cancellationToken = default);
     Task<RelationshipType> CreateTypeAsync(RelationshipType type, CancellationToken cancellationToken = default);
-    Task RenameTypeAsync(Guid id, string name, string? inverseName, DateTimeOffset now, CancellationToken cancellationToken = default);
-    Task RetireTypeAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default);
-    Task<StoredRelationship> CreateAsync(Guid id, Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task RenameTypeAsync(Guid id, string name, string? inverseName, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task RetireTypeAsync(Guid id, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<StoredRelationship> CreateAsync(Guid id, Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default);
     Task<PagedResult<StoredRelationship>> QueryForRecordAsync(Guid recordId, int page, int pageSize, CancellationToken cancellationToken = default);
-    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
 }
 
 public interface IRelationshipService
 {
     Task<IReadOnlyList<RelationshipType>> ListTypesAsync(CancellationToken cancellationToken = default);
     Task<RelationshipType> CreateTypeAsync(CreateRelationshipTypeRequest request, CancellationToken cancellationToken = default);
-    Task RenameTypeAsync(Guid id, string name, string? inverseName, CancellationToken cancellationToken = default);
-    Task RetireTypeAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<RelationshipView> CreateAsync(Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note = null, CancellationToken cancellationToken = default);
+    Task RenameTypeAsync(Guid id, string name, string? inverseName, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task RetireTypeAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<RelationshipView> CreateAsync(Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note = null, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RelationshipView>> ListForRecordAsync(Guid recordId, int limit = 100, CancellationToken cancellationToken = default);
     Task<PagedResult<RelationshipView>> QueryForRecordAsync(Guid recordId, int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
-    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
 }
 
 public sealed class RelationshipService(IRelationshipStore store, TimeProvider timeProvider) : IRelationshipService
@@ -87,32 +90,32 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
             Guid.CreateVersion7(), name, request.Directionality, inverse, RelationshipLifecycle.Active, now, now), cancellationToken);
     }
 
-    public async Task RenameTypeAsync(Guid id, string name, string? inverseName, CancellationToken cancellationToken = default)
+    public async Task RenameTypeAsync(Guid id, string name, string? inverseName, string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         RelationshipType type = await store.GetTypeAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Relationship type was not found.");
         (string normalizedName, string? normalizedInverse) = NormalizeLabels(name, inverseName, type.Directionality);
-        await store.RenameTypeAsync(id, normalizedName, normalizedInverse, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        await store.RenameTypeAsync(id, normalizedName, normalizedInverse, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task RetireTypeAsync(Guid id, CancellationToken cancellationToken = default) =>
-        store.RetireTypeAsync(id, timeProvider.GetUtcNow(), cancellationToken);
+    public Task RetireTypeAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default) =>
+        store.RetireTypeAsync(id, timeProvider.GetUtcNow(), expectedRevision, cancellationToken);
 
     public async Task<RelationshipView> CreateAsync(
         Guid typeId,
         Guid sourceRecordId,
         Guid targetRecordId,
         string? note = null,
-        CancellationToken cancellationToken = default)
+        string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         if (sourceRecordId == targetRecordId)
         {
             throw new DomainValidationException("A record cannot be related to itself.");
         }
 
-        string? normalizedNote = string.IsNullOrWhiteSpace(note) ? null : FieldTypes.Required(note, "Relationship note", 2_000);
+        string? normalizedNote = NormalizeNote(note);
         StoredRelationship created = await store.CreateAsync(
-            Guid.CreateVersion7(), typeId, sourceRecordId, targetRecordId, normalizedNote, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            Guid.CreateVersion7(), typeId, sourceRecordId, targetRecordId, normalizedNote, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
         return Map(created, sourceRecordId);
     }
 
@@ -134,13 +137,16 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
         return new(result.Items.Select(item => Map(item, recordId)).ToArray(), result.Page, result.PageSize, result.TotalCount);
     }
 
-    public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) => store.DeleteAsync(id, cancellationToken);
+    public Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default) => store.DeleteAsync(id, expectedRevision, cancellationToken);
 
-    private static (string Name, string? Inverse) NormalizeLabels(
+    internal static string? NormalizeNote(string? note) => string.IsNullOrWhiteSpace(note) ? null : FieldTypes.Required(note, "Relationship note", 2_000);
+
+    internal static (string Name, string? Inverse) NormalizeLabels(
         string name,
         string? inverseName,
         RelationshipDirectionality directionality)
     {
+        if (!Enum.IsDefined(directionality)) throw new DomainValidationException("Relationship directionality is invalid.");
         string normalizedName = FieldTypes.Required(name, "Relationship label", 200);
         if (directionality == RelationshipDirectionality.Symmetric)
         {
@@ -163,6 +169,6 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
             outgoing ? relationship.TargetDisplayName : relationship.SourceDisplayName,
             outgoing,
             relationship.Note,
-            relationship.UpdatedAtUtc);
+            relationship.UpdatedAtUtc, relationship.Revision);
     }
 }

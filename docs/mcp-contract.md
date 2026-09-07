@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.4
+- Contract version: 1.9
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -10,8 +10,9 @@
 
 | Tool | Required grant | Inputs / result |
 | --- | --- | --- |
-| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete` | No inputs. Application name, release version without build metadata, database schema version, contract version |
-| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` | No inputs. Application name, release version without build metadata, database schema version, contract version |
+| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `rename_domain` | `domains.manage` | Required `domainId`, `name`, `expectedRevision`, UUID `idempotencyKey`. Revision-checked rename with durable receipt |
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
 | `list_record_types` | `records.read` | Optional `domainId`. Up to 100 record types with their field definitions |
 | `get_record_type` | `records.read` | Required `id`, optional `domainId`. One type or null |
@@ -35,12 +36,27 @@
 | `get_record_deletion_preview` | `records.delete` | Required `domainId`, `previewId`. Counts, revisions, expiry and applied status for the owning credential |
 | `delete_record` | `records.delete` | Required `domainId`, `id`, `expectedRevision`, UUID `idempotencyKey`; `previewId` required when dependent data exists. Committed receipt and current media-cleanup flag |
 | `get_record_deletion_status` | `records.delete` | Required `domainId`, apply `idempotencyKey`. Original deletion receipt and current `mediaCleanupPending` status |
+| `create_relationship_type` | `structure.write` | Required `domainId`, `name`, `directionality`, UUID `idempotencyKey`; optional `inverseName`. Creates a definition and returns its ID/revision receipt |
+| `create_relationship` | `relationships.write` | Required `domainId`, `typeId`, `sourceRecordId`, `targetRecordId`, `expectedTypeRevision`, `expectedSourceRevision`, `expectedTargetRevision`, UUID `idempotencyKey`; optional `note`. Creates a link and returns its ID/revision receipt |
+| `delete_relationship` | `relationships.write` | Required `domainId`, link `id`, `expectedRevision`, UUID `idempotencyKey`. Deletes only the link and returns a receipt |
+| `create_record_type` | `structure.write` | Required `domainId`, `name`, UUID `idempotencyKey`; optional `symbol`. Creates a custom type and returns its ID/revision receipt |
+| `create_and_attach_field` | `structure.write` | Required `domainId`, `recordTypeId`, `expectedRevision`, `name`, `typeId`, UUID `idempotencyKey`; optional `isRequired` (false), `choiceOptions`. Creates and appends a field; receipt contains the created field followed by the updated type |
+| `attach_field` | `structure.write` | Required `domainId`, `recordTypeId`, `fieldDefinitionId`, `expectedRevision`, `expectedFieldRevision`, UUID `idempotencyKey`; optional `isRequired` (false). Reuses an active field; receipt contains the updated type |
+| `get_setup_state` | `records.read` | Optional `domainId`. Effective setup status, domain-state revision, catalog revision and installed preset count; no persistence side effects |
+| `list_installed_presets` | `records.read` | Optional `domainId`, `page`, `pageSize`. Local type IDs, preset keys/versions, names and lifecycle |
+| `list_presets` | `records.read` | `page`, `pageSize`. Packaged record-type definitions with fields, versions and examples; result contains catalog revision and page |
+| `list_starter_packs` | `records.read` | `page`, `pageSize`. Onboarding levels and selectable keys, including the blank option; result contains catalog revision and page |
+| `list_relationship_presets` | `records.read` | `page`, `pageSize`. Packaged relationship definitions and prerequisite selection rules; result contains catalog revision and page |
+| `install_preset` | `structure.write` | Required `domainId`, `presetKey`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`. Atomic single-preset installation with receipt |
+| `complete_setup` | `structure.write` | Required `domainId`, `starterPackKey`, `selectedPresetKeys`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`; `acknowledgeBlank` defaults false. Atomic selected installation and setup completion |
 
 Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is false. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
 
+Both list_domains and query_domains include an opaque domain `revision`. Domain registry migration 2 persists these tokens and changes them on renaming, including a rename back to an earlier name. Browser rename submits its captured revision; the registry update checks it transactionally and publishes the matching cached catalog only after commit. Contract 1.9 adds registry-owned rename receipts and the separate `domains.manage` grant. Domain creation still awaits recoverable creation.
+
 Omitted domain selectors retain the Default domain for backwards compatibility. Explicit malformed or unknown domain selectors fail closed. Domain listing is still under the single-administrator trust boundary. New paged tools accept page 1-10000 and page size 1-100, rejecting invalid values. They preserve deterministic ordering and report total count; empty pages do not lose that count. Legacy tools keep their response shapes and caps. Metadata catalogs currently use the shared application list services before paging; relationship rows are paged directly in SQLite.
 
-Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write` and `records.delete`; HTTP API offers `records.read`. Selections take effect only on rotation, which replaces the one credential for that surface. `records.write` does not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records.
+Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write` and `domains.manage`; HTTP API offers `records.read`. Selections take effect only on rotation, which replaces the one credential for that surface. Write grants do not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records. Both new write grants permit instance/capability discovery; they do not permit unrelated record mutations.
 
 ## Additive typed information in 1.1
 
@@ -121,7 +137,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.4",
+  "contractVersion": "1.9",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -146,3 +162,49 @@ The real response includes all registered tools, Default domain ID, configured r
 Deletion tests verify actual MCP permissions, direct empty-record deletion, review requirements, stale dependencies, concurrent replay, expiry, credential rotation, wrong-domain rejection and committed audit. Data tests verify every dependent family, preservation of related records/views, restart cleanup, locked-file retry on Windows, queue quota and an upload already in progress during deletion.
 
 The [write and transfer design](mcp-write-contract.md) selects credential fingerprints, transactional retry/revision behavior and bounded chunks. Remaining work includes relationship/setup/structure management, other workflow previews, transfers and the deployed client path. Owner: Agent; review: 2026-09-14. The full remaining delivery scope stays in the [implementation plan](mcp-management-plan.md).
+
+## Relationship revisions in 1.5
+
+Relationship-type discovery and all relationship reads now include an opaque `revision`. A type revision changes with its labels, directionality, lifecycle or preset provenance. Link revisions change with the link contents or its type definition; the token is identical from either endpoint. Tokens persist across restart and are independent of timestamp resolution. Clients must treat them as opaque.
+
+Shared browser writes supply these tokens for type rename/retirement, link creation (the selected type revision), and removal (the link revision). Revision checks occur in the SQL mutation or creation transaction. Version 1.5 added read metadata; version 1.6 adds the commands below.
+
+## Relationship writes in 1.6
+
+The three relationship commands share the record-command receipt format and storage. Receipt item IDs refer to the relationship type or link, according to the invoked tool. The returned revision is the committed revision; deletion returns the link's final revision before removal. Identical retries replay the original receipt for 24 hours, even after the entity changes or disappears. Changed payloads return `retry_conflict`; expired results return `retry_expired`. Credential rotation changes ownership. The shared 10,000-command/domain capacity, 64 KiB receipt limit and seven-day post-replay tombstone retention apply to these commands too.
+
+Type creation reuses Core label normalization: labels are trimmed, nonempty and at most 200 characters. `directionality` accepts the named values `directional` and `symmetric` (case-insensitive). Directional types require an inverse label; symmetric types discard it, matching the browser. Duplicate labels fail validation.
+
+Link creation requires two distinct records and the current revisions of both records and the active relationship type. Read record tokens with `get_record` and type tokens with `list_relationship_types`. All references resolve inside the explicit domain. Revision checks, symmetric endpoint ordering, insertion, receipt and audit commit in one transaction. An optional note is trimmed and limited to 2,000 characters; omitted, null or whitespace-only notes become null. Duplicate links fail validation, including reversed symmetric endpoints. A retry with the original key does not create another link.
+
+Deletion requires the link revision returned by relationship reads and preserves both endpoint records. A type or note change invalidates an earlier link revision. Missing references return `not_found`, stale tokens return `stale_revision`, invalid/duplicate inputs return `validation_failed`, and insufficient grants return `permission_denied`. Database, I/O and cancellation failures use the shared `temporarily_unavailable` result: retry the identical command with its original key to resolve a possible completed commit. No contact contents or note text is stored in application audit rows or receipts.
+
+Relationship-type rename/retirement adapters remain in M4; link note/endpoint editing has no shared application command yet. Independent `relationships.read` and `structure.read` grants remain proposed: existing reads continue to require `records.read`.
+
+## Schema creation in 1.7
+
+All three schema commands require explicit domain selection and structure.write. They use the same credential-bound receipts, limits, 24-hour replay and redacted audit transaction as record/relationship commands. A repeated successful field creation replays its original field and type IDs/revisions even after the type changes. New requests with an old revision fail rather than attaching against a changed schema.
+
+Record type and field names are trimmed, nonempty and limited to 200 characters. A record-type symbol is optional; whitespace clears it, and nonempty symbols allow at most four text elements, 32 UTF-16 code units and no control characters. Field type identifiers use Core normalization (lowercase; start with a letter; letters, digits, dot, underscore and hyphen only; at most 100 characters). Unknown type identifiers retain the existing scalar-text fallback. Choice fields require 1-1000 trimmed, nonempty options of at most 200 characters, distinct without regard to case. Choice options are ignored for other field types, matching the browser; there is no arbitrary configuration JSON input.
+
+Read the type revision with get_record_type. Reusable and attached field reads now also return an opaque revision, persisted by migration 26 and changed by field metadata, configuration, lifecycle or provenance updates. Attaching an existing field checks both revisions in the mutation transaction. Duplicate attachments and retired entities fail; fields append at the next sort position.
+
+Required attachment fails if any existing record lacks a stored value for that field. This check also applies to browser field creation and attachment, and failure leaves no orphan definition or partial association. Add optional fields to populated types; a new required field can be added to an empty type. Browser handlers submit their displayed revisions, so concurrent MCP schema changes invalidate stale browser selections. Field renaming, retirement, merges and conversion remain M4 work; these commands do not expose those operations or change requiredness on an existing attachment.
+
+## Onboarding and presets in 1.8
+
+The packaged catalogs are deployment-wide and use the same 1-100 page-size and 1-10000 page bounds as other discovery. Every catalog page includes the same opaque catalog revision, covering preset definitions, fields, relationship rules and starter packs. Installed preset discovery is domain-specific and includes retired or customized types with their recorded versions; it does not promise that local contents still match a packaged definition or offer preset upgrades.
+
+get_setup_state performs one read transaction and never persists the implicit completion used by the browser's legacy setup getter. Existing record types imply completed onboarding with starterPackKey `existing`; completedAtUtc is null when no completion event was stored. The domain-bound revision covers persisted setup state, record-type revisions/provenance and relationship-type revisions. It changes when relevant domain structures change, including browser edits or persisted implicit completion. The snapshot reads structure metadata, not record contents.
+
+New installation commands require both the domain revision from get_setup_state and the catalog revision from discovery. Invalid selections and name/identity collisions fail without partial installation. complete_setup accepts a distinct subset of the chosen pack (at most the number of packaged presets). Any empty selection requires acknowledgeBlank=true, acknowledging that preset-dependent features may need presets installed later. It rejects already completed setup, including domains that already contain custom record types. install_preset can add a missing preset after setup; it does not replace local structures or upgrade a previously installed key.
+
+Installation uses the same Core definitions and selection rules as the browser, including relationships applicable to the current installation selection. It does not retroactively add all possible relationships between separately installed presets. Mutations, stored setup completion, receipt and redacted audit commit in one domain transaction. Receipt items contain created record/relationship type IDs and revisions, followed by the domain ID and resulting setup revision with outcome `setup_completed` or `presets_installed`. The normal bounded command history and 24-hour retry window apply. Identical retries read an existing receipt before revalidating the catalog, so a subsequent catalog or schema change does not duplicate installation. Domain creation remains planned.
+
+## Domain rename in 1.9
+
+`rename_domain` preserves domain identity, Default status and content. Obtain the revision from domain discovery using `records.read`; `domains.manage` grants rename and capability discovery independently of data reads. Names are trimmed, limited to 100 characters and unique under the shared catalog rules.
+
+Registry migration 3 commits the rename, receipt and redacted audit together, then publishes the matching cached catalog. Identical retries return the original receipt for 24 hours, including after later browser edits, without undoing those edits. Changed requests or targets under the same credential/action/key fail with `retry_conflict`; credential rotation starts new ownership.
+
+`get_instance_info` includes `domainRegistrySchemaVersion`. Capability `domainWriteLimits` advertises 1,000 retained registry commands, 65,536 receipt bytes, a 24-hour retry window and seven additional days of tombstones. Cleanup runs during subsequent writes. Audit retains at most 50,000 events and 90 days, with IDs/action/outcome/correlation/time only; names and bearer credentials are excluded. Registry history is included in deployment-wide database snapshots. Domain creation and deletion remain unavailable over MCP.

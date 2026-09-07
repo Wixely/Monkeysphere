@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M2 in progress; discovery, single/batch record writes and reviewed deletion locally verified
+- Status: M0-M2 in progress; discovery, record writes/deletion and basic relationship commands locally verified
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -66,9 +66,15 @@ Exit criteria: integration tests prove scope denial, revoked credentials, expire
 
 Dependencies: M1. Owner: Agent.
 
+Progress on 2026-09-07: migration 25 adds persistent relationship/type revisions exposed by MCP reads. Browser type edits, retirement, link creation and removal submit captured revisions. Link creation now holds one transaction across active-type validation, insertion and readback. Contract 1.6 adds create_relationship_type under structure.write and create_relationship/delete_relationship under relationships.write. Commands reuse shared validation and commit mutations, durable receipts and audit atomically. Local tests cover replay after restart, audit-failure rollback, scopes, stale type/record/link revisions, domain isolation, invalid inputs and credential rotation. Next action: domain setup and structured search (owner: Agent; review: 2026-09-14).
+
 - Add record validation/create/patch/delete and structured search/filter/sort. Introduce bounded preview/apply batches using M1 contracts.
+- Progress on 2026-09-07: contract 1.7 adds create_record_type, create_and_attach_field and attach_field under structure.write. Migration 26 exposes persistent field revisions. Shared browser/MCP field addition rejects stale selections and required-value gaps. Tests cover custom schema creation, field reuse, typed records, replay/restart, competing edits, rollback, grant denial and isolation. Minimum schema creation is implemented locally; domain creation/onboarding and structured search remain next (owner: Agent; review: 2026-09-14).
 - Add relationship-type discovery and creation, relationship creation/deletion, and bounded listing. Identify edit operations missing from Core and track them explicitly rather than advertising unsupported CRUD.
 - Add domain create/rename, setup state, preset catalog/installed state, preset installation, and setup completion including the existing blank-slate choice.
+- Progress on 2026-09-07: contract 1.8 implements read-only setup inspection, paged packaged/installed preset discovery, install_preset and complete_setup. Both mutations use structure.write and require domain-state/catalog revisions; blank selections require explicit acknowledgement. Retry, restart, rollback, scope and isolation tests pass locally. Domain create/rename remain outstanding.
+- Domain creation recovery design (owner: Agent; review: 2026-09-14): the existing catalog migrates a new database before registering the domain and has no durable command identity. Add a registry-owned operation reservation that durably assigns the domain ID to the authenticated retry key before database initialization. Resume that same ID after interruption; publish the registry row, receipt and redacted audit atomically after initialization, then refresh the in-memory catalog. Bound retained/pending operations and define startup reconciliation and safe cleanup of unpublished data. Do not expose the existing CreateAsync as a replayable MCP command until interruption, publication and restart recovery are tested. Rename needs a registry revision checked in the update/receipt transaction and shared browser handling. These are application changes, not integration or deployment authorization.
+- Domain foundation progress on 2026-09-07: registry migration 2 adds persistent name revisions, both MCP domain read tools expose them, and browser rename carries its captured revision. Rename now checks the revision and prepares the cached catalog in one transaction, commits, then publishes the cache without a cancellation gap. Competing edits, duplicate-name rollback, pre-cancellation, restart persistence and MCP reads pass locally. Registry command receipts, remote rename and recoverable creation remain next (owner: Agent; review: 2026-09-14).
 - Expose minimum custom record-type and field creation/attachment so a client can build a useful schema without installed presets. Include field configuration and required-value validation.
 
 Exit criteria: an MCP-only integration scenario creates a fresh domain, completes setup, creates two records with typed values and aliases, links them, edits and searches them, and deletes selected test data. Repeat with a second domain to prove isolation and with read-only credentials to prove denial. Existing browser behavior remains valid.
@@ -90,6 +96,7 @@ Dependencies: M2. Owner: Agent.
 
 - Expose record-type rename/symbol changes, retirement preview/apply, and merge preview/apply.
 - Expose reusable-field listing, rename, retirement, usage inspection, merge preview/apply, and conversion preview/apply.
+- Expose the existing relationship-type rename and retirement workflows with structure.write, expected revisions and durable receipts. Link note/endpoint editing is not currently a shared application command; track that extension separately rather than advertising an update tool.
 - Preserve required-field behavior, conflict choices, saved-view references, reminders, import provenance, and unknown values. Reuse existing transactional revision fingerprints rather than introducing conflicting remote-only rules.
 
 Exit criteria: remote tests cover compatible merges, conflict policies, unsafe conversion rejection, stale preview rejection, and preservation of views/reminders/import provenance. Browser and MCP results agree for the same commands.
@@ -143,3 +150,6 @@ Exit criteria: supported management workflows pass through MCP, current read cli
 | Runtime backup-schedule editing | Keep deployment-owned for this delivery; evaluate separately if needed | Wixely | 2026-10-01 |
 
 Remaining work: implement relationship/setup/structure management, structured search, other workflow previews, long operations and remaining M3-M7 tools; finalize transfer quotas and deployed-client verification. Recommended next action: Agent adds scoped, replayable relationship creation/deletion and minimum structure/domain setup commands before contact transfer. Single/batch record writes and deletion with impact review and durable media cleanup are locally verified.
+
+
+2026-09-07 M2 update: contract 1.9 implements rename_domain under domains.manage, with registry migration 3, durable retry receipts, redacted atomic audit and cache publication after commit. Local validation passes 195 tests. Remaining M2 work includes recoverable domain creation and structured search. Owner: Agent; next action: durable creation reservation and restart recovery; review: 2026-09-14.

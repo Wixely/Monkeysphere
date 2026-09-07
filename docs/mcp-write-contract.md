@@ -1,6 +1,6 @@
 # MCP write and transfer contract decisions
 
-- Status: Single/batch record writes and reviewed deletion locally tested; other workflow previews and transfers planned
+- Status: Record writes/deletion and basic relationship commands locally tested; other workflow previews and transfers planned
 - Reviewed: 2026-09-07
 - Owner: Agent
 - Next review: 2026-09-14
@@ -15,6 +15,8 @@ For durable workflow ownership, derive an opaque SHA-256 fingerprint from the be
 The fingerprint identifies a credential generation, not a human or client. Shared credentials share authority. The underlying authentication boundary must be tested to prevent a cookie-only caller or a malformed Authorization header from acquiring a remote workflow identity. Remote administrative grants must not permit issuing grants outside the caller's allowed administrative policy.
 
 ## Mutations and revisions
+
+Contract 1.6 applies the same bounded receipt/audit transaction to relationship commands. Type creation requires structure.write. Link creation/deletion requires relationships.write; creation compares the active type and both endpoint record revisions, and deletion compares the link revision. These grants also authorize instance/capability discovery but do not imply records.read or record mutation grants. See [the tool contract](mcp-contract.md#relationship-writes-in-16) for request fields, limits, replay semantics and remaining type-lifecycle work.
 
 New domain writes require explicit `domainId`. Existing domain reads retain optional Default selection. Deployment-wide actions reject a domain selector.
 
@@ -91,3 +93,7 @@ Long operations expose queued/running/succeeded/failed/cancelled state and an au
 Before a write tool ships, test its exact-scope denial, invalid domain, stale revision, bad patch, transaction rollback, concurrent browser/MCP edits, duplicate request, changed retry payload and restart replay. Upload/download tests additionally cover mismatched content, bounds, offset replay, quotas, cleanup and revoked credentials. Test-only transfer probes must never be registered by the production application.
 
 Remaining work: implement relationship/setup commands, other preview state, operation lifecycle and file transfer; finalize preview/upload quotas and verify the live client path during M7. MCP validate/create/patch and previewed batches now use the ledger, structured errors and bounded failure audit. Real tool tests cover authorization, concurrency, replay, preservation and isolation. Agent owns implementation; review on 2026-09-14. These decisions do not narrow the remaining management scope in M4-M7.
+
+Contract 1.7 extends structure.write to custom record-type creation and field creation/attachment. Type and reusable-field revisions are checked transactionally. Shared browser paths enforce the same revision and required-value rules. Schema commands reuse the existing command history and return ordered receipt items: created field then updated type for create-and-attach, or just updated type for reuse. Other schema lifecycle operations remain planned.
+
+Contract 1.8 extends structure.write to onboarding and preset installation. A read-only domain setup revision and a packaged-catalog revision bind new requests to reviewed state. Blank selections require acknowledgement. Command receipts are checked before current-catalog validation, and installation/completion commits with receipt and audit. Domain creation/rename requires a separate registry transaction and recovery design; it is not exposed yet.

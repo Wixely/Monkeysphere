@@ -412,7 +412,7 @@ else
             _newField.Name,
             _newField.TypeId,
             _newField.IsRequired,
-            choices));
+            choices), expectedRevision: _details!.RecordType.Revision);
         _newField.Name = string.Empty;
         _newField.TypeId = FieldTypes.Text;
         _newField.Choices = string.Empty;
@@ -435,7 +435,9 @@ else
             throw new DomainValidationException("Choose an active field definition.");
         }
 
-        await Service.AttachFieldAsync(Id, fieldDefinitionId, _existingField.IsRequired);
+        FieldDefinition selected = _definitions.Single(field => field.Id == fieldDefinitionId);
+        await Service.AttachFieldAsync(Id, fieldDefinitionId, _existingField.IsRequired,
+            expectedRevision: _details!.RecordType.Revision, expectedFieldRevision: selected.Revision);
         _existingField.FieldDefinitionId = string.Empty;
         _existingField.IsRequired = false;
         _message = "Existing field attached with its stable identity preserved.";

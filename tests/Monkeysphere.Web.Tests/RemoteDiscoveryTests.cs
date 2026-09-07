@@ -226,6 +226,16 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(5, links.Items.Count);
         Assert.Equal("Peer 500", links.Items[0].RelatedDisplayName);
         Assert.All(links.Items, link => { Assert.Equal("known by", link.Label); Assert.False(link.IsOutgoing); });
+        Assert.All(links.Items, link => Assert.Matches("^[0-9a-f]{32}$", link.Revision));
+        using JsonDocument typePage = await SendAsync(client, surface.EndpointPath!, credential.Secret,
+            "tools/call", "list_relationship_types", new { page = 1, pageSize = 100 });
+        JsonElement typeItem = typePage.RootElement.GetProperty("result").GetProperty("structuredContent").GetProperty("items")[0];
+        Assert.Matches("^[0-9a-f]{32}$", typeItem.GetProperty("revision").GetString()!);
+        using JsonDocument legacy = await SendAsync(client, surface.EndpointPath!, credential.Secret,
+            "tools/call", "get_record_relationships", new { id = focusId.ToString("D") });
+        string legacyText = legacy.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+        using JsonDocument legacyLinks = JsonDocument.Parse(legacyText);
+        Assert.Matches("^[0-9a-f]{32}$", legacyLinks.RootElement[0].GetProperty("revision").GetString()!);
         using JsonDocument isolated = await SendAsync(client, surface.EndpointPath!, credential.Secret,
             "tools/call", "query_record_relationships", new { id = focusId, domainId = otherDomainId });
         Assert.Equal(0, isolated.RootElement.GetProperty("result").GetProperty("structuredContent")

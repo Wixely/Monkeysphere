@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 24,
+        currentVersion: 26,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -614,5 +614,37 @@ public static class MonkeysphereSchema
                 CREATE INDEX IX_RecordBatchPreviews_Expiry ON RecordBatchPreviews (ExpiresAtUtc);
                 """),
             DnaXMigration.Sql(24, "record-deletion-previews", "Track deletion impact and durable media cleanup", RecordDeletionMigration.Sql),
+            DnaXMigration.Sql(25, "relationship-revisions", "Track shared relationship and relationship type revisions", """
+                ALTER TABLE RelationshipTypes ADD COLUMN Revision TEXT NOT NULL DEFAULT '';
+                ALTER TABLE Relationships ADD COLUMN Revision TEXT NOT NULL DEFAULT '';
+                UPDATE RelationshipTypes SET Revision = lower(hex(randomblob(16)));
+                UPDATE Relationships SET Revision = lower(hex(randomblob(16)));
+                CREATE TRIGGER RelationshipTypes_Revision_Insert AFTER INSERT ON RelationshipTypes BEGIN
+                    UPDATE RelationshipTypes SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER RelationshipTypes_Revision_Update
+                AFTER UPDATE OF Name, InverseName, Directionality, Lifecycle, PresetKey, PresetVersion ON RelationshipTypes BEGIN
+                    UPDATE RelationshipTypes SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                    UPDATE Relationships SET Revision = lower(hex(randomblob(16))) WHERE RelationshipTypeId = NEW.Id;
+                END;
+                CREATE TRIGGER Relationships_Revision_Insert AFTER INSERT ON Relationships BEGIN
+                    UPDATE Relationships SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER Relationships_Revision_Update
+                AFTER UPDATE OF RelationshipTypeId, SourceRecordId, TargetRecordId, Note ON Relationships BEGIN
+                    UPDATE Relationships SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                """),
+            DnaXMigration.Sql(26, "field-definition-revisions", "Track reusable field definition revisions", """
+                ALTER TABLE FieldDefinitions ADD COLUMN Revision TEXT NOT NULL DEFAULT '';
+                UPDATE FieldDefinitions SET Revision = lower(hex(randomblob(16)));
+                CREATE TRIGGER FieldDefinitions_Revision_Insert AFTER INSERT ON FieldDefinitions BEGIN
+                    UPDATE FieldDefinitions SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER FieldDefinitions_Revision_Metadata
+                AFTER UPDATE OF Name, TypeId, ConfigurationJson, Lifecycle, CanonicalKey, PresetKey, PresetVersion ON FieldDefinitions BEGIN
+                    UPDATE FieldDefinitions SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                """),
         ]);
 }

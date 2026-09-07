@@ -89,7 +89,7 @@
                     {
                         <div class="relationship-type-actions">
                             <button class="button" type="button" @onclick="() => RenameAsync(type)">Rename</button>
-                            <button class="button" type="button" @onclick="() => RetireAsync(type.Id)">Retire</button>
+                            <button class="button" type="button" @onclick="() => RetireAsync(type)">Retire</button>
                         </div>
                     }
                 </li>
@@ -128,11 +128,11 @@
         }
     }
 
-    private async Task RetireAsync(Guid id)
+    private async Task RetireAsync(RelationshipType type)
     {
         try
         {
-            await Service.RetireTypeAsync(id);
+            await Service.RetireTypeAsync(type.Id, expectedRevision: type.Revision);
             _message = null;
             await ReloadAsync();
         }
@@ -146,7 +146,7 @@
     {
         try
         {
-            await Service.RenameTypeAsync(type.Id, _names[type.Id], _inverseNames.GetValueOrDefault(type.Id));
+            await Service.RenameTypeAsync(type.Id, _names[type.Id], _inverseNames.GetValueOrDefault(type.Id), expectedRevision: type.Revision);
             _message = null;
             await ReloadAsync();
         }

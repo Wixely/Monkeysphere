@@ -14,7 +14,7 @@ public static class DomainRegistrySchema
     public const string DatabaseName = "MonkeysphereDomains";
 
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 1,
+        currentVersion: 3,
         migrations:
         [
             DnaXMigration.Sql(1, "domain-registry", "Create the Monkeysphere domain registry", """
@@ -28,6 +28,40 @@ public static class DomainRegistrySchema
 
                 CREATE UNIQUE INDEX IX_Domains_Default
                     ON Domains(IsDefault) WHERE IsDefault = 1;
+                """),
+            DnaXMigration.Sql(2, "domain-revisions", "Track domain name revisions", """
+                ALTER TABLE Domains ADD COLUMN Revision TEXT NOT NULL DEFAULT '';
+                UPDATE Domains SET Revision = lower(hex(randomblob(16)));
+                CREATE TRIGGER Domains_Revision_Insert AFTER INSERT ON Domains BEGIN
+                    UPDATE Domains SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER Domains_Revision_Update AFTER UPDATE OF Name ON Domains BEGIN
+                    UPDATE Domains SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                """),
+            DnaXMigration.Sql(3, "domain-command-receipts", "Persist domain management receipts and redacted audit", """
+                CREATE TABLE DomainCommandReceipts (
+                    Surface TEXT NOT NULL,
+                    CredentialFingerprint TEXT NOT NULL,
+                    Action TEXT NOT NULL,
+                    IdempotencyKey TEXT NOT NULL,
+                    DomainId TEXT NOT NULL,
+                    RequestHash TEXT NOT NULL,
+                    ReceiptJson TEXT NULL,
+                    RetryUntilUtc TEXT NOT NULL,
+                    ForgetAfterUtc TEXT NOT NULL,
+                    PRIMARY KEY (Surface, CredentialFingerprint, Action, IdempotencyKey)
+                );
+                CREATE INDEX IX_DomainCommandReceipts_ForgetAfter ON DomainCommandReceipts (ForgetAfterUtc);
+                CREATE TABLE DomainCommandAudit (
+                    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    DomainId TEXT NOT NULL,
+                    Surface TEXT NOT NULL,
+                    Action TEXT NOT NULL,
+                    Outcome TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    OccurredAtUtc TEXT NOT NULL
+                );
                 """),
         ]);
 }
@@ -148,7 +182,7 @@ internal sealed class DefaultCurrentDomain : ICurrentDomainScope
     }
 }
 
-internal sealed class DomainCatalog(
+internal sealed partial class DomainCatalog(
     DomainRegistryConnectionFactory connections,
     IDomainDatabaseMigrator domainDatabases,
     IDnaXPaths paths,
@@ -227,30 +261,21 @@ internal sealed class DomainCatalog(
         }
     }
 
-    public async Task<MonkeysphereDomain> RenameAsync(Guid id, string name, CancellationToken cancellationToken = default)
+    public async Task<MonkeysphereDomain> RenameAsync(Guid id, string name, string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         string normalized = MonkeysphereDomains.NormalizeName(name);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                int changed = await connection.ExecuteAsync(new CommandDefinition("""
-                    UPDATE Domains SET Name = @Name, UpdatedAtUtc = @Now WHERE Id = @Id;
-                    """, new { Id = Key(id), Name = normalized, Now = Timestamp(timeProvider.GetUtcNow()) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
-                if (changed != 1)
-                {
-                    throw new DomainValidationException("Domain was not found.");
-                }
-            }
-            catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
-            {
-                throw new DomainValidationException("A domain with that name already exists.", exception);
-            }
+            using SqliteTransaction transaction = connection.BeginTransaction();
+            await RenameCoreAsync(connection, transaction, id, normalized, expectedRevision, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
 
-            await RefreshAsync(connection, cancellationToken).ConfigureAwait(false);
-            return _domains.Single(domain => domain.Id == id);
+            ImmutableArray<MonkeysphereDomain> snapshot = await ReadSnapshotAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+            _domains = snapshot;
+            return snapshot.Single(domain => domain.Id == id);
         }
         finally
         {
@@ -258,19 +283,46 @@ internal sealed class DomainCatalog(
         }
     }
 
+    private static async Task RenameCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid id, string normalized, string? expectedRevision, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        try
+        {
+            int changed = await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE Domains SET Name = @Name, UpdatedAtUtc = @Now
+                    WHERE Id = @Id AND (@ExpectedRevision IS NULL OR Revision = @ExpectedRevision);
+                    """, new { Id = Key(id), Name = normalized, Now = Timestamp(now), ExpectedRevision = expectedRevision },
+                transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (changed != 1)
+            {
+                if (expectedRevision is not null) throw new ConcurrencyConflictException("The domain changed or was removed. Reload it before renaming.");
+                throw new DomainValidationException("Domain was not found.");
+            }
+        }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+        {
+            throw new DomainValidationException("A domain with that name already exists.", exception);
+        }
+
+    }
+
     private async Task RefreshAsync(SqliteConnection connection, CancellationToken cancellationToken)
+        => _domains = await ReadSnapshotAsync(connection, null, cancellationToken).ConfigureAwait(false);
+
+    private static async Task<ImmutableArray<MonkeysphereDomain>> ReadSnapshotAsync(SqliteConnection connection, SqliteTransaction? transaction,
+        CancellationToken cancellationToken)
     {
         IEnumerable<DomainRow> rows = await connection.QueryAsync<DomainRow>(new CommandDefinition("""
-            SELECT Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc
+            SELECT Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc, Revision
             FROM Domains
             ORDER BY IsDefault DESC, Name COLLATE NOCASE, Id;
-            """, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        _domains = rows.Select(row => new MonkeysphereDomain(
+            """, transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.Select(row => new MonkeysphereDomain(
             Guid.ParseExact(row.Id, "D"),
             row.Name,
             row.IsDefault != 0,
             ParseTimestamp(row.CreatedAtUtc),
-            ParseTimestamp(row.UpdatedAtUtc))).ToImmutableArray();
+            ParseTimestamp(row.UpdatedAtUtc), row.Revision)).ToImmutableArray();
     }
 
     private static string Key(Guid id) => id.ToString("D", CultureInfo.InvariantCulture);
@@ -279,6 +331,7 @@ internal sealed class DomainCatalog(
 
     private sealed class DomainRow
     {
+        public required string Revision { get; init; }
         public required string Id { get; init; }
         public required string Name { get; init; }
         public int IsDefault { get; init; }

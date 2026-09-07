@@ -106,6 +106,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<MonkeysphereRemoteQueries>();
 builder.Services.AddScoped<MonkeysphereSchemaQueries>();
+builder.Services.AddScoped<RemotePresetQueries>();
 builder.Services.AddScoped<RemoteCredentialManager>();
 builder.Services.AddScoped<RemoteCommandIdentityProvider>();
 builder.Services.AddScoped<RemoteRecordWriter>();
@@ -132,7 +133,12 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeysphereSchemaTools>()
     .WithTools<MonkeysphereRecordWriteTools>()
     .WithTools<MonkeysphereRecordBatchTools>()
-    .WithTools<MonkeysphereRecordDeletionTools>();
+    .WithTools<MonkeysphereRecordDeletionTools>()
+    .WithTools<MonkeysphereRelationshipWriteTools>()
+    .WithTools<MonkeysphereStructureWriteTools>()
+    .WithTools<MonkeyspherePresetReadTools>()
+    .WithTools<MonkeyspherePresetWriteTools>()
+    .WithTools<MonkeysphereDomainWriteTools>();
 
 string[] trustedProxyValues = (builder.Configuration["MONKEYSPHERE_TRUSTED_PROXIES"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

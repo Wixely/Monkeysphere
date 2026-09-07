@@ -24,7 +24,9 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<DomainMigrationTarget>();
         services.AddSingleton<MonkeysphereMigrationConnectionFactory>();
         services.AddSingleton<IDomainDatabaseMigrator, DomainDatabaseMigrator>();
-        services.AddSingleton<IDomainCatalog, DomainCatalog>();
+        services.AddSingleton<DomainCatalog>();
+        services.AddSingleton<IDomainCatalog>(provider => provider.GetRequiredService<DomainCatalog>());
+        services.AddSingleton<IDomainCommands>(provider => provider.GetRequiredService<DomainCatalog>());
         services.AddScoped<MonkeysphereConnectionFactory>();
         services.AddSingleton<RecordMediaLocks>();
         services.AddScoped<IMonkeysphereStore, SqliteMonkeysphereStore>();
@@ -48,6 +50,10 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IBackupService, BackupService>();
         services.AddScoped<IRelationshipStore, SqliteRelationshipStore>();
         services.AddScoped<IRelationshipService, RelationshipService>();
+        services.AddScoped<IRelationshipCommandStore, SqliteMonkeysphereStore>();
+        services.AddScoped<RelationshipCommandService>();
+        services.AddScoped<IStructureCommandStore, SqliteMonkeysphereStore>();
+        services.AddScoped<StructureCommandService>();
         services.AddScoped<IRelationshipGraphStore, SqliteRelationshipGraphStore>();
         services.AddScoped<IRelationshipGraphService, RelationshipGraphService>();
         services.AddScoped<ISavedViewStore, SqliteSavedViewStore>();
@@ -62,6 +68,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IGraphSettingsService, GraphSettingsService>();
         services.AddScoped<IPresetStore, SqlitePresetStore>();
         services.AddScoped<IPresetService, PresetService>();
+        services.AddScoped<IPresetCommandStore, SqliteMonkeysphereStore>();
+        services.AddScoped<PresetCommandService>();
         services.AddScoped<IDebugDatabaseResetService, DebugDatabaseResetService>();
         services.AddDnaXDataMigrations(DatabaseName, options =>
         {

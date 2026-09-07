@@ -44,14 +44,14 @@ public interface IMonkeysphereStore
         string configurationJson,
         bool isRequired,
         DateTimeOffset now,
-        CancellationToken cancellationToken = default);
+        string? expectedRevision = null, CancellationToken cancellationToken = default);
 
     Task AttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,
         bool isRequired,
         DateTimeOffset now,
-        CancellationToken cancellationToken = default);
+        string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default);
 
     Task RenameFieldAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
 
@@ -170,9 +170,9 @@ public interface IMonkeysphereService
         string expectedRevision,
         CancellationToken cancellationToken = default);
 
-    Task<FieldDefinition> CreateAndAttachFieldAsync(Guid recordTypeId, CreateFieldRequest request, CancellationToken cancellationToken = default);
+    Task<FieldDefinition> CreateAndAttachFieldAsync(Guid recordTypeId, CreateFieldRequest request, string? expectedRevision = null, CancellationToken cancellationToken = default);
 
-    Task AttachFieldAsync(Guid recordTypeId, Guid fieldDefinitionId, bool isRequired, CancellationToken cancellationToken = default);
+    Task AttachFieldAsync(Guid recordTypeId, Guid fieldDefinitionId, bool isRequired, string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default);
 
     Task RenameFieldAsync(Guid id, string name, CancellationToken cancellationToken = default);
 

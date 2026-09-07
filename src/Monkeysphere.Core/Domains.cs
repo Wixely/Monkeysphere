@@ -5,7 +5,8 @@ public sealed record MonkeysphereDomain(
     string Name,
     bool IsDefault,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Revision = "");
 
 public static class MonkeysphereDomains
 {
@@ -35,7 +36,7 @@ public interface IDomainCatalog
 
     Task<MonkeysphereDomain> CreateAsync(string name, CancellationToken cancellationToken = default);
 
-    Task<MonkeysphereDomain> RenameAsync(Guid id, string name, CancellationToken cancellationToken = default);
+    Task<MonkeysphereDomain> RenameAsync(Guid id, string name, string? expectedRevision = null, CancellationToken cancellationToken = default);
 
     bool TryGet(Guid id, out MonkeysphereDomain? domain);
 }

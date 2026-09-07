@@ -51,7 +51,8 @@ public sealed record FieldDefinition(
     DateTimeOffset UpdatedAtUtc,
     string? CanonicalKey = null,
     string? PresetKey = null,
-    int? PresetVersion = null);
+    int? PresetVersion = null,
+    string Revision = "");
 
 public sealed record RecordTypeField(
     FieldDefinition Definition,

@@ -81,6 +81,7 @@
     private string _newName = string.Empty;
     private Guid? _editingId;
     private string _renameName = string.Empty;
+    private string? _renameRevision;
     private string? _message;
     private bool _error;
 
@@ -102,6 +103,7 @@
     {
         _editingId = domain.Id;
         _renameName = domain.Name;
+        _renameRevision = domain.Revision;
         _message = null;
     }
 
@@ -109,6 +111,7 @@
     {
         _editingId = null;
         _renameName = string.Empty;
+        _renameRevision = null;
     }
 
     private async Task SaveRenameAsync()
@@ -120,10 +123,10 @@
 
         try
         {
-            MonkeysphereDomain domain = await Domains.RenameAsync(id, _renameName);
+            MonkeysphereDomain domain = await Domains.RenameAsync(id, _renameName, expectedRevision: _renameRevision);
             Navigation.NavigateTo($"/settings/domains?renamed={domain.Id:D}", forceLoad: true);
         }
-        catch (DomainValidationException exception)
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
         {
             _error = true;
             _message = exception.Message;

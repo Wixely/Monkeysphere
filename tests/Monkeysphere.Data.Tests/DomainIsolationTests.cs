@@ -8,7 +8,7 @@ using Monkeysphere.Data;
 
 namespace Monkeysphere.Data.Tests;
 
-public sealed class DomainIsolationTests
+public sealed partial class DomainIsolationTests
 {
     [Fact]
     public async Task ExistingDataRemainsInRenameableDefaultDomainAndNewDomainsAreIsolated()

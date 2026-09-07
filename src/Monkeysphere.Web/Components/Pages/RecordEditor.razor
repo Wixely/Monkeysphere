@@ -257,7 +257,7 @@ else
                                         <span class="muted">@relationship.Note</span>
                                     }
                                 </div>
-                                <button class="button danger" type="button" @onclick="() => RemoveRelationshipAsync(relationship.Id)">Remove</button>
+                                <button class="button danger" type="button" @onclick="() => RemoveRelationshipAsync(relationship)">Remove</button>
                             </li>
                         }
                     </ul>
@@ -628,7 +628,8 @@ else
                 throw new DomainValidationException("Choose a relationship type and related record.");
             }
 
-            await RelationshipService.CreateAsync(typeId, sourceId, targetId, _relationshipNote);
+            RelationshipType selectedType = _activeRelationshipTypes.Single(type => type.Id == typeId);
+            await RelationshipService.CreateAsync(typeId, sourceId, targetId, _relationshipNote, expectedRevision: selectedType.Revision);
             _relationshipNote = string.Empty;
             _relatedRecordValue = string.Empty;
             _message = null;
@@ -640,12 +641,17 @@ else
         }
     }
 
-    private async Task RemoveRelationshipAsync(Guid relationshipId)
+    private async Task RemoveRelationshipAsync(RelationshipView relationship)
     {
-        await RelationshipService.DeleteAsync(relationshipId);
-        if (RecordId is Guid recordId)
+        try
         {
-            await LoadRelationshipsAsync(recordId);
+            await RelationshipService.DeleteAsync(relationship.Id, expectedRevision: relationship.Revision);
+            _message = null;
+            if (RecordId is Guid recordId) await LoadRelationshipsAsync(recordId);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
         }
     }
 

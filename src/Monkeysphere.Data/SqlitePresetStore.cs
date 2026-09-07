@@ -5,8 +5,35 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections, TimeProvider timeProvider) : IPresetStore
+public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections, TimeProvider timeProvider, ICurrentDomain currentDomain) : IPresetStore
 {
+    public async Task<PresetInspection> InspectAsync(CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        return await InspectCoreAsync(connection, transaction, currentDomain.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<PresetInspection> InspectCoreAsync(SqliteConnection connection, SqliteTransaction transaction, Guid domainId,
+        CancellationToken cancellationToken)
+    {
+        SetupRow? setup = await connection.QuerySingleOrDefaultAsync<SetupRow>(new CommandDefinition(
+            "SELECT StarterPackKey, CompletedAtUtc FROM SetupState WHERE Singleton = 1;", transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        PresetTypeRow[] types = (await connection.QueryAsync<PresetTypeRow>(new CommandDefinition("""
+            SELECT Id, Name, PresetKey, PresetVersion, Lifecycle, Revision, CreatedAtUtc
+            FROM RecordTypes ORDER BY Id;
+            """, transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        PresetRelationRow[] relationships = (await connection.QueryAsync<PresetRelationRow>(new CommandDefinition(
+            "SELECT Id, Revision FROM RelationshipTypes ORDER BY Id;", transaction: transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        SetupStatus status = setup is not null ? new(true, setup.StarterPackKey, ParseTimestamp(setup.CompletedAtUtc)) :
+            types.Length == 0 ? new(false, null, null) : new(true, "existing", null);
+        return new(status, CommandRequestHash.Compute(new { domainId, setup, types, relationships }),
+            types.Where(type => type.PresetKey is not null).Select(type => new InstalledPreset(Guid.Parse(type.Id), type.PresetKey!,
+                type.PresetVersion, type.Name, ((RecordTypeLifecycle)type.Lifecycle).ToString().ToLowerInvariant())).ToArray());
+    }
+
     public async Task<SetupStatus> GetSetupStatusAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -46,13 +73,21 @@ public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections,
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await InstallCoreAsync(connection, transaction, installation, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task InstallCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        PresetInstallation installation, CancellationToken cancellationToken)
+    {
         string now = Timestamp(installation.InstalledAtUtc);
         try
         {
             if (installation.StarterPackKey is not null)
             {
                 int completed = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-                    "SELECT COUNT(*) FROM SetupState WHERE Singleton = 1;", transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+                    "SELECT (SELECT COUNT(*) FROM SetupState WHERE Singleton = 1) + (SELECT COUNT(*) FROM RecordTypes);",
+                    transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
                 if (completed != 0)
                 {
                     throw new DomainValidationException("First-run setup has already been completed.");
@@ -127,12 +162,9 @@ public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections,
                     VALUES (1, @StarterPackKey, @Now);
                     """, new { installation.StarterPackKey, Now = now }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
-
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
         {
-            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
             throw new DomainValidationException(
                 "The preset could not be installed because one of its names or identities already exists.", exception);
         }
@@ -146,5 +178,22 @@ public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections,
     {
         public required string StarterPackKey { get; init; }
         public required string CompletedAtUtc { get; init; }
+    }
+
+    private sealed class PresetTypeRow
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public string? PresetKey { get; init; }
+        public int? PresetVersion { get; init; }
+        public int Lifecycle { get; init; }
+        public required string Revision { get; init; }
+        public required string CreatedAtUtc { get; init; }
+    }
+
+    private sealed class PresetRelationRow
+    {
+        public required string Id { get; init; }
+        public required string Revision { get; init; }
     }
 }

@@ -46,7 +46,7 @@ public sealed partial class SqliteMonkeysphereStore(
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<FieldRow> rows = await connection.QueryAsync<FieldRow>(new CommandDefinition("""
             SELECT Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc,
-                   CanonicalKey, PresetKey, PresetVersion,
+                   CanonicalKey, PresetKey, PresetVersion, Revision,
                    0 AS SortOrder, 0 AS IsRequired
             FROM FieldDefinitions
             ORDER BY Lifecycle, Name COLLATE NOCASE, Id;
@@ -61,13 +61,23 @@ public sealed partial class SqliteMonkeysphereStore(
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        string timestamp = Timestamp(now);
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        RecordType created = await CreateRecordTypeCoreAsync(connection, transaction, id, name, symbol, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return created;
+    }
+
+    private static async Task<RecordType> CreateRecordTypeCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid id, string name, string? symbol, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        string timestamp = Timestamp(now);
         try
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO RecordTypes (Id, Name, Symbol, CreatedAtUtc, UpdatedAtUtc) VALUES (@Id, @Name, @Symbol, @Now, @Now);",
                 new { Id = Key(id), Name = name, Symbol = symbol, Now = timestamp },
+                transaction,
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsUniqueConstraint(exception))
@@ -76,7 +86,7 @@ public sealed partial class SqliteMonkeysphereStore(
         }
 
         string revision = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
-            "SELECT Revision FROM RecordTypes WHERE Id = @Id;", new { Id = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false)
+            "SELECT Revision FROM RecordTypes WHERE Id = @Id;", new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Created record type could not be read back.");
         return new RecordType(id, name, now, now, Symbol: symbol, Revision: revision);
     }
@@ -353,22 +363,22 @@ public sealed partial class SqliteMonkeysphereStore(
         string configurationJson,
         bool isRequired,
         DateTimeOffset now,
-        CancellationToken cancellationToken = default)
+        string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
-        string timestamp = Timestamp(now);
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null)
+            _ = await RequireStructureTypeAsync(connection, transaction, recordTypeId, expectedRevision, cancellationToken).ConfigureAwait(false);
+        FieldDefinition created = await CreateAndAttachFieldCoreAsync(connection, transaction, recordTypeId, fieldDefinitionId,
+            name, typeId, configurationJson, isRequired, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return created;
+    }
 
-        int typeExists = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM RecordTypes WHERE Id = @Id AND Lifecycle = 0;",
-            new { Id = Key(recordTypeId) },
-            transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (typeExists == 0)
-        {
-            throw new DomainValidationException("Record type was not found.");
-        }
-
+    private static async Task<FieldDefinition> CreateAndAttachFieldCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid recordTypeId, Guid fieldDefinitionId, string name, string typeId, string configurationJson, bool isRequired,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO FieldDefinitions
                 (Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc)
@@ -381,28 +391,14 @@ public sealed partial class SqliteMonkeysphereStore(
                 Name = name,
                 TypeId = typeId,
                 ConfigurationJson = configurationJson,
-                Now = timestamp,
+                Now = Timestamp(now),
             },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        await connection.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO RecordTypeFields (RecordTypeId, FieldDefinitionId, SortOrder, IsRequired)
-            SELECT @RecordTypeId, @FieldDefinitionId, COALESCE(MAX(SortOrder) + 1, 0), @IsRequired
-            FROM RecordTypeFields
-            WHERE RecordTypeId = @RecordTypeId;
-            """,
-            new
-            {
-                RecordTypeId = Key(recordTypeId),
-                FieldDefinitionId = Key(fieldDefinitionId),
-                IsRequired = isRequired ? 1 : 0,
-            },
-            transaction,
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new FieldDefinition(fieldDefinitionId, name, typeId, configurationJson, FieldLifecycle.Active, now, now);
+        await AttachFieldCoreAsync(connection, transaction, recordTypeId, fieldDefinitionId, isRequired, now, cancellationToken).ConfigureAwait(false);
+        return await QueryFieldDefinitionAsync(connection, fieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Created field could not be read back.");
     }
 
     public async Task AttachFieldAsync(
@@ -410,10 +406,25 @@ public sealed partial class SqliteMonkeysphereStore(
         Guid fieldDefinitionId,
         bool isRequired,
         DateTimeOffset now,
-        CancellationToken cancellationToken = default)
+        string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null)
+            _ = await RequireStructureTypeAsync(connection, transaction, recordTypeId, expectedRevision, cancellationToken).ConfigureAwait(false);
+        if (expectedFieldRevision is not null)
+        {
+            FieldDefinition field = await QueryFieldDefinitionAsync(connection, fieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false)
+                ?? throw new RecordCommandNotFoundException("Field definition was not found.");
+            if (field.Revision != expectedFieldRevision) throw new ConcurrencyConflictException("The field definition changed. Read it again before attaching.");
+        }
+        await AttachFieldCoreAsync(connection, transaction, recordTypeId, fieldDefinitionId, isRequired, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task AttachFieldCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid recordTypeId, Guid fieldDefinitionId, bool isRequired, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         int validPair = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
             SELECT COUNT(*)
             FROM RecordTypes rt
@@ -440,6 +451,14 @@ public sealed partial class SqliteMonkeysphereStore(
             throw new DomainValidationException("That field definition is already attached to this record type.");
         }
 
+        if (isRequired && await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS (
+                SELECT 1 FROM Records r WHERE r.RecordTypeId = @RecordTypeId
+                AND NOT EXISTS (SELECT 1 FROM FieldValues fv WHERE fv.RecordId = r.Id AND fv.FieldDefinitionId = @FieldDefinitionId)
+            );
+            """, new { RecordTypeId = Key(recordTypeId), FieldDefinitionId = Key(fieldDefinitionId) }, transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false))
+            throw new DomainValidationException("A required field cannot be attached while existing records lack its value. Attach it as optional first.");
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO RecordTypeFields (RecordTypeId, FieldDefinitionId, SortOrder, IsRequired)
             SELECT @RecordTypeId, @FieldDefinitionId, COALESCE(MAX(SortOrder) + 1, 0), @IsRequired
@@ -456,7 +475,7 @@ public sealed partial class SqliteMonkeysphereStore(
             },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
     }
 
     public async Task RenameFieldAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -928,6 +947,7 @@ public sealed partial class SqliteMonkeysphereStore(
         {
             await RequireRevisionAsync(connection, transaction, recordTypeId, expectedSchemaRevision, schema: true, cancellationToken).ConfigureAwait(false);
         }
+
         RecordDetails result = await InsertRecordCoreAsync(connection, transaction, id, recordTypeId, displayName, aliases, values, now, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return result;
@@ -1533,7 +1553,7 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         IEnumerable<FieldRow> rows = await connection.QueryAsync<FieldRow>(new CommandDefinition("""
              SELECT fd.Id, fd.Name, fd.TypeId, fd.ConfigurationJson, fd.Lifecycle,
-                    fd.CreatedAtUtc, fd.UpdatedAtUtc, fd.CanonicalKey, fd.PresetKey, fd.PresetVersion,
+                    fd.CreatedAtUtc, fd.UpdatedAtUtc, fd.CanonicalKey, fd.PresetKey, fd.PresetVersion, fd.Revision,
                     rtf.SortOrder, rtf.IsRequired
             FROM RecordTypeFields rtf
             JOIN FieldDefinitions fd ON fd.Id = rtf.FieldDefinitionId
@@ -1603,7 +1623,7 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         FieldRow? row = await connection.QuerySingleOrDefaultAsync<FieldRow>(new CommandDefinition("""
             SELECT Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc,
-                   CanonicalKey, PresetKey, PresetVersion,
+                   CanonicalKey, PresetKey, PresetVersion, Revision,
                    0 AS SortOrder, 0 AS IsRequired
             FROM FieldDefinitions
             WHERE Id = @Id;
@@ -1747,7 +1767,7 @@ public sealed partial class SqliteMonkeysphereStore(
             ParseTimestamp(row.UpdatedAtUtc),
             row.CanonicalKey,
             row.PresetKey,
-            row.PresetVersion);
+            row.PresetVersion, row.Revision);
 
     private static RecordSummary MapSummary(RecordSummaryRow row) =>
         new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName, ParseTimestamp(row.UpdatedAtUtc));
@@ -1802,6 +1822,7 @@ public sealed partial class SqliteMonkeysphereStore(
 
     private sealed class FieldRow
     {
+        public string Revision { get; init; } = string.Empty;
         public required string Id { get; init; }
         public required string Name { get; init; }
         public required string TypeId { get; init; }

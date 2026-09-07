@@ -146,4 +146,20 @@ public sealed partial class SqliteMonkeysphereStore : IRecordCommandStore
         public string? ReceiptJson { get; init; }
         public required string RetryUntilUtc { get; init; }
     }
+    private async Task<RecordCommandReceipt> ExecuteEntityCommandAsync(RecordCommandIdentity identity, string action,
+        DateTimeOffset now, Func<SqliteConnection, SqliteTransaction, Task<IReadOnlyList<RecordMutationOutcome>>> mutation, CancellationToken cancellationToken)
+    {
+        ValidateIdentity(identity);
+        if (identity.Action != action) throw new DomainValidationException("The command action does not match the mutation.");
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        RecordCommandReceipt? replay = await ReadReceiptAsync(connection, transaction, identity, now, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) return replay;
+        await RequireCommandCapacityAsync(connection, transaction, now, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<RecordMutationOutcome> outcomes = await mutation(connection, transaction).ConfigureAwait(false);
+        RecordCommandReceipt receipt = await SaveCommandReceiptAsync(connection, transaction, identity, outcomes, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return receipt;
+    }
+
 }

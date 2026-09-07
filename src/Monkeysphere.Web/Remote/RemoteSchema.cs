@@ -12,9 +12,9 @@ public sealed record RemoteTypeSummary(Guid Id, string Name, string? Symbol, str
 
 public sealed record RemoteReusableField(
     Guid Id, string Name, string TypeId, string ConfigurationJson, string Lifecycle,
-    IReadOnlyList<string> ChoiceOptions, string? CanonicalKey, string? PresetKey, int? PresetVersion);
+    IReadOnlyList<string> ChoiceOptions, string? CanonicalKey, string? PresetKey, int? PresetVersion, string Revision = "");
 
-public sealed record RemoteRelationshipType(Guid Id, string Name, string Directionality, string? InverseName, string Lifecycle);
+public sealed record RemoteRelationshipType(Guid Id, string Name, string Directionality, string? InverseName, string Lifecycle, string Revision = "");
 
 public sealed record RemoteFieldTypeSchema(
     string TypeId, bool Recognized, string ValueProperty, JsonElement ValueSchema,
@@ -34,7 +34,7 @@ public sealed class MonkeysphereSchemaQueries(
         RemoteReadAuthorization.Demand(accessor);
         DiscoveryPagination.Validate(page, pageSize);
         return DiscoveryPagination.From(domains.Snapshot.OrderBy(domain => domain.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(domain => domain.Id).Select(domain => new RemoteDomain(domain.Id, domain.Name, domain.IsDefault)).ToArray(), page, pageSize);
+            .ThenBy(domain => domain.Id).Select(domain => new RemoteDomain(domain.Id, domain.Name, domain.IsDefault, domain.Revision)).ToArray(), page, pageSize);
     }
 
     public async Task<PagedResult<RemoteTypeSummary>> QueryTypesAsync(int page, int pageSize, Guid? domainId, CancellationToken cancellationToken)
@@ -55,7 +55,7 @@ public sealed class MonkeysphereSchemaQueries(
         IReadOnlyList<FieldDefinition> fields = await records.ListFieldDefinitionsAsync(cancellationToken).ConfigureAwait(false);
         return DiscoveryPagination.From(fields.Select(field => new RemoteReusableField(field.Id, field.Name, field.TypeId,
             field.ConfigurationJson, field.Lifecycle.ToString().ToLowerInvariant(), FieldTypes.ChoiceOptions(field),
-            field.CanonicalKey, field.PresetKey, field.PresetVersion)).ToArray(), page, pageSize);
+            field.CanonicalKey, field.PresetKey, field.PresetVersion, field.Revision)).ToArray(), page, pageSize);
     }
 
     public async Task<PagedResult<RemoteRelationshipType>> QueryRelationshipTypesAsync(int page, int pageSize, Guid? domainId, CancellationToken cancellationToken)
@@ -65,7 +65,7 @@ public sealed class MonkeysphereSchemaQueries(
         using IDisposable? domain = domainId is Guid id ? currentDomain.Use(id) : null;
         IReadOnlyList<RelationshipType> types = await relationships.ListTypesAsync(cancellationToken).ConfigureAwait(false);
         return DiscoveryPagination.From(types.Select(type => new RemoteRelationshipType(type.Id, type.Name,
-            type.Directionality.ToString().ToLowerInvariant(), type.InverseName, type.Lifecycle.ToString().ToLowerInvariant())).ToArray(), page, pageSize);
+            type.Directionality.ToString().ToLowerInvariant(), type.InverseName, type.Lifecycle.ToString().ToLowerInvariant(), type.Revision)).ToArray(), page, pageSize);
     }
 
     public async Task<PagedResult<RelationshipView>> QueryRelationshipsAsync(Guid recordId, int page, int pageSize, Guid? domainId, CancellationToken cancellationToken)

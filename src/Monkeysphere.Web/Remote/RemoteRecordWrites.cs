@@ -54,8 +54,9 @@ public sealed record RemoteRecordPatchChange(string Operation, Guid? FieldDefini
 public sealed record RemoteWriteError(string Code, string Message, string CorrelationId);
 public sealed record RemoteRecordValidation(bool IsValid, Guid RecordTypeId, string DisplayName, IReadOnlyList<string> Aliases, int FieldCount, string SchemaRevision);
 
-public sealed partial class RemoteRecordWriter(RecordCommandService commands, RecordBatchService batches, RecordDeletionService deletions, RemoteCommandIdentityProvider identities,
-    ICurrentDomainScope currentDomain, IHttpContextAccessor accessor, IDomainCatalog domains,
+public sealed partial class RemoteRecordWriter(RecordCommandService commands, RecordBatchService batches, RecordDeletionService deletions,
+    RelationshipCommandService relationshipCommands, StructureCommandService structureCommands, PresetCommandService presetCommands, RemoteCommandIdentityProvider identities,
+    ICurrentDomainScope currentDomain, IHttpContextAccessor accessor, IDomainCatalog domains, IDomainCommands domainCommands,
     IApplicationCommandAudit audit, TimeProvider timeProvider, ILogger<RemoteRecordWriter> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -133,13 +134,19 @@ public sealed partial class RemoteRecordWriter(RecordCommandService commands, Re
 
     private async Task RecordFailureAsync(Guid domainId, string action, string outcome)
     {
-        if (!domains.TryGet(domainId, out _)) return;
+        if (domainId == Guid.Empty || (action != "domains.rename" && !domains.TryGet(domainId, out _))) return;
         string correlation = accessor.HttpContext?.TraceIdentifier ?? "";
         try
         {
-            using IDisposable domain = currentDomain.Use(domainId);
             using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(2));
-            await audit.RecordAsync(new(domainId, "mcp", action, outcome, correlation, timeProvider.GetUtcNow()), deadline.Token).ConfigureAwait(false);
+            ApplicationCommandEvent entry = new(domainId, "mcp", action, outcome, correlation, timeProvider.GetUtcNow());
+            if (action == "domains.rename")
+                await domainCommands.RecordFailureAsync(entry, deadline.Token).ConfigureAwait(false);
+            else
+            {
+                using IDisposable domain = currentDomain.Use(domainId);
+                await audit.RecordAsync(entry, deadline.Token).ConfigureAwait(false);
+            }
         }
         catch (Exception exception) when (exception is DbException or IOException or OperationCanceledException)
         {

@@ -6,7 +6,7 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Web.Remote;
 
-public sealed record RemoteDomain(Guid Id, string Name, bool IsDefault);
+public sealed record RemoteDomain(Guid Id, string Name, bool IsDefault, string Revision = "");
 
 public sealed record RemoteRecordType(
     Guid Id,
@@ -24,7 +24,8 @@ public sealed record RemoteFieldDefinition(
     int SortOrder,
     string ConfigurationJson = "{}",
     string Lifecycle = "active",
-    IReadOnlyList<string>? ChoiceOptions = null);
+    IReadOnlyList<string>? ChoiceOptions = null,
+    string Revision = "");
 
 public sealed record RemoteRecordSummary(
     Guid Id,
@@ -62,7 +63,8 @@ public sealed record RemoteRelationship(
     string RelatedDisplayName,
     bool IsOutgoing,
     string? Note,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Revision = "");
 
 public sealed record RemoteRecordValue(
     Guid FieldDefinitionId,
@@ -97,7 +99,7 @@ public sealed class MonkeysphereRemoteQueries(
     {
         DemandReadScope();
         IReadOnlyList<RemoteDomain> results = domains.Snapshot
-            .Select(domain => new RemoteDomain(domain.Id, domain.Name, domain.IsDefault))
+            .Select(domain => new RemoteDomain(domain.Id, domain.Name, domain.IsDefault, domain.Revision))
             .ToArray();
         return Task.FromResult(results);
     }
@@ -226,7 +228,7 @@ public sealed class MonkeysphereRemoteQueries(
                 field.SortOrder,
                 field.Definition.ConfigurationJson,
                 field.Definition.Lifecycle.ToString().ToLowerInvariant(),
-                FieldTypes.ChoiceOptions(field.Definition))).ToArray(),
+                FieldTypes.ChoiceOptions(field.Definition), field.Definition.Revision)).ToArray(),
             details.RecordType.Revision);
 
     private static RemoteRecordSummary MapSummary(RecordSummary record) =>
@@ -282,7 +284,7 @@ public sealed class MonkeysphereRemoteQueries(
                 item.RelatedDisplayName,
                 item.IsOutgoing,
                 item.Note,
-                item.UpdatedAtUtc))
+                item.UpdatedAtUtc, item.Revision))
             .ToArray();
 
     private static string? FormatValue(RecordValue value) => value switch
