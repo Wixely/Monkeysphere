@@ -1,7 +1,41 @@
 # Roadmap
 
-- Last reviewed: 2026-09-03
+- Last reviewed: 2026-09-07
 - Owner: Wixely / Agent unless otherwise noted
+
+## MCP coverage for new features
+
+Status: Adopted planning and completion requirement from 2026-09-07.
+
+Basic application functionality should be usable through MCP as well as the browser. Every new feature or material extension must consider MCP during design, including its reads, mutations, configuration, and import/export workflows. Deliver applicable MCP support with the feature by default, using the same application services and validation.
+
+- Record an MCP disposition in the feature plan and PR: **Included**, **Deferred**, or **Not applicable**.
+- Included work specifies tools, permissions, domain selection, input/output limits, and relevant verification, and ships with the feature.
+- Deferred work requires a concrete reason, a linked roadmap item, an owner (or TBD), and an ISO review date. Deferral must remain visible as incomplete coverage.
+- Not applicable work requires a reason, such as a purely visual browser interaction or an operation that must run while the application is offline. Consider exposing its underlying data or configuration even when the interaction itself is browser-only.
+- Review existing tools when extending a feature: new fields, filters, settings, and lifecycle actions must not silently leave the MCP contract behind.
+- This requirement does not automatically enable remote access, expand existing credentials, or require a matching HTTP API endpoint for every tool.
+
+Owner: Wixely / Agent. Next action: apply this checklist to every new feature plan and PR; review coverage on 2026-10-01.
+
+## MCP instance management
+
+Status: Planned; implementation not started. Baseline reviewed: 2026-09-07.
+
+Build out authenticated MCP management of application data and runtime administration, preserving domain isolation and the offline restore boundary. The [MCP implementation plan](mcp-management-plan.md) defines contracts, dependencies, delivery phases, acceptance criteria, and remaining decisions.
+
+| Milestone | Scope | Status | Owner | Review date |
+| --- | --- | --- | --- | --- |
+| M0 | Source/deployment inventory, capability discovery, contract and permission design | Planned; next | Agent | 2026-09-14 |
+| M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | Planned; depends on M0 | Agent | 2026-09-14 |
+| M2 | Records, relationships, domain setup, and minimum structure creation | Planned; depends on M1 | Agent | 2026-09-21 |
+| M3 | File transfer, vCard preview/apply/export, and record images | Planned; depends on M2 | Agent | 2026-09-21 |
+| M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
+| M5 | Saved views, graph/map queries, calendar, reminders, and settings | Planned; depends on M2 | Agent | 2026-09-28 |
+| M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
+| M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
+
+Dates are review checkpoints, not delivery commitments. Recommended next action: Agent executes M0, resolves the discovered source/deployment tool mismatch without changing integrations implicitly, and finalizes the versioned contract before implementing writes.
 
 ## Domain-separated spheres
 
