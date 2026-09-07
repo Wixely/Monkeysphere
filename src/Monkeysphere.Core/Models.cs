@@ -20,7 +20,8 @@ public sealed record RecordType(
     string? PresetKey = null,
     int? PresetVersion = null,
     RecordTypeLifecycle Lifecycle = RecordTypeLifecycle.Active,
-    string? Symbol = null);
+    string? Symbol = null,
+    string Revision = "");
 
 public sealed record RecordTypeRetirementPreview(
     RecordType RecordType,
@@ -91,7 +92,8 @@ public sealed record RecordDetails(
     IReadOnlyList<RecordValue> Values,
     IReadOnlyList<RecordTypeField> AvailableFields,
     IReadOnlyList<string> Aliases,
-    IReadOnlyList<RecordImage> Images);
+    IReadOnlyList<RecordImage> Images,
+    string Revision = "");
 
 public sealed record RecordImage(
     Guid Id,
@@ -146,7 +148,8 @@ public sealed record PreparedRecord(
     Guid RecordTypeId,
     string DisplayName,
     IReadOnlyList<string> Aliases,
-    IReadOnlyList<NormalizedFieldValue> Values);
+    IReadOnlyList<NormalizedFieldValue> Values,
+    string SchemaRevision = "");
 
 public sealed record CreateFieldRequest(
     string Name,

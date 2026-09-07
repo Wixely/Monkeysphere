@@ -8,17 +8,18 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteMonkeysphereStore(
+public sealed partial class SqliteMonkeysphereStore(
     MonkeysphereConnectionFactory connections,
     IDnaXPaths paths,
-    ICurrentDomain currentDomain) : IMonkeysphereStore
+    ICurrentDomain currentDomain,
+    RecordMediaLocks mediaLocks) : IMonkeysphereStore
 {
     public async Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RecordTypeRow> rows = await connection.QueryAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(MapRecordType).ToArray();
     }
@@ -28,7 +29,7 @@ public sealed class SqliteMonkeysphereStore(
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RecordTypeRow? type = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol FROM RecordTypes WHERE Id = @Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision FROM RecordTypes WHERE Id = @Id;",
                 new { Id = Key(id) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (type is null)
@@ -74,7 +75,10 @@ public sealed class SqliteMonkeysphereStore(
             throw new DomainValidationException("A record type with that name already exists.", exception);
         }
 
-        return new RecordType(id, name, now, now, Symbol: symbol);
+        string revision = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+            "SELECT Revision FROM RecordTypes WHERE Id = @Id;", new { Id = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Created record type could not be read back.");
+        return new RecordType(id, name, now, now, Symbol: symbol, Revision: revision);
     }
 
     public async Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -915,10 +919,24 @@ public sealed class SqliteMonkeysphereStore(
         IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
+        string? expectedSchemaRevision = null,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedSchemaRevision is not null)
+        {
+            await RequireRevisionAsync(connection, transaction, recordTypeId, expectedSchemaRevision, schema: true, cancellationToken).ConfigureAwait(false);
+        }
+        RecordDetails result = await InsertRecordCoreAsync(connection, transaction, id, recordTypeId, displayName, aliases, values, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private static async Task<RecordDetails> InsertRecordCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid id, Guid recordTypeId, string displayName, IReadOnlyList<string> aliases, IReadOnlyList<NormalizedFieldValue> values,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
         string timestamp = Timestamp(now);
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO Records (Id, RecordTypeId, DisplayName, CreatedAtUtc, UpdatedAtUtc)
@@ -948,21 +966,28 @@ public sealed class SqliteMonkeysphereStore(
             new { RecordId = Key(id), DayPrecision = (int)TemporalPrecision.Day },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return await GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
+        RecordDetails result = await QueryRecordAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Created record could not be read back.");
+        return result;
     }
 
     public async Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        return await QueryRecordAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<RecordDetails?> QueryRecordAsync(SqliteConnection connection, SqliteTransaction transaction, Guid id, CancellationToken cancellationToken)
+    {
         RecordSummaryRow? row = await connection.QuerySingleOrDefaultAsync<RecordSummaryRow>(new CommandDefinition("""
-            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc
+            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc, r.Revision
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
             WHERE r.Id = @Id;
             """,
             new { Id = Key(id) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (row is null)
         {
@@ -970,13 +995,13 @@ public sealed class SqliteMonkeysphereStore(
         }
 
         Guid recordTypeId = ParseGuid(row.RecordTypeId);
-        IReadOnlyList<RecordTypeField> fields = await QueryFieldsAsync(connection, recordTypeId, cancellationToken).ConfigureAwait(false);
-        IReadOnlyList<RecordValue> values = await QueryValuesAsync(connection, id, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<RecordTypeField> fields = await QueryFieldsAsync(connection, recordTypeId, cancellationToken, transaction).ConfigureAwait(false);
+        IReadOnlyList<RecordValue> values = await QueryValuesAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false);
         string[] aliases = (await connection.QueryAsync<string>(new CommandDefinition(
             "SELECT Value FROM RecordAliases WHERE RecordId = @RecordId ORDER BY Ordinal;",
-            new { RecordId = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
-        IReadOnlyList<RecordImage> images = await ListRecordImagesAsync(connection, id, cancellationToken).ConfigureAwait(false);
-        return new RecordDetails(MapSummary(row), values, fields, aliases, images);
+            new { RecordId = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        IReadOnlyList<RecordImage> images = await ListRecordImagesAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false);
+        return new RecordDetails(MapSummary(row), values, fields, aliases, images, row.Revision);
     }
 
     public async Task<RecordDetails> UpdateRecordAsync(
@@ -985,10 +1010,24 @@ public sealed class SqliteMonkeysphereStore(
         IReadOnlyList<string> aliases,
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
+        string? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null)
+        {
+            await RequireRevisionAsync(connection, transaction, id, expectedRevision, schema: false, cancellationToken).ConfigureAwait(false);
+        }
+        RecordDetails result = await ReplaceRecordCoreAsync(connection, transaction, id, displayName, aliases, values, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private static async Task<RecordDetails> ReplaceRecordCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid id, string displayName, IReadOnlyList<string> aliases, IReadOnlyList<NormalizedFieldValue> values,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
         string timestamp = Timestamp(now);
         int changed = await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE Records SET DisplayName = @DisplayName, UpdatedAtUtc = @Now WHERE Id = @Id;",
@@ -1005,24 +1044,22 @@ public sealed class SqliteMonkeysphereStore(
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return await GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
+        RecordDetails result = await QueryRecordAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Updated record could not be read back.");
+        return result;
     }
 
     public async Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        int changed = await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM Records WHERE Id = @Id;",
-            new { Id = Key(id) },
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (changed == 1)
+        bool changed;
+        await using (SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
         {
-            RecordImageStoragePaths.DeleteRecordDirectory(paths, currentDomain, id);
+            changed = await DeleteRecordCoreAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        return changed == 1;
+        if (changed) _ = await TryCleanupRecordMediaAsync(id, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        return changed;
     }
 
     public async Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(
@@ -1459,7 +1496,8 @@ public sealed class SqliteMonkeysphereStore(
     private static async Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(
         SqliteConnection connection,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         IEnumerable<RecordImageRow> rows = await connection.QueryAsync<RecordImageRow>(new CommandDefinition("""
             SELECT Id, RecordId, Ordinal, OriginalFileName, OriginalContentType,
@@ -1470,6 +1508,7 @@ public sealed class SqliteMonkeysphereStore(
             ORDER BY Ordinal, Id;
             """,
             new { RecordId = Key(recordId) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(row => new RecordImage(
             ParseGuid(row.Id),
@@ -1489,7 +1528,8 @@ public sealed class SqliteMonkeysphereStore(
     private static async Task<IReadOnlyList<RecordTypeField>> QueryFieldsAsync(
         SqliteConnection connection,
         Guid recordTypeId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         IEnumerable<FieldRow> rows = await connection.QueryAsync<FieldRow>(new CommandDefinition("""
              SELECT fd.Id, fd.Name, fd.TypeId, fd.ConfigurationJson, fd.Lifecycle,
@@ -1501,6 +1541,7 @@ public sealed class SqliteMonkeysphereStore(
             ORDER BY rtf.SortOrder, fd.Id;
             """,
             new { RecordTypeId = Key(recordTypeId) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(row => new RecordTypeField(MapField(row), row.SortOrder, row.IsRequired != 0)).ToArray();
     }
@@ -1512,7 +1553,7 @@ public sealed class SqliteMonkeysphereStore(
         CancellationToken cancellationToken)
     {
         RecordTypeRow? row = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol
+            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision
             FROM RecordTypes
             WHERE Id = @Id;
             """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -1608,7 +1649,8 @@ public sealed class SqliteMonkeysphereStore(
     private static async Task<IReadOnlyList<RecordValue>> QueryValuesAsync(
         SqliteConnection connection,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         FieldValueRow[] rows = (await connection.QueryAsync<FieldValueRow>(new CommandDefinition("""
             SELECT fv.Id, fv.FieldDefinitionId, fd.Name AS FieldName, fd.TypeId, fv.Ordinal,
@@ -1621,6 +1663,7 @@ public sealed class SqliteMonkeysphereStore(
             ORDER BY fd.Name COLLATE NOCASE, fv.Ordinal, fv.Id;
             """,
             new { RecordId = Key(recordId) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
 
         if (rows.Length == 0)
@@ -1636,6 +1679,7 @@ public sealed class SqliteMonkeysphereStore(
             ORDER BY t.FieldValueId, t.Ordinal;
             """,
             new { RecordId = Key(recordId) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         Dictionary<string, string[]> tagLookup = tags
             .GroupBy(item => item.FieldValueId, StringComparer.OrdinalIgnoreCase)
@@ -1649,6 +1693,7 @@ public sealed class SqliteMonkeysphereStore(
             WHERE fv.RecordId = @RecordId;
             """,
             new { RecordId = Key(recordId) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         Dictionary<string, LocationValue> locationLookup = locations.ToDictionary(
             row => row.FieldValueId,
@@ -1688,7 +1733,8 @@ public sealed class SqliteMonkeysphereStore(
             row.PresetKey,
             row.PresetVersion,
             (RecordTypeLifecycle)row.Lifecycle,
-            row.Symbol);
+            row.Symbol,
+            row.Revision);
 
     private static FieldDefinition MapField(FieldRow row) =>
         new(
@@ -1707,6 +1753,20 @@ public sealed class SqliteMonkeysphereStore(
         new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName, ParseTimestamp(row.UpdatedAtUtc));
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
+
+    private static async Task RequireRevisionAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid id, string expected, bool schema, CancellationToken cancellationToken)
+    {
+        string sql = schema ? "SELECT Revision FROM RecordTypes WHERE Id = @Id AND Lifecycle = 0;" : "SELECT Revision FROM Records WHERE Id = @Id;";
+        string? actual = await connection.ExecuteScalarAsync<string>(new CommandDefinition(sql,
+            new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (actual is null || !string.Equals(actual, expected, StringComparison.Ordinal))
+        {
+            throw new ConcurrencyConflictException(schema
+                ? "The record type changed after validation. Reload the structure before saving."
+                : "The record or its fields changed. Reload the record before saving.");
+        }
+    }
 
     private static Guid ParseGuid(string value) => Guid.ParseExact(value, "D");
 
@@ -1737,6 +1797,7 @@ public sealed class SqliteMonkeysphereStore(
         public int? PresetVersion { get; init; }
         public int Lifecycle { get; init; }
         public string? Symbol { get; init; }
+        public string Revision { get; init; } = string.Empty;
     }
 
     private sealed class FieldRow
@@ -1762,6 +1823,7 @@ public sealed class SqliteMonkeysphereStore(
         public required string RecordTypeName { get; init; }
         public required string DisplayName { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public string Revision { get; init; } = string.Empty;
     }
 
     private sealed class FieldValueRow

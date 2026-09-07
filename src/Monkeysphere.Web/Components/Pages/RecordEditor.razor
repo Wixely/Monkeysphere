@@ -318,6 +318,7 @@ else
     private IReadOnlyList<RecordType> _types = [];
     private RecordTypeDetails? _selectedType;
     private RecordDetails? _record;
+    private string? _editRevision;
     private List<EditorField> _editors = [];
     private string _selectedTypeValue = string.Empty;
     private string? _message;
@@ -362,6 +363,7 @@ else
             _record = await Service.GetRecordAsync(id);
             if (_record is not null)
             {
+                _editRevision = _record.Revision;
                 _model.DisplayName = _record.Record.DisplayName;
                 _model.Aliases = string.Join(Environment.NewLine, _record.Aliases);
                 SyncImages(_record.Images);
@@ -426,7 +428,7 @@ else
                         : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
 
             RecordDetails saved = RecordId is Guid id
-                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values, ParseAliases())
+                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values, ParseAliases(), expectedRevision: _editRevision)
                 : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values, ParseAliases());
             Navigation.NavigateTo($"/records/{saved.Record.Id}");
         }

@@ -9,8 +9,133 @@ using Monkeysphere.Data;
 
 namespace Monkeysphere.Data.Tests;
 
-public sealed class RecordWorkflowTests
+public sealed partial class RecordWorkflowTests
 {
+    [Fact]
+    public async Task RecordRevisionRejectsStaleEditsAndSchemaChangesAfterValidation()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        IMonkeysphereStore store = application.Services.GetRequiredService<IMonkeysphereStore>();
+        RecordType type = await service.CreateRecordTypeAsync("Revision fixture");
+        FieldDefinition tags = await service.CreateAndAttachFieldAsync(type.Id, new("Tags", FieldTypes.Tags, false));
+        RecordDetails original = await service.CreateRecordAsync(type.Id, "Original", [new(tags.Id, Tags: ["one"])], ["Alias"]);
+        Assert.Matches("^[0-9a-f]{32}$", original.Revision);
+        RecordDetails updated = await service.UpdateRecordAsync(original.Record.Id, "First edit", [new(tags.Id, Tags: ["one"])],
+            ["Alias"], expectedRevision: original.Revision);
+        Assert.NotEqual(original.Revision, updated.Revision);
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => service.UpdateRecordAsync(original.Record.Id, "Stale edit", [],
+            expectedRevision: original.Revision));
+        Assert.Equal("First edit", (await service.GetRecordAsync(original.Record.Id))!.Record.DisplayName);
+
+        // A child-table write, as used by import/schema workflows, must also invalidate the edit token.
+        await using (SqliteConnection connection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync())
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "UPDATE FieldValueTags SET Value = 'two' WHERE FieldValueId = @Id;";
+            command.Parameters.AddWithValue("@Id", updated.Values[0].Id.ToString("D"));
+            await command.ExecuteNonQueryAsync();
+        }
+        RecordDetails childChanged = (await service.GetRecordAsync(original.Record.Id))!;
+        Assert.NotEqual(updated.Revision, childChanged.Revision);
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => service.UpdateRecordAsync(original.Record.Id, "Stale child edit", [],
+            expectedRevision: updated.Revision));
+
+        PreparedRecord prepared = await service.PrepareRecordAsync(type.Id, "Prepared before schema edit", []);
+        await service.RenameFieldAsync(tags.Id, "Renamed tags");
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => store.CreateRecordAsync(Guid.NewGuid(), type.Id,
+            prepared.DisplayName, prepared.Aliases, prepared.Values, DateTimeOffset.UtcNow, expectedSchemaRevision: prepared.SchemaRevision));
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => service.UpdateRecordAsync(original.Record.Id, "Stale schema edit", [],
+            expectedRevision: childChanged.Revision));
+        Assert.Equal(1, (await service.SearchRecordsAsync(new())).TotalCount);
+    }
+
+    [Fact]
+    public async Task RecordCommandReceiptsSurviveRestartAndRejectChangedOrExpiredRetries()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordCommandStore commands = application.Services.GetRequiredService<IRecordCommandStore>();
+        RecordType type = await service.CreateRecordTypeAsync("Retry fixture");
+        PreparedRecord prepared = await service.PrepareRecordAsync(type.Id, "Created once", []);
+        Guid id = Guid.NewGuid();
+        RecordCommandIdentity identity = new(MonkeysphereDomains.DefaultId, "mcp", new string('A', 64), "records.create", Guid.NewGuid(), new string('B', 64));
+        DateTimeOffset now = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
+        RecordCommandReceipt first = await commands.ExecuteAsync(identity, [new(RecordMutationKind.Create, id, prepared)], now);
+        Assert.Equal(id, Assert.Single(first.Items).Id);
+
+        await application.RestartAsync();
+        commands = application.Services.GetRequiredService<IRecordCommandStore>();
+        service = application.Services.GetRequiredService<IMonkeysphereService>();
+        RecordCommandReceipt replay = await commands.ExecuteAsync(identity, [], now.AddMinutes(1));
+        Assert.Equal(first.Items, replay.Items);
+        Assert.Equal(first.CompletedAtUtc, replay.CompletedAtUtc);
+        Assert.Equal(1, (await service.SearchRecordsAsync(new())).TotalCount);
+        Assert.Null(await commands.GetReceiptAsync(identity with { CredentialFingerprint = new string('C', 64) }, now));
+        await Assert.ThrowsAsync<DomainValidationException>(() => commands.GetReceiptAsync(identity with { DomainId = Guid.NewGuid() }, now));
+        CommandReplayException conflict = await Assert.ThrowsAsync<CommandReplayException>(() =>
+            commands.ExecuteAsync(identity with { RequestHash = new string('D', 64) }, [], now.AddMinutes(2)));
+        Assert.Equal("retry_conflict", conflict.Code);
+        CommandReplayException expired = await Assert.ThrowsAsync<CommandReplayException>(() => commands.GetReceiptAsync(identity, now.AddDays(2)));
+        Assert.Equal("retry_expired", expired.Code);
+        await service.DeleteRecordAsync(id);
+        Assert.Equal(first.Items, (await commands.GetReceiptAsync(identity, now.AddMinutes(3)))!.Items);
+        await application.Services.GetRequiredService<IDebugDatabaseResetService>().ResetAsync();
+        Assert.Null(await commands.GetReceiptAsync(identity, now.AddMinutes(4)));
+    }
+
+    [Fact]
+    public async Task ConcurrentRecordCommandsReplayOnceAndStaleEditorsCannotOverwrite()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordCommandStore commands = application.Services.GetRequiredService<IRecordCommandStore>();
+        RecordType type = await service.CreateRecordTypeAsync("Concurrent fixture");
+        PreparedRecord prepared = await service.PrepareRecordAsync(type.Id, "Once", []);
+        Guid id = Guid.NewGuid();
+        RecordCommandIdentity identity = new(MonkeysphereDomains.DefaultId, "mcp", new string('A', 64), "records.create", Guid.NewGuid(), new string('B', 64));
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        Task<RecordCommandReceipt>[] requests = Enumerable.Range(0, 2).Select(_ => Task.Run(() =>
+            commands.ExecuteAsync(identity, [new(RecordMutationKind.Create, id, prepared)], now))).ToArray();
+        RecordCommandReceipt[] receipts = await Task.WhenAll(requests);
+        Assert.Equal(receipts[0].Items, receipts[1].Items);
+        Assert.Equal(1, (await service.SearchRecordsAsync(new())).TotalCount);
+        RecordDetails original = (await service.GetRecordAsync(id))!;
+        Task<bool>[] edits = Enumerable.Range(0, 2).Select(index => Task.Run(async () =>
+        {
+            try
+            {
+                await service.UpdateRecordAsync(id, $"Editor {index}", [], expectedRevision: original.Revision);
+                return true;
+            }
+            catch (ConcurrencyConflictException) { return false; }
+        })).ToArray();
+        bool[] results = await Task.WhenAll(edits);
+        Assert.Single(results, success => success);
+        await using SqliteConnection connection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
+        await using SqliteCommand audit = connection.CreateCommand();
+        audit.CommandText = "SELECT COUNT(*) FROM ApplicationCommandAudit WHERE Outcome = 'committed';";
+        Assert.Equal(1L, await audit.ExecuteScalarAsync());
+    }
+
+    [Fact]
+    public async Task RecordCommandBatchRollsBackEveryMutationAndItsReceiptOnConflict()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService service = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordCommandStore commands = application.Services.GetRequiredService<IRecordCommandStore>();
+        RecordType type = await service.CreateRecordTypeAsync("Batch fixture");
+        PreparedRecord prepared = await service.PrepareRecordAsync(type.Id, "Must roll back", []);
+        RecordCommandIdentity identity = new(MonkeysphereDomains.DefaultId, "mcp", new string('A', 64), "records.batch", Guid.NewGuid(), new string('B', 64));
+        Guid createId = Guid.NewGuid();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => commands.ExecuteAsync(identity,
+            [new(RecordMutationKind.Create, createId, prepared), new(RecordMutationKind.Replace, Guid.NewGuid(), prepared, "stale")], now));
+        Assert.Null(await service.GetRecordAsync(createId));
+        Assert.Null(await commands.GetReceiptAsync(identity, now));
+        Assert.Equal(0, (await service.SearchRecordsAsync(new())).TotalCount);
+    }
+
     [Fact]
     public async Task RecordSearchRejectsUnboundedInput()
     {
@@ -909,8 +1034,8 @@ public sealed class RecordWorkflowTests
     private sealed class TestApplication : IAsyncDisposable
     {
         private readonly string _dataRoot;
-        private readonly ServiceProvider _provider;
-        private readonly AsyncServiceScope _scope;
+        private ServiceProvider _provider;
+        private AsyncServiceScope _scope;
 
         private TestApplication(string dataRoot, ServiceProvider provider, AsyncServiceScope scope)
         {
@@ -925,6 +1050,22 @@ public sealed class RecordWorkflowTests
         {
             string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dataRoot);
+            ServiceProvider provider = await CreateProviderAsync(dataRoot, timeProvider);
+            AsyncServiceScope scope = provider.CreateAsyncScope();
+            return new TestApplication(dataRoot, provider, scope);
+        }
+
+        public async Task RestartAsync()
+        {
+            await _scope.DisposeAsync();
+            await _provider.DisposeAsync();
+            SqliteConnection.ClearAllPools();
+            _provider = await CreateProviderAsync(_dataRoot, null);
+            _scope = _provider.CreateAsyncScope();
+        }
+
+        private static async Task<ServiceProvider> CreateProviderAsync(string dataRoot, TimeProvider? timeProvider)
+        {
             ServiceCollection services = new();
             services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(dataRoot));
             services.AddSingleton(new DebugResetAvailability(true));
@@ -936,8 +1077,7 @@ public sealed class RecordWorkflowTests
             services.AddMonkeysphereData();
             ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
             await provider.MigrateDnaXDatabaseAsync(MonkeysphereDataExtensions.DatabaseName);
-            AsyncServiceScope scope = provider.CreateAsyncScope();
-            return new TestApplication(dataRoot, provider, scope);
+            return provider;
         }
 
         public async ValueTask DisposeAsync()

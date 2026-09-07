@@ -150,6 +150,23 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         return rows.Select(MapRelationship).ToArray();
     }
 
+    public async Task<PagedResult<StoredRelationship>> QueryForRecordAsync(Guid recordId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        DiscoveryPagination.Validate(page, pageSize);
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        var parameters = new { RecordId = Key(recordId), Limit = pageSize, Offset = (page - 1) * pageSize };
+        int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM Relationships WHERE SourceRecordId = @RecordId OR TargetRecordId = @RecordId;",
+            parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        IEnumerable<RelationshipRow> rows = await connection.QueryAsync<RelationshipRow>(new CommandDefinition(RelationshipSelect + """
+             WHERE r.SourceRecordId = @RecordId OR r.TargetRecordId = @RecordId
+            ORDER BY rt.Name COLLATE NOCASE, source.DisplayName COLLATE NOCASE, target.DisplayName COLLATE NOCASE, r.Id
+            LIMIT @Limit OFFSET @Offset;
+            """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return new(rows.Select(MapRelationship).ToArray(), page, pageSize, total);
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

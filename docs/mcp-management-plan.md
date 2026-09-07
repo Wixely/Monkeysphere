@@ -1,10 +1,11 @@
 # MCP instance-management implementation plan
 
-- Status: Planned; no implementation completed by this document
+- Status: M0-M2 in progress; discovery, single/batch record writes and reviewed deletion locally verified
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
 - Tracking: [roadmap milestones and ongoing feature requirement](roadmap.md)
+- Detailed tool and configuration proposals: [MCP options plan](mcp-options-plan.md)
 
 ## Outcome and scope
 
@@ -12,7 +13,7 @@ An authorized MCP client should be able to set up a domain, manage its structure
 
 Application management is the delivery target. Initial deployment, administrator bootstrap, host credentials, service installation/restart, application upgrades, deployment configuration, and offline restore remain operator workflows. Expose useful status and documented next steps for these boundaries. Do not add arbitrary SQL, shell execution, server-path uploads, filesystem browsing, or live restore to achieve parity. Domain deletion/transfer and preset upgrades remain separate roadmap work; assess MCP when those features are designed. Debug reset remains outside the production tool set.
 
-All milestones below are planned. Tool names and scope names are proposed contracts to settle in M0, not claims about currently available tools. Review dates and owners are in the roadmap; each implementation PR must update both milestone status and remaining work.
+M0-M1 are in progress, and initial M2 validate/create/patch adapters pass local tool-level verification; remaining delivery stays planned. Tool names and scope names are proposed contracts unless explicitly marked implemented. Review dates and owners are in the roadmap; each implementation PR must update both milestone status and remaining work.
 
 ## Verified starting point
 
@@ -20,7 +21,7 @@ Source inspection on 2026-09-07 found six tools in `src/Monkeysphere.Web/Remote/
 
 The MCPHub catalog exposed to this planning session lists five Monkeysphere tools, without `list_domains` or the domain parameters. This establishes a catalog mismatch, not its cause. Deployment version and discovery freshness have not been verified. No live data was mutated or integration configuration changed.
 
-The Core services already implement much of the browser functionality. Remote adapters should reuse them. Concurrency across browser/MCP edits, durable retry handling, transferable preview state, asynchronous operation status, and some administrative queries need new application support rather than thin wrappers alone. Current security documentation explicitly excludes remote mutations; update that boundary when writes actually ship.
+The Core services already implement much of the browser functionality. Remote adapters should reuse them. Concurrency across browser/MCP edits, durable retry handling, transferable preview state, asynchronous operation status, and some administrative queries need new application support rather than thin wrappers alone. Security documentation now covers opt-in record writes; each later mutation family requires its own boundary review.
 
 ## Contract and implementation rules
 
@@ -38,7 +39,9 @@ The Core services already implement much of the browser functionality. Remote ad
 
 Dependencies: none. Owner: Agent.
 
-- Build a checked-in capability matrix mapping each browser/service workflow to proposed tool, scope, domain/deployment boundary, limits, mutation semantics, tests, and Included/Deferred/Not applicable disposition.
+Progress on 2026-09-07: added instance/capability discovery, paged domain/type/field/relationship discovery and built-in/custom field input schemas. Existing reads remain compatible. Tests cover 105 types and 505 relationships, domain isolation and scope denial. A test-only 256 KiB binary probe passes through the pinned HTTP MCP transport; oversize input is rejected. [Pinned dependency findings](mcp-dependency-findings.md) and the [write/transfer design](mcp-write-contract.md) select credential ownership, transactional retry/revision semantics and bounded chunks. Preview/transfer persistence and quota bounds and deployed-client verification remain outstanding. Basic record writes are covered by M1-M2 below; no file tool is exposed yet.
+
+- Refine the checked-in [MCP options matrix](mcp-options-plan.md) into a contract mapping each browser/service workflow to final tool, scope, domain/deployment boundary, limits, mutation semantics, tests, and Included/Deferred/Not applicable disposition.
 - Inspect the deployed version and MCP discovery read-only when available. Compare direct server discovery with MCPHub discovery to locate the mismatch. Record any required deployment or discovery refresh as an operator action; do not install or reconfigure integrations implicitly.
 - Inspect the pinned DnaX package's scope, administration, audit, and MCP extension support. Identify any dependency change before relying on it; separate-repository work needs its own authorized scope.
 - Finalize DTOs, proposed permissions, compatibility policy, field patch semantics, concurrency storage, preview storage/expiry, idempotency retention, and file transport in a contract document with request/result examples.
@@ -49,6 +52,8 @@ Exit criteria: matrix and contracts are reviewable; source tools have discovery/
 ## M1 - Mutation foundations
 
 Dependencies: M0. Owner: Agent.
+
+Progress on 2026-09-07: Remote access settings select supported grants during rotation and preserve existing grants by default. Migration 21 tracks record/schema revisions; the browser editor submits its captured revision and Core checks it again in the write transaction. Migration 22 adds atomic creation/replacement batch receipts with 24-hour replay, seven-day tombstones and committed audit entries. Canonical request hashing and remote credential fingerprint binding are implemented. Tests cover concurrent edits/duplicate commands, schema changes after validation, batch rollback, restart replay, expiry and ownership. Validated command orchestration, MCP validate/create/patch adapters and failure audit/errors now pass actual MCP invocation tests, including explicit write grants, rotation ownership, stale edits, retry after deletion, data preservation and cross-domain rejection. Migration 23 adds credential/domain-owned record batch previews (15 minutes, 100 rows/domain, 1 MiB each), transactional consumption and startup/periodic cleanup. Tests cover preview restart, expiry, quota, stale schema, concurrent apply and receipt replay after preview cleanup. Migration 24 adds deletion-impact revisions/previews and durable media cleanup. A separate records.delete grant protects deletion; empty records allow direct revision-checked deletion, while dependent data requires a reviewed preview. Tests cover impact changes, concurrent replay, expiry, owner/domain rejection, cleanup restart/quota, locked files and in-flight uploads. Other preview families and long-operation lifecycle remain outstanding.
 
 - Extend credential issuance to explicit scope selection, maintaining separate API/MCP credentials, deployment gates, and no automatic elevation of existing credentials.
 - Implement shared authorization helpers, revisions, durable retry records, preview lifecycle, structured errors, redacted audit, and bounded operation status where needed.
@@ -137,4 +142,4 @@ Exit criteria: supported management workflows pass through MCP, current read cli
 | Remote administrative authority | Explicit administrative grant, deployment gates, and tested recovery path | Wixely / Agent | 2026-09-14 |
 | Runtime backup-schedule editing | Keep deployment-owned for this delivery; evaluate separately if needed | Wixely | 2026-10-01 |
 
-Remaining work: M0-M7 are unimplemented. Recommended next action: Agent starts M0 with the capability matrix and DnaX inspection, then finalizes the contract and updates this plan with resolved decisions before M1 writes begin.
+Remaining work: implement relationship/setup/structure management, structured search, other workflow previews, long operations and remaining M3-M7 tools; finalize transfer quotas and deployed-client verification. Recommended next action: Agent adds scoped, replayable relationship creation/deletion and minimum structure/domain setup commands before contact transfer. Single/batch record writes and deletion with impact review and durable media cleanup are locally verified.

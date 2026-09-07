@@ -8,7 +8,8 @@ public sealed class RecordImageService(
     IMonkeysphereStore store,
     IDnaXPaths paths,
     ICurrentDomain currentDomain,
-    TimeProvider timeProvider) : IRecordImageService
+    TimeProvider timeProvider,
+    RecordMediaLocks mediaLocks) : IRecordImageService
 {
     private const int MaximumPixels = 24_000_000;
     private const int MaximumDimension = 12_000;
@@ -22,6 +23,7 @@ public sealed class RecordImageService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(content);
+        using IDisposable mediaLease = await mediaLocks.AcquireAsync(currentDomain.Id, recordId, cancellationToken).ConfigureAwait(false);
         RecordDetails record = await store.GetRecordAsync(recordId, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Record was not found.");
         if (record.Images.Count >= IRecordImageService.MaximumImagesPerRecord)
@@ -89,6 +91,7 @@ public sealed class RecordImageService(
         Guid imageId,
         CancellationToken cancellationToken = default)
     {
+        using IDisposable mediaLease = await mediaLocks.AcquireAsync(currentDomain.Id, recordId, cancellationToken).ConfigureAwait(false);
         RecordImage? image = (await store.ListRecordImagesAsync(recordId, cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(candidate => candidate.Id == imageId);
         if (image is null || !await store.DeleteRecordImageAsync(
@@ -154,6 +157,7 @@ public sealed class RecordImageService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(correction);
+        using IDisposable mediaLease = await mediaLocks.AcquireAsync(currentDomain.Id, recordId, cancellationToken).ConfigureAwait(false);
         RecordImage image = await RequireImageAsync(recordId, imageId, cancellationToken).ConfigureAwait(false);
         if (correction.RotationQuarterTurns is < 0 or > 3)
         {
@@ -229,6 +233,7 @@ public sealed class RecordImageService(
         RecordImageVariant variant,
         CancellationToken cancellationToken = default)
     {
+        using IDisposable mediaLease = await mediaLocks.AcquireAsync(currentDomain.Id, recordId, cancellationToken).ConfigureAwait(false);
         RecordImage? image = (await store.ListRecordImagesAsync(recordId, cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(image => image.Id == imageId);
         if (image is null)

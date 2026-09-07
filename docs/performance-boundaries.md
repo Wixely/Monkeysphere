@@ -19,6 +19,13 @@ Monkeysphere is designed for one administrator and a personal dataset. Its safeg
 | Images | 10 MiB, 24 megapixels, 12,000 pixels per dimension, 50 images per record | Decode/validation fails before persistence. |
 | Backup/restore | 100,005 archive entries; retention 1–1,000 packages | Validation rejects excess or unmanifested entries; scheduler rejects invalid retention. Package byte size is intentionally governed by available operator storage rather than an arbitrary application cap. |
 | Login | Five attempts per remote address per minute, no queue | Excess attempts receive HTTP 429. |
+| MCP record writes | 1,000 supplied fields or patch changes; configured remote request size/time/concurrency bounds also apply | Reject invalid or oversized input before mutation; capability discovery publishes effective limits. |
+| Record retry ledger | 10,000 commands/domain; 64 KiB/result; 24-hour replay followed by seven-day tombstones | Reject new mutations at quota; replay known unexpired receipts; clean expired state on writes. |
+| MCP record batch previews | 100 operations; 1 MiB prepared payload and summary/preview; 100 retained previews/domain; 15-minute expiry | Reject oversized/full requests with no record changes. Clean expired previews at startup, every five minutes and on preview creation; discard prepared values on apply. |
+| Application command audit | 90 days and at most 50,000 rows/domain | Prune on audit writes; only bounded action/outcome/correlation metadata is stored. |
+| Record deletion | Shared 100 batch/deletion previews per domain; 15-minute expiry; 1,000 pending media-cleanup entries/domain | Full queues reject new deletions before mutation. Cleanup retries at startup/every five minutes, at most 100 records per domain per sweep; a busy media operation remains queued after a one-second lock wait. |
+
+The record-command limits were reviewed on 2026-09-07. Tests establish atomic duplicate/concurrent outcomes and bounded receipt retention, not sustained write throughput or latency guarantees. File-transfer and long-operation resource envelopes remain planned.
 
 ## Graph scale evidence
 

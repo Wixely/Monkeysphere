@@ -26,8 +26,16 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IDomainDatabaseMigrator, DomainDatabaseMigrator>();
         services.AddSingleton<IDomainCatalog, DomainCatalog>();
         services.AddScoped<MonkeysphereConnectionFactory>();
+        services.AddSingleton<RecordMediaLocks>();
         services.AddScoped<IMonkeysphereStore, SqliteMonkeysphereStore>();
+        services.AddScoped<IRecordCommandStore, SqliteMonkeysphereStore>();
         services.AddScoped<IMonkeysphereService, MonkeysphereService>();
+        services.AddScoped<RecordCommandService>();
+        services.AddScoped<IRecordBatchStore, SqliteMonkeysphereStore>();
+        services.AddScoped<RecordBatchService>();
+        services.AddScoped<IRecordDeletionStore, SqliteMonkeysphereStore>();
+        services.AddScoped<RecordDeletionService>();
+        services.AddScoped<IApplicationCommandAudit, SqliteApplicationCommandAudit>();
         services.AddScoped<ICalendarStore, SqliteCalendarStore>();
         services.AddScoped<ICalendarService, CalendarService>();
         services.AddScoped<ISpatialMapStore, SqliteSpatialMapStore>();
@@ -127,6 +135,11 @@ internal sealed class DebugDatabaseResetService(
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            DELETE FROM RecordCommandReceipts;
+            DELETE FROM RecordBatchPreviews;
+            DELETE FROM RecordDeletionPreviews;
+            DELETE FROM RecordMediaCleanup;
+            DELETE FROM ApplicationCommandAudit;
             DELETE FROM DashboardRecurringFields;
             DELETE FROM DashboardCategories;
             DELETE FROM DashboardSettings;

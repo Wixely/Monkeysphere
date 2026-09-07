@@ -3,7 +3,9 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @using DnaX.RemoteAccess
+@using Monkeysphere.Web.Remote
 @inject IDnaXRemoteAccessAdministration Administration
+@inject RemoteCredentialManager Credentials
 
 <PageTitle>Remote access · Monkeysphere</PageTitle>
 
@@ -89,6 +91,7 @@ else
     private string? _message;
     private bool _isError;
     private string? _oneTimeSecret;
+    private readonly Dictionary<DnaXRemoteSurface, HashSet<string>> _selectedScopes = [];
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 
@@ -102,7 +105,20 @@ else
                 <dt>Route mode</dt><dd>@surface.RouteMode</dd>
                 <dt>Endpoint</dt><dd><code>@(surface.EndpointPath ?? "Not assigned")</code></dd>
                 <dt>Credential</dt><dd>@(surface.Credential is null ? "None" : $"Ending {surface.Credential.Suffix}")</dd>
+                <dt>Current permissions</dt><dd>@(surface.Credential is null ? "None" : string.Join(", ", surface.Credential.Scopes))</dd>
             </dl>
+            <fieldset class="field-picker">
+                <legend>Permissions for the next credential</legend>
+                @foreach (RemoteScopeOption option in ScopeOptions(surface))
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked="@SelectedScopes(surface).Contains(option.Scope)"
+                               @onchange="args => SetScope(surface, option.Scope, args.Value is true)" />
+                        <span>@option.Label <small>@option.Description</small></span>
+                    </label>
+                }
+                <p class="muted">Selections apply when you rotate the credential. Rotation replaces this surface's credential and requires clients to reconnect.</p>
+            </fieldset>
             <div class="action-row wrap">
                 <button class="button" type="button" @onclick="() => RotateCredentialAsync(surface)">Rotate credential</button>
                 <button class="button" type="button" @onclick="() => RotateEndpointAsync(surface)">Rotate endpoint</button>
@@ -113,10 +129,11 @@ else
 
     private async Task RotateCredentialAsync(DnaXRemoteEffectiveSurface surface) => await RunAsync(async () =>
     {
-        DnaXGeneratedCredential credential = await Administration.RotateCredentialAsync(
+        DnaXGeneratedCredential credential = await Credentials.RotateAsync(
             surface.Surface,
             surface.Version,
-            ["records.read"]);
+            SelectedScopes(surface));
+        _selectedScopes.Remove(surface.Surface);
         _oneTimeSecret = credential.Secret;
         _message = $"{surface.Surface} credential rotated.";
     });
@@ -168,4 +185,28 @@ else
     }
 
     private void ClearSecret() => _oneTimeSecret = null;
+
+    private HashSet<string> SelectedScopes(DnaXRemoteEffectiveSurface surface)
+    {
+        if (!_selectedScopes.TryGetValue(surface.Surface, out HashSet<string>? selected))
+        {
+            selected = RemoteCredentialManager.InitialScopes(surface).ToHashSet(StringComparer.Ordinal);
+            _selectedScopes.Add(surface.Surface, selected);
+        }
+        return selected;
+    }
+
+    private void SetScope(DnaXRemoteEffectiveSurface surface, string scope, bool enabled)
+    {
+        if (enabled) SelectedScopes(surface).Add(scope);
+        else SelectedScopes(surface).Remove(scope);
+    }
+
+    private static IEnumerable<RemoteScopeOption> ScopeOptions(DnaXRemoteEffectiveSurface surface)
+    {
+        IReadOnlyList<RemoteScopeOption> known = RemoteCredentialManager.AvailableScopes(surface.Surface);
+        return known.Concat((surface.Credential?.Scopes ?? [])
+            .Where(scope => !known.Any(option => option.Scope == scope))
+            .Select(scope => new RemoteScopeOption(scope, scope, "Existing grant; retain or remove when rotating.")));
+    }
 }

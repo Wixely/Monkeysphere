@@ -58,6 +58,7 @@ public interface IRelationshipStore
     Task RetireTypeAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<StoredRelationship> CreateAsync(Guid id, Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note, DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default);
+    Task<PagedResult<StoredRelationship>> QueryForRecordAsync(Guid recordId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
@@ -69,6 +70,7 @@ public interface IRelationshipService
     Task RetireTypeAsync(Guid id, CancellationToken cancellationToken = default);
     Task<RelationshipView> CreateAsync(Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RelationshipView>> ListForRecordAsync(Guid recordId, int limit = 100, CancellationToken cancellationToken = default);
+    Task<PagedResult<RelationshipView>> QueryForRecordAsync(Guid recordId, int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
@@ -123,6 +125,13 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
 
         IReadOnlyList<StoredRelationship> relationships = await store.ListForRecordAsync(recordId, limit, cancellationToken).ConfigureAwait(false);
         return relationships.Select(item => Map(item, recordId)).ToArray();
+    }
+
+    public async Task<PagedResult<RelationshipView>> QueryForRecordAsync(Guid recordId, int page = 1, int pageSize = 25, CancellationToken cancellationToken = default)
+    {
+        DiscoveryPagination.Validate(page, pageSize);
+        PagedResult<StoredRelationship> result = await store.QueryForRecordAsync(recordId, page, pageSize, cancellationToken).ConfigureAwait(false);
+        return new(result.Items.Select(item => Map(item, recordId)).ToArray(), result.Page, result.PageSize, result.TotalCount);
     }
 
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) => store.DeleteAsync(id, cancellationToken);

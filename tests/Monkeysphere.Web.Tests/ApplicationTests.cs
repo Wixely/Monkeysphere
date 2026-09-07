@@ -850,6 +850,7 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _dataRoot;
     private readonly bool _deleteDataRoot;
+    private bool _disposingAsync;
 
     public MonkeysphereApplicationFactory()
         : this(dataRoot: null, deleteDataRoot: true)
@@ -883,10 +884,22 @@ public class MonkeysphereApplicationFactory : WebApplicationFactory<Program>
         });
     }
 
+    public override async ValueTask DisposeAsync()
+    {
+        _disposingAsync = true;
+        await base.DisposeAsync();
+        await TestDataRoot.WaitForInstanceLockReleaseAsync(_dataRoot);
+        if (_deleteDataRoot)
+        {
+            await TestDataRoot.DeleteWhenReleasedAsync(_dataRoot);
+        }
+        GC.SuppressFinalize(this);
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (!disposing || !_deleteDataRoot)
+        if (!disposing || !_deleteDataRoot || _disposingAsync)
         {
             return;
         }
@@ -966,7 +979,7 @@ public sealed class RestartPersistenceTests
         }
         finally
         {
-            TestDataRoot.DeleteWhenReleased(dataRoot);
+            await TestDataRoot.DeleteWhenReleasedAsync(dataRoot);
         }
     }
 }
@@ -976,6 +989,47 @@ public sealed class PersistentApplicationFactory(string dataRoot)
 
 internal static class TestDataRoot
 {
+    public static async Task WaitForInstanceLockReleaseAsync(string dataRoot)
+    {
+        string lockPath = Path.Combine(dataRoot, "monkeysphere.lock");
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (File.Exists(lockPath))
+        {
+            try
+            {
+                using FileStream probe = new(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return;
+            }
+            catch (IOException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                // WebApplicationFactory stops the host before Program's final async disposal completes.
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public static async Task DeleteWhenReleasedAsync(string dataRoot)
+    {
+        SqliteConnection.ClearAllPools();
+        string allowedRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests"));
+        string ownedRoot = Path.GetFullPath(dataRoot);
+        if (!ownedRoot.StartsWith(Path.TrimEndingDirectorySeparator(allowedRoot) + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase)) return;
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (Directory.Exists(ownedRoot))
+        {
+            try
+            {
+                Directory.Delete(ownedRoot, recursive: true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException && DateTimeOffset.UtcNow < deadline)
+            {
+                // Yield so the application entry point can finish disposing its instance lock.
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+        }
+    }
+
     public static void DeleteWhenReleased(string dataRoot)
     {
         SqliteConnection.ClearAllPools();
@@ -1250,7 +1304,7 @@ public sealed class RemoteAccessApplicationTests
     }
 }
 
-public sealed class RemoteEnabledApplicationFactory : MonkeysphereApplicationFactory
+public class RemoteEnabledApplicationFactory : MonkeysphereApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

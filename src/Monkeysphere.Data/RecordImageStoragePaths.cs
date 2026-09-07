@@ -25,7 +25,10 @@ internal static class RecordImageStoragePaths
 
     internal static void DeleteRecordDirectory(IDnaXPaths paths, ICurrentDomain domain, Guid recordId)
     {
-        string directory = RecordDirectory(paths, domain, recordId);
+        string mediaRoot = Path.GetFullPath(paths.ResolveWritable(DomainStoragePaths.MediaRelativeRoot(domain.Id)));
+        string directory = Path.GetFullPath(RecordDirectory(paths, domain, recordId));
+        if (recordId == Guid.Empty || !directory.StartsWith(Path.TrimEndingDirectorySeparator(mediaRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("The record media directory is outside its domain root.");
         if (Directory.Exists(directory))
         {
             Directory.Delete(directory, recursive: true);

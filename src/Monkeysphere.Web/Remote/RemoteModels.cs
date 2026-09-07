@@ -13,14 +13,18 @@ public sealed record RemoteRecordType(
     string Name,
     string? Symbol,
     string Lifecycle,
-    IReadOnlyList<RemoteFieldDefinition> Fields);
+    IReadOnlyList<RemoteFieldDefinition> Fields,
+    string Revision = "");
 
 public sealed record RemoteFieldDefinition(
     Guid Id,
     string Name,
     string TypeId,
     bool IsRequired,
-    int SortOrder);
+    int SortOrder,
+    string ConfigurationJson = "{}",
+    string Lifecycle = "active",
+    IReadOnlyList<string>? ChoiceOptions = null);
 
 public sealed record RemoteRecordSummary(
     Guid Id,
@@ -34,7 +38,8 @@ public sealed record RemoteRecord(
     IReadOnlyList<string> Aliases,
     IReadOnlyList<RemoteRecordImage> Images,
     IReadOnlyList<RemoteRecordValue> Values,
-    IReadOnlyList<RemoteRelationship> Relationships);
+    IReadOnlyList<RemoteRelationship> Relationships,
+    string Revision = "");
 
 public sealed record RemoteRecordImage(
     Guid Id,
@@ -65,7 +70,12 @@ public sealed record RemoteRecordValue(
     string TypeId,
     string? Value,
     IReadOnlyList<string> Tags,
-    RemoteLocationValue? Location);
+    RemoteLocationValue? Location,
+    int Ordinal = 0,
+    string? ScalarValue = null,
+    RemoteTemporalValue? Temporal = null);
+
+public sealed record RemoteTemporalValue(string Value, string Precision, bool IsApproximate, string? ApproximationNote);
 
 public sealed record RemoteLocationValue(
     string? DisplayContext,
@@ -213,7 +223,11 @@ public sealed class MonkeysphereRemoteQueries(
                 field.Definition.Name,
                 field.Definition.TypeId,
                 field.IsRequired,
-                field.SortOrder)).ToArray());
+                field.SortOrder,
+                field.Definition.ConfigurationJson,
+                field.Definition.Lifecycle.ToString().ToLowerInvariant(),
+                FieldTypes.ChoiceOptions(field.Definition))).ToArray(),
+            details.RecordType.Revision);
 
     private static RemoteRecordSummary MapSummary(RecordSummary record) =>
         new(record.Id, record.RecordTypeId, record.RecordTypeName, record.DisplayName, record.UpdatedAtUtc);
@@ -247,8 +261,14 @@ public sealed class MonkeysphereRemoteQueries(
                         value.Location.Latitude,
                         value.Location.Longitude,
                         value.Location.AccuracyMetres,
-                        value.Location.ApproximationRadiusKilometres))).ToArray(),
-            relationships);
+                        value.Location.ApproximationRadiusKilometres),
+                value.Ordinal,
+                value.TextValue ?? value.NumberValue ?? value.DateValue,
+                value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision
+                    ? new RemoteTemporalValue(value.TemporalValue, precision.ToString().ToLowerInvariant(), value.IsApproximate, value.ApproximationNote)
+                    : null)).ToArray(),
+            relationships,
+            details.Revision);
 
     private async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsCoreAsync(
         Guid id,
@@ -275,16 +295,17 @@ public sealed class MonkeysphereRemoteQueries(
 }
 
 [McpServerToolType]
+[RemoteToolScopes("records.read")]
 public sealed class MonkeysphereRemoteTools
 {
-    [McpServerTool(Name = "list_domains", UseStructuredContent = true)]
+    [McpServerTool(Name = "list_domains", UseStructuredContent = true, ReadOnly = true)]
     [Description("Lists the available isolated Monkeysphere domains.")]
     public static Task<IReadOnlyList<RemoteDomain>> ListDomainsAsync(
         MonkeysphereRemoteQueries queries,
         CancellationToken cancellationToken = default) =>
         queries.ListDomainsAsync(cancellationToken);
 
-    [McpServerTool(Name = "list_record_types", UseStructuredContent = true)]
+    [McpServerTool(Name = "list_record_types", UseStructuredContent = true, ReadOnly = true)]
     [Description("Lists Monkeysphere record types and their field definitions.")]
     public static Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(
         MonkeysphereRemoteQueries queries,
@@ -292,7 +313,7 @@ public sealed class MonkeysphereRemoteTools
         CancellationToken cancellationToken = default) =>
         queries.ListRecordTypesAsync(ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
-    [McpServerTool(Name = "get_record_type", UseStructuredContent = true)]
+    [McpServerTool(Name = "get_record_type", UseStructuredContent = true, ReadOnly = true)]
     [Description("Gets one Monkeysphere record type and its field definitions.")]
     public static Task<RemoteRecordType?> GetRecordTypeAsync(
         MonkeysphereRemoteQueries queries,
@@ -301,7 +322,7 @@ public sealed class MonkeysphereRemoteTools
         CancellationToken cancellationToken = default) =>
         queries.GetRecordTypeAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
-    [McpServerTool(Name = "search_records", UseStructuredContent = true)]
+    [McpServerTool(Name = "search_records", UseStructuredContent = true, ReadOnly = true)]
     [Description("Searches Monkeysphere records with bounded pagination.")]
     public static Task<RemotePage<RemoteRecordSummary>> SearchRecordsAsync(
         MonkeysphereRemoteQueries queries,
@@ -331,7 +352,7 @@ public sealed class MonkeysphereRemoteTools
             : throw new DomainValidationException($"{parameterName} must be a UUID.");
     }
 
-    [McpServerTool(Name = "get_record", UseStructuredContent = true)]
+    [McpServerTool(Name = "get_record", UseStructuredContent = true, ReadOnly = true)]
     [Description("Gets one Monkeysphere record and its values.")]
     public static Task<RemoteRecord?> GetRecordAsync(
         MonkeysphereRemoteQueries queries,
@@ -340,7 +361,7 @@ public sealed class MonkeysphereRemoteTools
         CancellationToken cancellationToken = default) =>
         queries.GetRecordAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
 
-    [McpServerTool(Name = "get_record_relationships", UseStructuredContent = true)]
+    [McpServerTool(Name = "get_record_relationships", UseStructuredContent = true, ReadOnly = true)]
     [Description("Gets the bounded relationships visible from one Monkeysphere record.")]
     public static Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
         MonkeysphereRemoteQueries queries,

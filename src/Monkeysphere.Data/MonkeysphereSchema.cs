@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 20,
+        currentVersion: 24,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -572,5 +572,47 @@ public static class MonkeysphereSchema
                 INSERT INTO GraphSettings (Singleton, WarnUnsavedChanges, UpdatedAtUtc)
                 VALUES (1, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                 """),
+            DnaXMigration.Sql(21, "record-and-schema-revisions", "Track record content and validation schema revisions", RecordRevisionMigration.Sql),
+            DnaXMigration.Sql(22, "record-command-receipts", "Persist atomic record command receipts and audit outcomes", """
+                CREATE TABLE RecordCommandReceipts (
+                    Surface TEXT NOT NULL,
+                    CredentialFingerprint TEXT NOT NULL,
+                    Action TEXT NOT NULL,
+                    IdempotencyKey TEXT NOT NULL,
+                    RequestHash TEXT NOT NULL,
+                    ReceiptJson TEXT NULL,
+                    CompletedAtUtc TEXT NOT NULL,
+                    RetryUntilUtc TEXT NOT NULL,
+                    ForgetAfterUtc TEXT NOT NULL,
+                    PRIMARY KEY (Surface, CredentialFingerprint, Action, IdempotencyKey)
+                );
+                CREATE INDEX IX_RecordCommandReceipts_ForgetAfter ON RecordCommandReceipts (ForgetAfterUtc);
+                CREATE TABLE ApplicationCommandAudit (
+                    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    DomainId TEXT NOT NULL,
+                    Surface TEXT NOT NULL,
+                    Action TEXT NOT NULL,
+                    Outcome TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    OccurredAtUtc TEXT NOT NULL
+                );
+                """),
+            DnaXMigration.Sql(23, "record-batch-previews", "Persist bounded credential-owned record batch previews", """
+                CREATE TABLE RecordBatchPreviews (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Surface TEXT NOT NULL,
+                    CredentialFingerprint TEXT NOT NULL,
+                    IdempotencyKey TEXT NOT NULL,
+                    RequestHash TEXT NOT NULL,
+                    MutationsJson TEXT NOT NULL,
+                    SummaryJson TEXT NOT NULL,
+                    CreatedAtUtc TEXT NOT NULL,
+                    ExpiresAtUtc TEXT NOT NULL,
+                    Applied INTEGER NOT NULL DEFAULT 0 CHECK (Applied IN (0, 1)),
+                    UNIQUE (Surface, CredentialFingerprint, IdempotencyKey)
+                );
+                CREATE INDEX IX_RecordBatchPreviews_Expiry ON RecordBatchPreviews (ExpiresAtUtc);
+                """),
+            DnaXMigration.Sql(24, "record-deletion-previews", "Track deletion impact and durable media cleanup", RecordDeletionMigration.Sql),
         ]);
 }

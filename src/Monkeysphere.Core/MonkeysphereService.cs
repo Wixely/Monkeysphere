@@ -285,6 +285,7 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             prepared.Aliases,
             prepared.Values,
             timeProvider.GetUtcNow(),
+            prepared.SchemaRevision,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -306,7 +307,8 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             recordTypeId,
             primaryName,
             NormalizeAliases(primaryName, aliases),
-            NormalizeValues(type, values));
+            NormalizeValues(type, values),
+            type.RecordType.Revision);
     }
 
     public Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default) =>
@@ -317,10 +319,24 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
+        string? expectedRevision = null,
         CancellationToken cancellationToken = default)
+    {
+        PreparedRecordMutation mutation = await PrepareRecordUpdateAsync(id, displayName, values, aliases, expectedRevision, cancellationToken).ConfigureAwait(false);
+        return await store.UpdateRecordAsync(id, mutation.Record.DisplayName, mutation.Record.Aliases, mutation.Record.Values,
+            timeProvider.GetUtcNow(), mutation.ExpectedRevision, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PreparedRecordMutation> PrepareRecordUpdateAsync(
+        Guid id, string displayName, IReadOnlyList<FieldValueInput> values, IReadOnlyList<string>? aliases = null,
+        string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         RecordDetails current = await store.GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Record was not found.");
+        if (expectedRevision is not null && !string.Equals(current.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            throw new ConcurrencyConflictException("The record or its fields changed. Reload the record before saving.");
+        }
         RecordTypeDetails type = new(
             new RecordType(current.Record.RecordTypeId, current.Record.RecordTypeName, default, default),
             current.AvailableFields);
@@ -332,13 +348,8 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
             .ToHashSet();
         IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values, editableRetiredFields);
         string primaryName = FieldTypes.Required(displayName, "Display name", 300);
-        return await store.UpdateRecordAsync(
-            id,
-            primaryName,
-            NormalizeAliases(primaryName, aliases),
-            normalized,
-            timeProvider.GetUtcNow(),
-            cancellationToken).ConfigureAwait(false);
+        return new(RecordMutationKind.Replace, id,
+            new PreparedRecord(current.Record.RecordTypeId, primaryName, NormalizeAliases(primaryName, aliases), normalized), current.Revision);
     }
 
     public Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default) =>

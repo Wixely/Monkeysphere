@@ -105,6 +105,11 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<MonkeysphereRemoteQueries>();
+builder.Services.AddScoped<MonkeysphereSchemaQueries>();
+builder.Services.AddScoped<RemoteCredentialManager>();
+builder.Services.AddScoped<RemoteCommandIdentityProvider>();
+builder.Services.AddScoped<RemoteRecordWriter>();
+builder.Services.AddHostedService<RecordPreviewCleanupWorker>();
 builder.Services.AddDnaXRemoteAccess(builder.Configuration.GetSection("DnaX:RemoteAccess"));
 builder.Services.AddDnaXRemoteAccessSqlite("RemoteAccess", provider =>
 {
@@ -121,7 +126,13 @@ builder.Services.AddDnaXRemoteAccessSqlite("RemoteAccess", provider =>
     };
     return new SqliteConnection(connectionString.ConnectionString);
 });
-builder.Services.AddDnaXRemoteMcp().WithTools<MonkeysphereRemoteTools>();
+builder.Services.AddDnaXRemoteMcp()
+    .WithTools<MonkeysphereRemoteTools>()
+    .WithTools<MonkeysphereDiscoveryTools>()
+    .WithTools<MonkeysphereSchemaTools>()
+    .WithTools<MonkeysphereRecordWriteTools>()
+    .WithTools<MonkeysphereRecordBatchTools>()
+    .WithTools<MonkeysphereRecordDeletionTools>();
 
 string[] trustedProxyValues = (builder.Configuration["MONKEYSPHERE_TRUSTED_PROXIES"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

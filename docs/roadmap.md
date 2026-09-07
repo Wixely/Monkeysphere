@@ -20,22 +20,24 @@ Owner: Wixely / Agent. Next action: apply this checklist to every new feature pl
 
 ## MCP instance management
 
-Status: Planned; implementation not started. Baseline reviewed: 2026-09-07.
+Status: M0 in progress. Baseline reviewed: 2026-09-07.
 
 Build out authenticated MCP management of application data and runtime administration, preserving domain isolation and the offline restore boundary. The [MCP implementation plan](mcp-management-plan.md) defines contracts, dependencies, delivery phases, acceptance criteria, and remaining decisions.
 
+The [MCP options plan](mcp-options-plan.md) expands this into tool families, access profiles, settings, file-transfer choices, and client workflows. Pinned dependency inspection and a local chunk-transfer probe are documented; deployed-client verification and final contracts remain open. Local implementation status does not establish deployed availability.
+
 | Milestone | Scope | Status | Owner | Review date |
 | --- | --- | --- | --- | --- |
-| M0 | Source/deployment inventory, capability discovery, contract and permission design | Planned; next | Agent | 2026-09-14 |
-| M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | Planned; depends on M0 | Agent | 2026-09-14 |
-| M2 | Records, relationships, domain setup, and minimum structure creation | Planned; depends on M1 | Agent | 2026-09-21 |
+| M0 | Source/deployment inventory, capability discovery, contract and permission design | In progress; local discovery/schema tools and chunk probe pass | Agent | 2026-09-14 |
+| M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | In progress; revisions/receipts, failure audit, batch/deletion previews and media cleanup tested; other workflows pending | Agent | 2026-09-14 |
+| M2 | Records, relationships, domain setup, and minimum structure creation | In progress; single/batch record writes and reviewed deletion pass real MCP tests; relationships/setup/search remain | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Planned; depends on M2 | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Planned; depends on M2 | Agent | 2026-09-28 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. Recommended next action: Agent executes M0, resolves the discovered source/deployment tool mismatch without changing integrations implicitly, and finalizes the versioned contract before implementing writes.
+Dates are review checkpoints, not delivery commitments. Recommended next action: Agent adds replayable relationship management and minimum structure/domain setup tools, then structured search while closing the remaining M0-M1 gates. Contact upload/preview/apply/export is the next user-facing delivery after basic editing and its transfer prerequisites.
 
 ## Domain-separated spheres
 
