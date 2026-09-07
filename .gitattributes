@@ -1,2 +1,6 @@
 *.sh text eol=lf
+src/Monkeysphere.Data/Domains.cs text eol=lf
+src/Monkeysphere.Data/MonkeysphereSchema.cs text eol=lf
+src/Monkeysphere.Data/RemoteUploadSchema.cs text eol=lf
+src/Monkeysphere.Data/*Migration.cs text eol=lf
 src/Monkeysphere.Web/wwwroot/vendor/** -text
