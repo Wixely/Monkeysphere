@@ -13,5 +13,7 @@ secrets/*
 *.db-shm
 *.db-wal
 *.monkeysphere-backup
+# Archived compatibility fixtures are deliberate committed test data, not local backups.
+!tests/Monkeysphere.Web.Tests/Fixtures/*.monkeysphere-backup
 *.user
 *.suo

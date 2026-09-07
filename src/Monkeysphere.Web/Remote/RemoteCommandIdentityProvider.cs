@@ -17,10 +17,10 @@ public sealed class RemoteCommandIdentityProvider(IHttpContextAccessor accessor)
         return result;
     }
 
-    public UploadOwner CreateUploadOwner(Guid domainId)
+    public UploadOwner CreateUploadOwner(Guid domainId, string requiredScope = "contacts.import")
     {
-        var (surface, fingerprint) = Authenticate("contacts.import");
-        if (surface != "mcp") throw new UnauthorizedAccessException("Contact upload requires an authenticated MCP credential.");
+        var (surface, fingerprint) = Authenticate(requiredScope);
+        if (surface != "mcp") throw new UnauthorizedAccessException("Contact transfer requires an authenticated MCP credential.");
         string correlation = accessor.HttpContext?.TraceIdentifier ?? "";
         UploadOwner owner = new(domainId, fingerprint, correlation[..Math.Min(correlation.Length, 128)]);
         owner.Validate();

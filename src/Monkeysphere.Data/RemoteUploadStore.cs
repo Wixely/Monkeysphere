@@ -299,7 +299,7 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
 
     public async Task RecordAuditAsync(UploadAudit entry, CancellationToken cancellationToken = default)
     {
-        if (entry.DomainId == Guid.Empty || entry.Action is not ("uploads.begin" or "uploads.write" or "uploads.seal" or "uploads.complete" or "uploads.cancel" or "uploads.status" or "contacts.preview" or "contacts.inspect" or "contacts.evidence" or "contacts.apply" or "contacts.result") ||
+        if (entry.DomainId == Guid.Empty || entry.Action is not ("uploads.begin" or "uploads.write" or "uploads.seal" or "uploads.complete" or "uploads.cancel" or "uploads.status" or "contacts.preview" or "contacts.inspect" or "contacts.evidence" or "contacts.apply" or "contacts.result" or "contacts.export") ||
             entry.Outcome.Length is < 1 or > 64 || entry.Outcome.Any(character => !(char.IsAsciiLetterOrDigit(character) || character == '_')) || entry.CorrelationId.Length > 128)
             throw new DomainValidationException("The upload audit metadata is invalid.");
         await using SqliteConnection connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);

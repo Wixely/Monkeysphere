@@ -112,6 +112,7 @@ builder.Services.AddScoped<RemoteCommandIdentityProvider>();
 builder.Services.AddScoped<RemoteRecordWriter>();
 builder.Services.AddScoped<RemoteUploadCommands>();
 builder.Services.AddScoped<RemoteContactPreviewCommands>();
+builder.Services.AddScoped<RemoteContactExportCommands>();
 builder.Services.AddHostedService<RecordPreviewCleanupWorker>();
 builder.Services.AddHostedService<RemoteUploadCleanupWorker>();
 builder.Services.AddDnaXRemoteAccess(builder.Configuration.GetSection("DnaX:RemoteAccess"));
@@ -144,7 +145,8 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeysphereDomainWriteTools>()
     .WithTools<MonkeysphereRecordQueryTools>()
     .WithTools<MonkeysphereUploadTools>()
-    .WithTools<MonkeysphereContactPreviewTools>();
+    .WithTools<MonkeysphereContactPreviewTools>()
+    .WithTools<MonkeysphereContactExportTools>();
 
 string[] trustedProxyValues = (builder.Configuration["MONKEYSPHERE_TRUSTED_PROXIES"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

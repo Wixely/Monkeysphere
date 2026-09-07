@@ -10,7 +10,8 @@ public sealed class RemoteCredentialManager(IDnaXRemoteAccessAdministration admi
     public static IReadOnlyList<RemoteScopeOption> AvailableScopes(DnaXRemoteSurface surface) => surface == DnaXRemoteSurface.Mcp
         ? [
             new("instance.read", "Instance discovery", "Read versions, supported tools and request limits."),
-            new("contacts.import", "Import contacts", "Upload and validate contact files. Also select application data to discover target domains. Contact preview and apply are not yet available remotely."),
+            new("contacts.import", "Import contacts", "Upload and validate contact files, then preview and apply reviewed create/skip/merge/replace decisions. Also select application data to discover target domains. Importing does not permit exporting contacts."),
+            new("contacts.export", "Export contacts", "Read explicitly selected Person records out of the deployment as a vCard document. Separate from importing contacts; it grants no record editing and no other data reads."),
             new("domains.manage", "Manage domains", "Create and rename domains. Select application data to discover domain IDs and revisions. Domain deletion is not available remotely."),
             new("records.read", "Application data", "Read domains, structures, records and relationships, including discovery."),
             new("records.write", "Create and edit records", "Validate, create and patch records, including previewed atomic batches. Also select application data to discover and read records."),

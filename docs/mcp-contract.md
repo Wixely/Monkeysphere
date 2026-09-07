@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.14
+- Contract version: 1.15
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -10,8 +10,8 @@
 
 | Tool | Required grant | Inputs / result |
 | --- | --- | --- |
-| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import` | No inputs. Application name, release version without build metadata, database schema version, contract version |
-| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export` | No inputs. Application name, release version without build metadata, database schema version, contract version |
+| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
 | `create_domain` | `domains.manage` | Required new non-Default `domainId` UUID, `name`, UUID `idempotencyKey`. Creates an isolated blank domain using a durable reservation |
 | `rename_domain` | `domains.manage` | Required `domainId`, `name`, `expectedRevision`, UUID `idempotencyKey`. Revision-checked rename with durable receipt |
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
@@ -27,6 +27,7 @@
 | `read_contact_import_evidence` | `contacts.import` | Required `domainId`, `previewId`, zero-based `contactIndex`; byte `offset` (0), `count` (16384). Complete evidence through bounded Base64 byte ranges |
 | `apply_contact_import` | `contacts.import` | Required `domainId`, `previewId`, `expectedRevision`, UUID `idempotencyKey`, and one explicit selection per contact. Atomic import and durable receipt |
 | `get_contact_import_result` | `contacts.import` | Required `domainId`, import `idempotencyKey`; `page` (1), `pageSize` (100). Durable receipt and paged per-contact outcomes |
+| `export_contacts` | `contacts.export` | Required `domainId` and 1-100 distinct `recordIds` on the Person preset; byte `offset` (0), `count` (16384). One regenerated vCard 4.0 document read through bounded Base64 byte ranges with a whole-document digest |
 | `query_records` | `records.read` | Optional `query`, `recordTypeId`, up to 10 `filters`, `sort`, `page`, `pageSize`, `domainId`. Structured filtering and sorting with strict bounds and snapshot-consistent totals |
 | `search_records` | `records.read` | Optional `query`, `recordTypeId`, `page` (1), `pageSize` (25), `domainId`. Bounded result with total count |
 | `get_record` | `records.read` | Required `id`, optional `domainId`. One record or null, including aliases, values, image metadata and up to 100 relationships |
@@ -149,7 +150,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.14",
+  "contractVersion": "1.15",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -174,6 +175,18 @@ The real response includes all registered tools, Default domain ID, configured r
 Deletion tests verify actual MCP permissions, direct empty-record deletion, review requirements, stale dependencies, concurrent replay, expiry, credential rotation, wrong-domain rejection and committed audit. Data tests verify every dependent family, preservation of related records/views, restart cleanup, locked-file retry on Windows, queue quota and an upload already in progress during deletion.
 
 The [write and transfer design](mcp-write-contract.md) selects credential fingerprints, transactional retry/revision behavior and bounded chunks. Remaining work includes relationship/setup/structure management, other workflow previews, transfers and the deployed client path. Owner: Agent; review: 2026-09-14. The full remaining delivery scope stays in the [implementation plan](mcp-management-plan.md).
+
+## Contact export in 1.15
+
+Contract 1.15 has 52 tools and adds `export_contacts` under a new `contacts.export` grant. Export sends contact data out of the deployment, so it is deliberately separate from `contacts.import`: an importing credential cannot export, an exporting credential cannot import, and neither implies `records.read`. Existing credentials never gain the new grant automatically; an administrator selects it when rotating a credential.
+
+The tool takes an explicit `domainId` and 1-100 distinct `recordIds`, reusing the same bounded Core export service as the authenticated browser download. Every selected ID must resolve to an existing record on that domain's Person preset; one unknown, duplicate, foreign-domain or non-Person ID fails the whole request with `validation_failed` rather than silently exporting a smaller set. There is no search, filter or export-everything form: the caller must already know which records it wants, so a narrow export grant cannot be used to enumerate the domain.
+
+The result is one vCard 4.0 document read through bounded ranges. Offset is zero-based, `count` is 1-16384, and `nextOffset` chains ranges until null. Decode each `contentBase64` chunk, concatenate the bytes in offset order, then decode UTF-8; individual ranges can split Unicode sequences, so do not decode them independently as text. As with `read_contact_import_evidence`, an offset equal to `totalBytes` returns empty content and a null `nextOffset`, and a greater offset fails.
+
+No export state is staged or stored. Each call regenerates the document from current records, which keeps the transient-storage quotas, expiry sweeps and restore invalidation of the upload path out of a read-only operation. `contentDigest` is the uppercase SHA-256 hexadecimal digest of the complete document and is returned with every range. A client must check that one export's ranges all report the same digest: a change means the underlying records were edited between ranges, and the read must restart at offset 0. The `recordIds` order is part of the document, so requesting the same records in a different order is a different export with a different digest.
+
+Export preserves the same semantics as the browser download, including opaque source properties and Apple labels retained at import. `get_capabilities` advertises `contactExportLimits` with the contact, chunk and response bounds. Each call records bounded `contacts.export` audit metadata with no record names, IDs or document bytes. Reads are audited but not rate-limited beyond the shared transport limits.
 
 ## Relationship revisions in 1.5
 
@@ -274,7 +287,7 @@ Begin with purpose `contact_import`, a UUID retry key, the exact byte length, wh
 
 Payload expires 60 minutes after begin, with no extension. Begin-key replay lasts 24 hours, followed by seven more days of metadata retention. At most 256 chunks per upload, 64 MiB reserved bytes, 64 active sessions globally, eight active sessions per domain, four per credential/domain and 1000 metadata rows are retained. Expiry and cancellation remove staged bytes; application startup and a five-minute worker clean expired payload/metadata. Respect transport rate limits and inspect status after a lost response before resuming.
 
-`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview and inspection are implemented in 1.13; apply is implemented in 1.14. Export and image lifecycle tools remain unfinished.
+`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview and inspection are implemented in 1.13; apply is implemented in 1.14. Selected-contact export is implemented in 1.15 under a separate grant. Image lifecycle tools remain unfinished.
 
 Staging schema 2 adds redacted audit: domain/upload IDs, action, outcome, correlation ID and time. Begin/chunk/seal/cancel mutations commit with their audit; replay requests can add audit entries without repeating byte mutations. Completion records validation success; failures carry only bounded codes and metadata. Audit failure prevents successful mutation responses and rolls back the associated staging transaction. Staging audit is bounded to 50000 entries and seven days, excluded from backup archives and cleared with staging on successful offline restore. Names, uploaded bytes, bearer credentials, credential fingerprints and digests are absent from audit rows.
 
@@ -300,4 +313,4 @@ The response is a compact receipt with created/merged/replaced/skipped counts, c
 
 Exact retries return the receipt before consulting temporary preview/upload state, so clients can resolve a lost response after expiry, cancellation or restart. Reusing a key with another revision, preview or selection payload returns `retry_conflict`. A second key cannot consume an already applied preview and returns `preview_consumed`, including while its application tombstone remains. A replacement credential cannot read or replay another credential's receipt. Result pages depend on the receipt window, not staging. `get_capabilities.contactPreviewLimits` advertises import selection, outcome page, receipt/outcome quota and retention limits.
 
-Additional structured errors include `concurrency_conflict`, `preview_expired`, `preview_unavailable`, `preview_consumed`, `retry_conflict` and `retry_expired`. Selected-contact export, images and deployed MCPHub verification remain outstanding. Owner: Agent; next action: bounded authenticated contact export, then image workflows and M4-M7. Review: 2026-09-14.
+Additional structured errors include `concurrency_conflict`, `preview_expired`, `preview_unavailable`, `preview_consumed`, `retry_conflict` and `retry_expired`. Images and deployed MCPHub verification remain outstanding. Owner: Agent; next action: record image transfer, then M4-M7. Review: 2026-09-14.

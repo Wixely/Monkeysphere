@@ -1,6 +1,16 @@
-*.sh text eol=lf
+# Source bytes must never depend on who checked out the repository.
+# Migration SQL lives in C# raw string literals, so a CRLF checkout changes the
+# migration checksums DnaX records in every database's ledger. That stranded the
+# published 0.1.0 alphas; see docs/roadmap.md, "Migration ledger compatibility".
+* text=auto eol=lf
+
+# Redundant under the rule above, but kept explicit for the checksum-critical
+# manifests so the intent survives any future change to that rule.
 src/Monkeysphere.Data/Domains.cs text eol=lf
 src/Monkeysphere.Data/MonkeysphereSchema.cs text eol=lf
 src/Monkeysphere.Data/RemoteUploadSchema.cs text eol=lf
 src/Monkeysphere.Data/*Migration.cs text eol=lf
+
+# Byte-exact content that must never be normalized.
 src/Monkeysphere.Web/wwwroot/vendor/** -text
+tests/Monkeysphere.Web.Tests/Fixtures/*.monkeysphere-backup -text
