@@ -20,7 +20,7 @@ The product is pre-alpha in maturity even though alpha packages are published. T
 
 | Phase | Theme | Exit criteria | Review |
 | --- | --- | --- | --- |
-| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | Replacement prerelease published for the superseded alphas; MCP management milestones M0-M3 closed; Windows Service and packaged-Linux lifecycle verified live | 2026-10-01 |
+| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | MCP management milestones M0-M3 closed; Windows Service and packaged-Linux lifecycle verified live. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
 | Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed; complete script/style CSP enforced; accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
 | 1.0 | Operational confidence for a self-hosting user who is not the author | Interaction timeline shipped; upgrade path across at least two prior minor versions verified; documented backup/restore drill repeated on a clean host; no open High residual risk in the [threat model](threat-model.md) | 2027-02-01 |
 
@@ -30,7 +30,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 
 | Item | Section | Status | Owner | Review |
 | --- | --- | --- | --- | --- |
-| Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Decided; ready to ship | Wixely | 2026-09-14 |
+| Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Complete; `v0.1.0-alpha.3` published and its artifacts verified | Wixely | 2026-09-14 |
 | MCP record image transfer (contact export done) | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | In progress (M0-M1) | Agent | 2026-09-14 |
 | Windows Service and packaged-Linux lifecycle verification | [Platform support verification](#platform-support-verification) | Planned | Wixely / Agent | 2026-09-28 |
