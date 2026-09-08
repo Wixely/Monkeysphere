@@ -32,7 +32,8 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | --- | --- | --- | --- | --- |
 | Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Complete; `v0.1.0-alpha.3` published and its artifacts verified | Wixely | 2026-09-14 |
 | MCP record image transfer (contact export done) | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
-| Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | In progress (M0-M1) | Agent | 2026-09-14 |
+| Standard MCP clients cannot connect; DnaX headers required | [MCP client interoperability](#mcp-client-interoperability) | Open defect | Agent | 2026-09-14 |
+| Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
 | Windows Service and packaged-Linux lifecycle verification | [Platform support verification](#platform-support-verification) | Planned | Wixely / Agent | 2026-09-28 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
@@ -101,9 +102,9 @@ Dates are review checkpoints, not delivery commitments. Recommended next action:
 
 These apply to every milestone above and are the most common reason a milestone stays open after its local tests pass.
 
-- **Live client verification.** Every contract revision needs at least one run against a real deployed MCP client over the configured transport, not only the in-process test host. Owner: Agent; review 2026-09-14.
-- **Interactive browser verification.** Workflows with a browser equivalent need an interactive check that the two paths agree on revisions, conflicts, and error text. Owner: Agent; review 2026-09-14.
-- **Permission user interface.** Selecting grants during credential rotation is implemented but has not been verified interactively for every grant now defined. Owner: Agent; review 2026-09-21.
+- **Live client verification.** Done for contract 1.15 on 2026-09-08 against the published `v0.1.0-alpha.3` win-x64 package over its randomized endpoint: 52 tools, a full create-then-export round trip with digest verification, and live grant separation. It found two defects the test host could not, recorded under [MCP client interoperability](#mcp-client-interoperability). Repeat for each future contract revision. Owner: Agent; review 2026-09-14.
+- **Interactive browser verification.** Done on 2026-09-08 against the same published package: login, the setup wizard and its transactional install, Settings, and the Remote access page through permission selection, credential rotation, activation and the redacted audit table. Owner: Agent; review 2026-09-14.
+- **Permission user interface.** Verified interactively on 2026-09-08: every defined grant renders, and selecting four of them produced a credential with exactly those scopes. Owner: Agent; review 2026-09-21.
 - **Contract documentation.** [The MCP contract](mcp-contract.md) must be regenerated or corrected in the same change that alters tool count, inputs, limits, or grants.
 
 ## Android contact importer
@@ -150,6 +151,49 @@ Domains let one deployment hold independent spheres such as Personal friends, On
 Domain deletion and record transfer both weaken assumptions the current isolation tests rely on and require a new threat review under TM-16 before implementation. Deletion must state what happens to media, backups already taken, and MCP credentials scoped to that domain. Transfer must create independent destination records behind an explicit preview rather than introducing a cross-domain reference.
 
 MCP disposition for the remaining items: **Deferred** until their designs exist. Deletion and transfer are destructive and must not reach the MCP surface before the browser workflow and its previews are settled. Linked item: this section. Owner: TBD. Review: 2026-10-01.
+
+## MCP client interoperability
+
+Status: Open defect, found 2026-09-08 by the first live client run against a deployed package.
+
+A standard MCP client cannot use the deployed MCP surface. Every request must carry a `Mcp-Method` header naming the JSON-RPC method, and `tools/call` must additionally carry `Mcp-Name` naming the tool. Without them the request fails with HTTP 400 (`-32020`) before reaching any tool:
+
+| Request | Result |
+| --- | --- |
+| Standard client, no extra headers | HTTP 400, "Missing required Mcp-Method header." |
+| `Mcp-Method` only | HTTP 400, "Missing required Mcp-Name header." |
+| `Mcp-Method` + `Mcp-Name` | HTTP 200 |
+
+Requests must also carry `_meta/io.modelcontextprotocol/protocolVersion` and `_meta/io.modelcontextprotocol/clientCapabilities`, and `initialize` is rejected as unavailable on protocol version `2026-07-28`.
+
+This went unnoticed because `RemoteDiscoveryTests` builds every request through a helper that always sets both headers, so the in-process suite can never fail this way. It is the concrete reason the live-client gate was worth keeping open.
+
+### What must be decided
+
+First establish whether `Mcp-Method` and `Mcp-Name` are part of the MCP `2026-07-28` revision or a DnaX addition. That is a question about the specification and the DnaX implementation, and it is not answered by this repository.
+
+- If they are DnaX-specific, the surface is not interoperable with standard clients and the requirement should be relaxed to optional, with the routing and audit information derived from the JSON-RPC body instead. That is a DnaX change and needs approval.
+- If the revision does define them, then the requirement is correct and the gap is documentation: [the MCP contract](mcp-contract.md) and the README should state the exact transport requirements a client must satisfy, because a reader today would reasonably expect a stock client to work.
+
+Either way, add at least one test that exercises the surface without the headers so the answer is pinned.
+
+MCP disposition: **Not applicable.** This is the transport contract itself rather than a tool.
+
+Owner: Agent. Next action: check the revision, then either raise a DnaX issue or document the requirement. Review: 2026-09-14.
+
+## Structured errors on read tools
+
+Status: Open defect, found 2026-09-08 during the same live run. Low severity.
+
+An invalid `domainId` makes the older `records.read` tools return an unstructured `An error occurred invoking '<tool>'` message instead of a structured error. `list_record_types`, `search_records`, `list_field_definitions`, `get_record` and `query_record_types` all behave this way, while `query_records` and every write and export tool return a structured `validation_failed`.
+
+Nothing leaks: the tools fail closed and disclose no data from any domain, so the isolation invariant holds and this is not a security defect. It is a contract defect. Clients are told errors are structured, so they cannot distinguish a bad selector from a server fault, and cannot act on the difference.
+
+The fix is to wrap the read adapters in the same error mapping the write adapters already use. Add a test covering an invalid selector on every read tool rather than the one that happens to be correct.
+
+MCP disposition: **Included**, since the fix is the error contract of the tools themselves.
+
+Owner: Agent. Next action: apply the shared error mapping to the read adapters. Review: 2026-09-21.
 
 ## Preset upgrade workflow
 
