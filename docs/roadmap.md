@@ -20,7 +20,7 @@ The product is pre-alpha in maturity even though alpha packages are published. T
 
 | Phase | Theme | Exit criteria | Review |
 | --- | --- | --- | --- |
-| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | MCP management milestones M0-M3 closed; Windows Service lifecycle verified live (packaged Linux and systemd done). The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
+| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | MCP management milestones M0-M3 closed. Every deployment shape now has live lifecycle evidence except upgrade. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
 | Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed; complete script/style CSP enforced; accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
 | 1.0 | Operational confidence for a self-hosting user who is not the author | Interaction timeline shipped; upgrade path across at least two prior minor versions verified; documented backup/restore drill repeated on a clean host; no open High residual risk in the [threat model](threat-model.md) | 2027-02-01 |
 
@@ -34,7 +34,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | MCP record image transfer (contact export done) | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
 | Standard MCP clients cannot connect; DnaX headers required | [MCP client interoperability](#mcp-client-interoperability) | Open defect | Agent | 2026-09-14 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
-| Windows Service lifecycle verification (Linux done) | [Platform support verification](#platform-support-verification) | Planned; needs an elevated Windows host | Wixely / Agent | 2026-09-28 |
+| Upgrade verification across released versions | [Upgrade path verification](#upgrade-path-verification) | Blocked until a version later than alpha.3 exists | TBD | 2026-12-01 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Planned | Agent | 2026-10-01 |
@@ -298,7 +298,7 @@ Status: Planned. These are the largest gaps between what the README describes an
 
 | Gap | Current evidence | Required | Owner | Review |
 | --- | --- | --- | --- | --- |
-| Windows Service install, start, stop, upgrade, recovery | Host detects service execution; a guarded self-cleaning lifecycle verifier is ready but unrun because the session is not elevated | One complete elevated run on a disposable Windows host, recorded with its commit | Wixely / Agent | 2026-09-28 |
+| Windows Service install, start, stop, restart, recovery | Complete 2026-09-09: `eng/VerifyWindowsService.ps1` passed elevated against the published alpha.3 win-x64 package, with the temporary service and its files confirmed removed | Upgrade across released versions only | Wixely / Agent | 2026-09-28 |
 | Framework-dependent Linux package on an independently installed ASP.NET Core runtime | Complete 2026-09-09: the published alpha.3 linux-x64 package passed `eng/VerifyLinuxPackage.sh` on clean Ubuntu 24.04 against `aspnetcore-runtime-10.0` 10.0.11 | Done | Wixely / Agent | 2026-09-28 |
 | systemd system-unit installation and boot enablement | Complete 2026-09-09: the packaged unit was installed as a real system unit with a dedicated account, reached `Type=notify` active, survived SIGKILL under `Restart=on-failure`, and auto-started after a cold boot with data intact | Upgrade across released versions only | Wixely / Agent | 2026-09-28 |
 | Reverse proxy and HTTPS boundary | Documented as an operator responsibility | One documented working configuration, including forwarded-header trust, verified end to end | TBD | 2026-11-01 |
@@ -307,7 +307,7 @@ Docker and Compose are the best-evidenced deployment shapes and are verified thr
 
 MCP disposition: **Not applicable** for the verification work itself. Operational status reporting is separately covered by MCP milestone M6.
 
-Owner: Wixely / Agent. Next action: run the Windows Service lifecycle verifier on a disposable elevated host and record the result in [verification status](verification.md). The Linux side is done; the guarded verifier still needs elevation, which this session did not have. Review: 2026-09-28.
+Owner: Wixely / Agent. Next action: nothing outstanding except upgrade across released versions, tracked under [upgrade path verification](#upgrade-path-verification). Windows Service, the packaged Linux run and the systemd system unit were all verified on 2026-09-09 against the published alpha.3 artifacts. Review: 2026-09-28.
 
 ## Backup and restore follow-up
 
