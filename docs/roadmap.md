@@ -34,7 +34,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | MCP record image transfer (contact export done) | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
 | Standard MCP clients cannot connect; DnaX headers required | [MCP client interoperability](#mcp-client-interoperability) | Open defect | Agent | 2026-09-14 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
-| Upgrade verification across released versions | [Upgrade path verification](#upgrade-path-verification) | Blocked until a version later than alpha.3 exists | TBD | 2026-12-01 |
+| Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Mechanism verified alpha.3 to alpha.4 on both platforms; a schema-changing upgrade is still untested | TBD | 2026-12-01 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Planned | Agent | 2026-10-01 |
@@ -369,7 +369,7 @@ Owner: TBD. Next action: write the design note choosing the data model and stati
 
 ## Upgrade path verification
 
-Status: Later, but no longer speculative. The first concrete upgrade evidence exists and is negative: see [migration ledger compatibility](#migration-ledger-compatibility).
+Status: Partly done. The upgrade mechanism was verified alpha.3 to alpha.4 on 2026-09-09 on both Windows and Linux: replacing only the binaries left the data root and ledger byte-identical and the service started without drift. Because those releases share application schema 28, no migration ran, so a schema-changing upgrade remains untested. The earlier negative evidence stands separately under [migration ledger compatibility](#migration-ledger-compatibility).
 
 DnaX historical verification constructs and upgrades every application schema version to the same canonical schema, and the registry and staging manifests have their own historical checks. That covers the database. It does not cover a real deployment moving between released versions with its data, media, configuration, remote-access state, and container or service definition in place.
 
