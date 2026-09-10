@@ -28,7 +28,7 @@ public sealed class UploadBackupTests
                 IRemoteUploadStore uploads = factory.Services.GetRequiredService<IRemoteUploadStore>();
                 byte[] bytes = Encoding.UTF8.GetBytes("BEGIN:VCARD\nVERSION:4.0\nFN:Temporary preview fixture\nEND:VCARD\n");
                 string digest = Convert.ToHexString(SHA256.HashData(bytes));
-                UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(bytes.Length, digest, "text/vcard"));
+                UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(UploadPurposes.ContactImport, bytes.Length, digest, "text/vcard"));
                 uploadId = begun.UploadId;
                 _ = await uploads.WriteAsync(owner, uploadId, 0, bytes, digest);
                 using IServiceScope scope = factory.Services.CreateScope();

@@ -25,7 +25,11 @@ public sealed partial class RemoteDiscoveryTests
         byte[] bytes = Encoding.UTF8.GetBytes("BEGIN:VCARD\nVERSION:4.0\nEND:VCARD\n"); // No formatted name.
         string digest = Convert.ToHexString(SHA256.HashData(bytes));
         var request = new { domainId, purpose = "contact_import", byteLength = bytes.Length, sha256 = digest, contentType = "text/vcard", idempotencyKey = Guid.NewGuid() };
-        using JsonDocument unsupported = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "begin_upload", request with { purpose = "record_image" });
+        // record_image is a real purpose, but it needs media.write, which this credential does not
+        // hold; importing contacts must never imply permission to stage image bytes.
+        using JsonDocument wrongGrant = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "begin_upload", request with { purpose = "record_image" });
+        AssertWriteError(wrongGrant, "permission_denied");
+        using JsonDocument unsupported = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "begin_upload", request with { purpose = "not_a_purpose" });
         AssertWriteError(unsupported, "validation_failed");
         using JsonDocument begun = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "begin_upload", request);
         Guid uploadId = Structured(begun).GetProperty("uploadId").GetGuid();

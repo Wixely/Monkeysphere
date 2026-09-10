@@ -14,8 +14,11 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
         ArgumentNullException.ThrowIfNull(request);
         string digest = NormalizeDigest(request.Sha256);
         string contentType = request.ContentType?.Trim().ToLowerInvariant() ?? "";
-        if (idempotencyKey == Guid.Empty || request.ByteLength is < 1 or > RemoteUploadLimits.MaximumContactBytes || contentType is not ("text/vcard" or "text/x-vcard"))
-            throw new DomainValidationException("Supply a retry UUID, 1-5242880 bytes and text/vcard or text/x-vcard.");
+        string purpose = UploadPurposes.Normalize(request.Purpose);
+        if (idempotencyKey == Guid.Empty || request.ByteLength < 1 || request.ByteLength > UploadPurposes.MaximumBytes(purpose) ||
+            !UploadPurposes.Accepts(purpose, contentType))
+            throw new DomainValidationException(
+                $"Supply a retry UUID, 1-{UploadPurposes.MaximumBytes(purpose)} bytes and a content type the {purpose} purpose accepts.");
         await using SqliteConnection connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         using SqliteTransaction transaction = connection.BeginTransaction();
         DateTimeOffset now = timeProvider.GetUtcNow();
@@ -26,7 +29,8 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (existing is not null)
         {
-            if (existing.ByteLength != request.ByteLength || existing.Sha256 != digest || existing.ContentType != contentType)
+            if (existing.ByteLength != request.ByteLength || existing.Sha256 != digest || existing.ContentType != contentType ||
+                !string.Equals(existing.Purpose, purpose, StringComparison.Ordinal))
                 throw new UploadException("retry_conflict", "The retry key was used with different upload metadata.");
             if (Parse(existing.RetryUntilUtc) <= now) throw new UploadException("retry_expired", "The upload retry window has expired.");
             await WriteAuditAsync(connection, transaction, new(owner.DomainId, Guid.Parse(existing.Id), "uploads.begin", "replayed", owner.CorrelationId), now, cancellationToken).ConfigureAwait(false);
@@ -56,6 +60,7 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
             DomainId = Key(owner.DomainId),
             CredentialFingerprint = owner.CredentialFingerprint.ToUpperInvariant(),
             IdempotencyKey = Key(idempotencyKey),
+            Purpose = purpose,
             ByteLength = request.ByteLength,
             Sha256 = digest,
             ContentType = contentType,
@@ -66,9 +71,9 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
             ForgetAfterUtc = Timestamp(now.AddHours(RemoteUploadLimits.RetryWindowHours).AddDays(RemoteUploadLimits.TombstoneDays))
         };
         await connection.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO UploadSessions (Id, DomainId, CredentialFingerprint, IdempotencyKey, ByteLength, Sha256, ContentType,
+            INSERT INTO UploadSessions (Id, DomainId, CredentialFingerprint, IdempotencyKey, Purpose, ByteLength, Sha256, ContentType,
                 AcceptedBytes, State, CreatedAtUtc, ExpiresAtUtc, RetryUntilUtc, ForgetAfterUtc)
-            VALUES (@Id, @DomainId, @CredentialFingerprint, @IdempotencyKey, @ByteLength, @Sha256, @ContentType,
+            VALUES (@Id, @DomainId, @CredentialFingerprint, @IdempotencyKey, @Purpose, @ByteLength, @Sha256, @ContentType,
                 0, @State, @CreatedAtUtc, @ExpiresAtUtc, @RetryUntilUtc, @ForgetAfterUtc);
             """, row, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         await WriteAuditAsync(connection, transaction, new(owner.DomainId, Guid.Parse(row.Id), "uploads.begin", "accepted", owner.CorrelationId), now, cancellationToken).ConfigureAwait(false);
@@ -327,7 +332,7 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
     private static string Key(Guid id) => id.ToString("D");
     private static string Timestamp(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static DateTimeOffset Parse(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-    private static UploadStatus Status(SessionRow row, DateTimeOffset now) => new(Guid.Parse(row.Id), row.ByteLength, row.AcceptedBytes,
+    private static UploadStatus Status(SessionRow row, DateTimeOffset now) => new(Guid.Parse(row.Id), row.Purpose, row.ByteLength, row.AcceptedBytes,
         row.State is "receiving" or "sealed" && Parse(row.ExpiresAtUtc) <= now ? "expired" : row.State, Parse(row.ExpiresAtUtc));
 
     private sealed class QuotaRow
@@ -346,6 +351,7 @@ internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDo
         public required string DomainId { get; init; }
         public required string CredentialFingerprint { get; init; }
         public required string IdempotencyKey { get; init; }
+        public required string Purpose { get; init; }
         public long ByteLength { get; init; }
         public long AcceptedBytes { get; set; }
         public int ChunkCount { get; init; }

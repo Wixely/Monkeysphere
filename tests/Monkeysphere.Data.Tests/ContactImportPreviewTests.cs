@@ -190,7 +190,7 @@ public sealed partial class DomainIsolationTests
 
     private static async Task<Guid> StagePreviewUploadAsync(IRemoteUploadStore uploads, UploadOwner owner, byte[] bytes)
     {
-        UploadStatus status = await uploads.BeginAsync(owner, Guid.NewGuid(), new(bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard"));
+        UploadStatus status = await uploads.BeginAsync(owner, Guid.NewGuid(), new(UploadPurposes.ContactImport, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard"));
         _ = await uploads.WriteAsync(owner, status.UploadId, 0, bytes, Convert.ToHexString(SHA256.HashData(bytes)));
         return status.UploadId;
     }

@@ -35,10 +35,8 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
 
     public Task<CallToolResult> BeginAsync(Guid domainId, string purpose, long byteLength, string sha256, string contentType, Guid idempotencyKey,
         CancellationToken cancellationToken) => RunAsync(domainId, Guid.Empty, "uploads.begin", async owner =>
-    {
-        if (purpose != "contact_import") throw new DomainValidationException("Only the contact_import upload purpose is implemented.");
-        return Adapt(await uploads.BeginAsync(owner, idempotencyKey, new(byteLength, sha256, contentType, Limits.MaximumChunkBytes), cancellationToken).ConfigureAwait(false));
-    });
+        Adapt(await uploads.BeginAsync(owner, idempotencyKey, new(purpose, byteLength, sha256, contentType, Limits.MaximumChunkBytes), cancellationToken).ConfigureAwait(false)),
+        ScopeFor(purpose));
 
     public Task<CallToolResult> WriteAsync(Guid domainId, Guid uploadId, long offset, string contentBase64, string sha256,
         CancellationToken cancellationToken) => RunAsync(domainId, uploadId, "uploads.write", async owner =>
@@ -71,11 +69,22 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
 
     private UploadStatus Adapt(UploadStatus status) => status with { MaximumChunkBytes = Limits.MaximumChunkBytes };
 
-    private async Task<CallToolResult> RunAsync<T>(Guid domainId, Guid uploadId, string action, Func<UploadOwner, Task<T>> execute)
+    /// <summary>The grant a declared purpose requires. An unknown purpose fails before authentication.</summary>
+    private static string ScopeFor(string? purpose) => purpose switch
+    {
+        UploadPurposes.ContactImport => "contacts.import",
+        UploadPurposes.RecordImage => "media.write",
+        _ => "",
+    };
+
+    private async Task<CallToolResult> RunAsync<T>(Guid domainId, Guid uploadId, string action, Func<UploadOwner, Task<T>> execute, string? requiredScope = null)
     {
         try
         {
-            UploadOwner owner = identities.CreateUploadOwner(domainId);
+            if (requiredScope is { Length: 0 }) throw new DomainValidationException("Upload purpose must be contact_import or record_image.");
+            UploadOwner owner = requiredScope is null
+                ? identities.CreateUploadOwner(domainId, "contacts.import", "media.write")
+                : identities.CreateUploadOwner(domainId, requiredScope);
             T result = await execute(owner).ConfigureAwait(false);
             JsonElement json = JsonSerializer.SerializeToElement(result, JsonOptions);
             return new() { StructuredContent = json, Content = [new TextContentBlock { Text = json.GetRawText() }] };
@@ -112,7 +121,7 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
 public sealed class MonkeysphereUploadTools
 {
     [McpServerTool(Name = "begin_upload", ReadOnly = false, Destructive = false)]
-    [Description("Begins a bounded credential/domain-owned upload. Requires contacts.import, explicit domainId, purpose contact_import, byteLength, SHA-256 hex digest, contentType text/vcard or text/x-vcard and retry UUID. Returns an opaque ID and effective chunk size; use compact Base64 JSON. Metadata replay lasts 24 hours; bytes expire after 60 minutes without extension. Uploading does not import records.")]
+    [Description("Begins a bounded credential/domain-owned upload. Requires an explicit domainId, purpose, byteLength, SHA-256 hex digest, contentType and retry UUID. Purpose contact_import needs contacts.import and accepts text/vcard or text/x-vcard up to 5 MiB; purpose record_image needs media.write and accepts image/jpeg, image/png or image/webp up to 10 MiB. Returns an opaque ID, the declared purpose and the effective chunk size; use compact Base64 JSON. Metadata replay lasts 24 hours and rejects a changed purpose; bytes expire after 60 minutes without extension. Uploading alone changes no records.")]
     public static Task<CallToolResult> BeginAsync(RemoteUploadCommands commands, Guid domainId, string purpose, long byteLength, string sha256,
         string contentType, Guid idempotencyKey, CancellationToken cancellationToken = default) =>
         commands.BeginAsync(domainId, purpose, byteLength, sha256, contentType, idempotencyKey, cancellationToken);

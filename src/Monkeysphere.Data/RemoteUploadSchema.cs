@@ -9,7 +9,7 @@ public static class RemoteUploadSchema
 {
     public const string DatabaseName = "MonkeysphereTransfers";
     public const string FileName = "remote-transfers.db";
-    public static DnaXMigrationManifest Manifest { get; } = new(currentVersion: 3, migrations:
+    public static DnaXMigrationManifest Manifest { get; } = new(currentVersion: 4, migrations:
     [
         DnaXMigration.Sql(1, "contact-upload-staging", "Persist bounded contact upload sessions and chunks", """
             CREATE TABLE UploadSessions (
@@ -73,6 +73,47 @@ public static class RemoteUploadSchema
                 Payload BLOB NOT NULL CHECK (length(Payload) BETWEEN 1 AND 33554432),
                 PRIMARY KEY (PreviewId, Ordinal)
             );
+            """),
+        DnaXMigration.Sql(4, "upload-purposes", "Record the declared purpose of an upload and admit record images", """
+            CREATE TABLE UploadSessionsWithPurpose (
+                Id TEXT NOT NULL PRIMARY KEY,
+                DomainId TEXT NOT NULL,
+                CredentialFingerprint TEXT NOT NULL,
+                IdempotencyKey TEXT NOT NULL,
+                Purpose TEXT NOT NULL CHECK (Purpose IN ('contact_import', 'record_image')),
+                ByteLength INTEGER NOT NULL CHECK (ByteLength BETWEEN 1 AND 10485760),
+                Sha256 TEXT NOT NULL,
+                ContentType TEXT NOT NULL,
+                AcceptedBytes INTEGER NOT NULL DEFAULT 0 CHECK (AcceptedBytes >= 0 AND AcceptedBytes <= ByteLength),
+                ChunkCount INTEGER NOT NULL DEFAULT 0 CHECK (ChunkCount BETWEEN 0 AND 256),
+                State TEXT NOT NULL CHECK (State IN ('receiving', 'sealed', 'cancelled', 'expired')),
+                CreatedAtUtc TEXT NOT NULL,
+                ExpiresAtUtc TEXT NOT NULL,
+                RetryUntilUtc TEXT NOT NULL,
+                ForgetAfterUtc TEXT NOT NULL,
+                UNIQUE (DomainId, CredentialFingerprint, IdempotencyKey)
+            );
+            INSERT INTO UploadSessionsWithPurpose (Id, DomainId, CredentialFingerprint, IdempotencyKey, Purpose, ByteLength,
+                Sha256, ContentType, AcceptedBytes, ChunkCount, State, CreatedAtUtc, ExpiresAtUtc, RetryUntilUtc, ForgetAfterUtc)
+            SELECT Id, DomainId, CredentialFingerprint, IdempotencyKey, 'contact_import', ByteLength,
+                Sha256, ContentType, AcceptedBytes, ChunkCount, State, CreatedAtUtc, ExpiresAtUtc, RetryUntilUtc, ForgetAfterUtc
+            FROM UploadSessions;
+            CREATE TABLE UploadChunksWithPurpose (
+                UploadId TEXT NOT NULL REFERENCES UploadSessionsWithPurpose(Id) ON DELETE CASCADE,
+                Offset INTEGER NOT NULL CHECK (Offset >= 0),
+                Content BLOB NOT NULL CHECK (length(Content) BETWEEN 1 AND 262144),
+                Sha256 TEXT NOT NULL,
+                PRIMARY KEY (UploadId, Offset)
+            );
+            INSERT INTO UploadChunksWithPurpose (UploadId, Offset, Content, Sha256)
+            SELECT UploadId, Offset, Content, Sha256 FROM UploadChunks;
+            DROP TABLE UploadChunks;
+            DROP TABLE UploadSessions;
+            ALTER TABLE UploadSessionsWithPurpose RENAME TO UploadSessions;
+            ALTER TABLE UploadChunksWithPurpose RENAME TO UploadChunks;
+            CREATE INDEX IX_UploadSessions_Expiry ON UploadSessions (ExpiresAtUtc);
+            CREATE INDEX IX_UploadSessions_Retention ON UploadSessions (ForgetAfterUtc);
+            CREATE INDEX IX_UploadSessions_Purpose ON UploadSessions (Purpose);
             """)
     ]);
 }

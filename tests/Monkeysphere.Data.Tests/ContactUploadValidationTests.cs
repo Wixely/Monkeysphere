@@ -22,7 +22,7 @@ public sealed partial class DomainIsolationTests
             UploadOwner owner = new(MonkeysphereDomains.DefaultId, new string('A', 64));
             async Task<UploadStatus> StageAsync(byte[] bytes)
             {
-                UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard"));
+                UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(UploadPurposes.ContactImport, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard"));
                 for (int offset = 0; offset < bytes.Length; offset += 7)
                 {
                     byte[] chunk = bytes[offset..Math.Min(offset + 7, bytes.Length)];

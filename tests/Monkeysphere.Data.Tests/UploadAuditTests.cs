@@ -25,10 +25,10 @@ public sealed partial class DomainIsolationTests
             await connection.OpenAsync();
             const string reject = "CREATE TRIGGER TestRejectUploadAudit BEFORE INSERT ON UploadAudit BEGIN SELECT RAISE(ABORT, 'Test failure'); END;";
             await connection.ExecuteAsync(reject);
-            await Assert.ThrowsAsync<SqliteException>(() => uploads.BeginAsync(owner, Guid.NewGuid(), new(3, hash, "text/vcard")));
+            await Assert.ThrowsAsync<SqliteException>(() => uploads.BeginAsync(owner, Guid.NewGuid(), new(UploadPurposes.ContactImport, 3, hash, "text/vcard")));
             Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM UploadSessions;"));
             await connection.ExecuteAsync("DROP TRIGGER TestRejectUploadAudit;");
-            UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(3, hash, "text/vcard"));
+            UploadStatus begun = await uploads.BeginAsync(owner, Guid.NewGuid(), new(UploadPurposes.ContactImport, 3, hash, "text/vcard"));
             await connection.ExecuteAsync(reject);
             await Assert.ThrowsAsync<SqliteException>(() => uploads.WriteAsync(owner, begun.UploadId, 0, bytes, hash));
             Assert.Equal(0, (await uploads.GetAsync(owner, begun.UploadId)).AcceptedBytes);

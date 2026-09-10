@@ -5,6 +5,7 @@ public static class RemoteUploadLimits
     public const int MaximumChunkBytes = 256 * 1024;
     public const int MaximumChunksPerUpload = 256;
     public const int MaximumContactBytes = VCardParser.MaximumBytes;
+    public const int MaximumImageBytes = 10 * 1024 * 1024;
     public const long MaximumReservedBytes = 64L * 1024 * 1024;
     public const int MaximumActiveSessions = 64;
     public const int MaximumActiveSessionsPerDomain = 8;
@@ -13,6 +14,39 @@ public static class RemoteUploadLimits
     public const int LifetimeMinutes = 60;
     public const int RetryWindowHours = 24;
     public const int TombstoneDays = 7;
+}
+
+/// <summary>
+/// What a staged upload is allowed to become. The purpose is declared when the session begins,
+/// persisted with it, and rechecked when the bytes are consumed, so contact bytes cannot be
+/// attached as a record image or the reverse.
+/// </summary>
+public static class UploadPurposes
+{
+    public const string ContactImport = "contact_import";
+    public const string RecordImage = "record_image";
+
+    public static readonly IReadOnlyList<string> All = [ContactImport, RecordImage];
+
+    public static long MaximumBytes(string purpose) => purpose switch
+    {
+        ContactImport => RemoteUploadLimits.MaximumContactBytes,
+        RecordImage => RemoteUploadLimits.MaximumImageBytes,
+        _ => throw Invalid(),
+    };
+
+    public static bool Accepts(string purpose, string contentType) => purpose switch
+    {
+        ContactImport => contentType is "text/vcard" or "text/x-vcard",
+        RecordImage => contentType is "image/jpeg" or "image/png" or "image/webp",
+        _ => throw Invalid(),
+    };
+
+    public static string Normalize(string? purpose) =>
+        purpose is not null && All.Contains(purpose, StringComparer.Ordinal) ? purpose : throw Invalid();
+
+    private static DomainValidationException Invalid() =>
+        new("Upload purpose must be contact_import or record_image.");
 }
 
 public sealed record UploadOwner(Guid DomainId, string CredentialFingerprint, string CorrelationId = "")
@@ -24,9 +58,9 @@ public sealed record UploadOwner(Guid DomainId, string CredentialFingerprint, st
     }
 }
 
-public sealed record UploadRequest(long ByteLength, string Sha256, string ContentType, int MaximumChunkBytes = RemoteUploadLimits.MaximumChunkBytes);
+public sealed record UploadRequest(string Purpose, long ByteLength, string Sha256, string ContentType, int MaximumChunkBytes = RemoteUploadLimits.MaximumChunkBytes);
 public sealed record UploadAudit(Guid DomainId, Guid UploadId, string Action, string Outcome, string CorrelationId);
-public sealed record UploadStatus(Guid UploadId, long ByteLength, long AcceptedBytes, string State,
+public sealed record UploadStatus(Guid UploadId, string Purpose, long ByteLength, long AcceptedBytes, string State,
     DateTimeOffset ExpiresAtUtc, int MaximumChunkBytes = RemoteUploadLimits.MaximumChunkBytes);
 public sealed class UploadException(string code, string message) : InvalidOperationException(message)
 {

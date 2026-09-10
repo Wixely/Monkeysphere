@@ -17,14 +17,27 @@ public sealed class RemoteCommandIdentityProvider(IHttpContextAccessor accessor)
         return result;
     }
 
-    public UploadOwner CreateUploadOwner(Guid domainId, string requiredScope = "contacts.import")
+    /// <summary>Authenticates against the first supplied scope the credential actually holds.</summary>
+    public UploadOwner CreateUploadOwner(Guid domainId, params string[] acceptedScopes)
     {
-        var (surface, fingerprint) = Authenticate(requiredScope);
+        if (acceptedScopes is null || acceptedScopes.Length == 0) acceptedScopes = ["contacts.import"];
+        var (surface, fingerprint) = AuthenticateAny(acceptedScopes);
         if (surface != "mcp") throw new UnauthorizedAccessException("Contact transfer requires an authenticated MCP credential.");
         string correlation = accessor.HttpContext?.TraceIdentifier ?? "";
         UploadOwner owner = new(domainId, fingerprint, correlation[..Math.Min(correlation.Length, 128)]);
         owner.Validate();
         return owner;
+    }
+
+    private (string Surface, string Fingerprint) AuthenticateAny(string[] acceptedScopes)
+    {
+        UnauthorizedAccessException? last = null;
+        foreach (string scope in acceptedScopes)
+        {
+            try { return Authenticate(scope); }
+            catch (UnauthorizedAccessException exception) { last = exception; }
+        }
+        throw last ?? new UnauthorizedAccessException("An authenticated remote credential with the required scope is required.");
     }
 
     private (string Surface, string Fingerprint) Authenticate(string requiredScope)

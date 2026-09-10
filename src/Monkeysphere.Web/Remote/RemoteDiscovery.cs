@@ -36,13 +36,13 @@ public sealed record RemoteCapabilities(
     RemoteContactExportLimits? ContactExportLimits = null);
 
 [McpServerToolType]
-[RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export")]
+[RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write")]
 public sealed class MonkeysphereDiscoveryTools
 {
     private const string ContractVersion = "1.15";
 
     private static readonly string[] DiscoveryScopes =
-        ["records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export"];
+        ["records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write"];
 
     [McpServerTool(Name = "get_instance_info", UseStructuredContent = true, ReadOnly = true)]
     [Description("Gets the application version, database schema version, and MCP contract version without deployment secrets or host paths. Requires records.read, instance.read, records.write, records.delete, relationships.write, structure.write, domains.manage, contacts.import or contacts.export.")]

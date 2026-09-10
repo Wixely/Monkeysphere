@@ -23,7 +23,7 @@ public sealed partial class DomainIsolationTests
             await provider.InitializeMonkeysphereDomainsAsync();
             IRemoteUploadStore store = provider.GetRequiredService<IRemoteUploadStore>();
             UploadOwner owner = new(MonkeysphereDomains.DefaultId, new string('A', 64));
-            UploadRequest original = new(1, new string('0', 64), "text/vcard");
+            UploadRequest original = new(UploadPurposes.ContactImport, 1, new string('0', 64), "text/vcard");
             Guid key = Guid.NewGuid();
             UploadStatus existing = await store.BeginAsync(owner, key, original);
             await using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(root, RemoteUploadSchema.FileName) }.ConnectionString);
@@ -33,9 +33,9 @@ public sealed partial class DomainIsolationTests
                 for (int index = 0; index < count; index++)
                 {
                     await connection.ExecuteAsync("""
-                        INSERT INTO UploadSessions (Id, DomainId, CredentialFingerprint, IdempotencyKey, ByteLength, Sha256, ContentType,
+                        INSERT INTO UploadSessions (Id, DomainId, CredentialFingerprint, IdempotencyKey, Purpose, ByteLength, Sha256, ContentType,
                             State, CreatedAtUtc, ExpiresAtUtc, RetryUntilUtc, ForgetAfterUtc)
-                        VALUES (@Id, @DomainId, @Fingerprint, @Key, @Length, @Hash, 'text/vcard', @State, @Now, @Future, @Future, @Future);
+                        VALUES (@Id, @DomainId, @Fingerprint, @Key, 'contact_import', @Length, @Hash, 'text/vcard', @State, @Now, @Future, @Future, @Future);
                         """, new
                     {
                         Id = Guid.NewGuid().ToString("D"),
@@ -70,7 +70,7 @@ public sealed partial class DomainIsolationTests
             await provider.InitializeMonkeysphereDomainsAsync();
             IRemoteUploadStore store = provider.GetRequiredService<IRemoteUploadStore>();
             UploadOwner owner = new(MonkeysphereDomains.DefaultId, new string('A', 64));
-            UploadRequest request = new(RemoteUploadLimits.MaximumChunksPerUpload + 1, new string('0', 64), "text/vcard");
+            UploadRequest request = new(UploadPurposes.ContactImport, RemoteUploadLimits.MaximumChunksPerUpload + 1, new string('0', 64), "text/vcard");
             Guid key = Guid.NewGuid();
             UploadStatus begun = await store.BeginAsync(owner, key, request);
             byte[] chunk = [1];
@@ -100,7 +100,7 @@ public sealed partial class DomainIsolationTests
         UploadOwner owner = new(MonkeysphereDomains.DefaultId, new string('A', 64));
         byte[] bytes = RandomNumberGenerator.GetBytes(RemoteUploadLimits.MaximumChunkBytes + 37);
         byte[] first = bytes[..RemoteUploadLimits.MaximumChunkBytes];
-        UploadRequest request = new(bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard");
+        UploadRequest request = new(UploadPurposes.ContactImport, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), "text/vcard");
         Guid retryKey = Guid.NewGuid();
         Guid uploadId;
         try
@@ -170,7 +170,7 @@ public sealed partial class DomainIsolationTests
             UploadOwner owner = new(MonkeysphereDomains.DefaultId, new string('A', 64));
             byte[] bytes = [1, 2, 3];
             string digest = Convert.ToHexString(SHA256.HashData(bytes));
-            UploadRequest request = new(bytes.Length, digest, "text/vcard");
+            UploadRequest request = new(UploadPurposes.ContactImport, bytes.Length, digest, "text/vcard");
             List<UploadStatus> sessions = [];
             for (int index = 0; index < RemoteUploadLimits.MaximumActiveSessionsPerOwner; index++)
                 sessions.Add(await store.BeginAsync(owner, Guid.NewGuid(), request));
