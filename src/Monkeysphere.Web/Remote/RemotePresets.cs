@@ -32,39 +32,44 @@ public sealed class RemotePresetQueries(IPresetStore presets, ICurrentDomainScop
 [RemoteToolScopes("records.read")]
 public sealed class MonkeyspherePresetReadTools
 {
-    [McpServerTool(Name = "get_setup_state", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Reads effective onboarding state, installed preset count, domain setup revision and packaged catalog revision without modifying data. Optional domainId defaults to Default. Existing custom structures imply completed onboarding even before the browser persists that state.")]
-    public static Task<RemoteSetupState> GetStateAsync(RemotePresetQueries queries, Guid? domainId = null, CancellationToken cancellationToken = default) =>
-        queries.GetStateAsync(domainId, cancellationToken);
+    [McpServerTool(Name = "get_setup_state", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteSetupState))]
+    [Description("Reads effective onboarding state, installed preset count, domain setup revision and packaged catalog revision without modifying data. Optional domainId defaults to Default; an unknown domainId fails with a structured validation error. Existing custom structures imply completed onboarding even before the browser persists that state.")]
+    public static Task<CallToolResult> GetStateAsync(RemotePresetQueries queries, IHttpContextAccessor accessor,
+        Guid? domainId = null, CancellationToken cancellationToken = default) =>
+        RemoteReadResults.RunAsync(accessor, () => queries.GetStateAsync(domainId, cancellationToken));
 
-    [McpServerTool(Name = "list_installed_presets", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Pages installed record-type presets with local IDs, recorded versions, names and active/retired state. Includes locally customized types; does not imply upgrade support. Optional domainId defaults to Default.")]
-    public static Task<PagedResult<InstalledPreset>> InstalledAsync(RemotePresetQueries queries, int page = 1, int pageSize = 25,
-        Guid? domainId = null, CancellationToken cancellationToken = default) => queries.GetInstalledAsync(domainId, page, pageSize, cancellationToken);
+    [McpServerTool(Name = "list_installed_presets", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<InstalledPreset>))]
+    [Description("Pages installed record-type presets with local IDs, recorded versions, names and active/retired state. Includes locally customized types; does not imply upgrade support. Optional domainId defaults to Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> InstalledAsync(RemotePresetQueries queries, IHttpContextAccessor accessor, int page = 1, int pageSize = 25,
+        Guid? domainId = null, CancellationToken cancellationToken = default) =>
+        RemoteReadResults.RunAsync(accessor, () => queries.GetInstalledAsync(domainId, page, pageSize, cancellationToken));
 
-    [McpServerTool(Name = "list_presets", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_presets", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteCatalogPage<RecordTypePreset>))]
     [Description("Pages the packaged record-type preset catalog, including keys, versions, examples, fields, configuration and requiredness. Deployment-wide immutable catalog; no domain selector. Returns catalog revision. Requires records.read.")]
-    public static RemoteCatalogPage<RecordTypePreset> PresetsAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25)
-    {
-        RemoteReadAuthorization.Demand(accessor);
-        return new(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.RecordTypes, page, pageSize));
-    }
+    public static CallToolResult PresetsAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25) =>
+        RemoteReadResults.Run(accessor, () =>
+        {
+            RemoteReadAuthorization.Demand(accessor);
+            return new RemoteCatalogPage<RecordTypePreset>(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.RecordTypes, page, pageSize));
+        });
 
-    [McpServerTool(Name = "list_starter_packs", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_starter_packs", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteCatalogPage<StarterPack>))]
     [Description("Pages packaged onboarding levels and their selectable preset keys, including the blank option. Deployment-wide catalog; no domain selector. Returns catalog revision. Requires records.read.")]
-    public static RemoteCatalogPage<StarterPack> PacksAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25)
-    {
-        RemoteReadAuthorization.Demand(accessor);
-        return new(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.StarterPacks, page, pageSize));
-    }
+    public static CallToolResult PacksAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25) =>
+        RemoteReadResults.Run(accessor, () =>
+        {
+            RemoteReadAuthorization.Demand(accessor);
+            return new RemoteCatalogPage<StarterPack>(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.StarterPacks, page, pageSize));
+        });
 
-    [McpServerTool(Name = "list_relationship_presets", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_relationship_presets", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteCatalogPage<RelationshipTypePreset>))]
     [Description("Pages packaged relationship definitions and the required/alternative preset keys that determine installation with a selection. Deployment-wide catalog; no domain selector. Returns catalog revision. Requires records.read.")]
-    public static RemoteCatalogPage<RelationshipTypePreset> RelationshipsAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25)
-    {
-        RemoteReadAuthorization.Demand(accessor);
-        return new(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.RelationshipTypes, page, pageSize));
-    }
+    public static CallToolResult RelationshipsAsync(IHttpContextAccessor accessor, int page = 1, int pageSize = 25) =>
+        RemoteReadResults.Run(accessor, () =>
+        {
+            RemoteReadAuthorization.Demand(accessor);
+            return new RemoteCatalogPage<RelationshipTypePreset>(PresetContract.CatalogRevision, DiscoveryPagination.From(PresetCatalog.RelationshipTypes, page, pageSize));
+        });
 }
 
 public sealed partial class RemoteRecordWriter

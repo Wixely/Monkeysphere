@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Security.Claims;
 using DnaX.RemoteAccess;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Monkeysphere.Core;
 
@@ -300,47 +301,51 @@ public sealed partial class MonkeysphereRemoteQueries(
 [RemoteToolScopes("records.read")]
 public sealed class MonkeysphereRemoteTools
 {
-    [McpServerTool(Name = "list_domains", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_domains", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(IReadOnlyList<RemoteDomain>))]
     [Description("Lists the available isolated Monkeysphere domains.")]
-    public static Task<IReadOnlyList<RemoteDomain>> ListDomainsAsync(
+    public static Task<CallToolResult> ListDomainsAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         CancellationToken cancellationToken = default) =>
-        queries.ListDomainsAsync(cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.ListDomainsAsync(cancellationToken));
 
-    [McpServerTool(Name = "list_record_types", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Lists Monkeysphere record types and their field definitions.")]
-    public static Task<IReadOnlyList<RemoteRecordType>> ListRecordTypesAsync(
+    [McpServerTool(Name = "list_record_types", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(IReadOnlyList<RemoteRecordType>))]
+    [Description("Lists Monkeysphere record types and their field definitions. Omitted domainId selects Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> ListRecordTypesAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.ListRecordTypesAsync(ParseOptionalGuid(domainId, "domainId"), cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.ListRecordTypesAsync(ParseOptionalGuid(domainId, "domainId"), cancellationToken));
 
-    [McpServerTool(Name = "get_record_type", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Gets one Monkeysphere record type and its field definitions.")]
-    public static Task<RemoteRecordType?> GetRecordTypeAsync(
+    [McpServerTool(Name = "get_record_type", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteRecordType))]
+    [Description("Gets one Monkeysphere record type and its field definitions. Omitted domainId selects Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> GetRecordTypeAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         Guid id,
         string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordTypeAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.GetRecordTypeAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken));
 
-    [McpServerTool(Name = "search_records", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Searches Monkeysphere records with bounded pagination.")]
-    public static Task<RemotePage<RemoteRecordSummary>> SearchRecordsAsync(
+    [McpServerTool(Name = "search_records", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemotePage<RemoteRecordSummary>))]
+    [Description("Searches Monkeysphere records with bounded pagination. Omitted domainId selects Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> SearchRecordsAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         string? query = null,
         string? recordTypeId = null,
         int page = 1,
         int pageSize = 25,
         string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.SearchRecordsAsync(
+        RemoteReadResults.RunAsync(accessor, () => queries.SearchRecordsAsync(
             query,
             ParseOptionalGuid(recordTypeId, "recordTypeId"),
             page,
             pageSize,
             ParseOptionalGuid(domainId, "domainId"),
-            cancellationToken);
+            cancellationToken));
 
     private static Guid? ParseOptionalGuid(string? value, string parameterName)
     {
@@ -354,21 +359,23 @@ public sealed class MonkeysphereRemoteTools
             : throw new DomainValidationException($"{parameterName} must be a UUID.");
     }
 
-    [McpServerTool(Name = "get_record", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Gets one Monkeysphere record and its values.")]
-    public static Task<RemoteRecord?> GetRecordAsync(
+    [McpServerTool(Name = "get_record", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteRecord))]
+    [Description("Gets one Monkeysphere record and its values. Omitted domainId selects Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> GetRecordAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         Guid id,
         string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.GetRecordAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken));
 
-    [McpServerTool(Name = "get_record_relationships", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Gets the bounded relationships visible from one Monkeysphere record.")]
-    public static Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsAsync(
+    [McpServerTool(Name = "get_record_relationships", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(IReadOnlyList<RemoteRelationship>))]
+    [Description("Gets the bounded relationships visible from one Monkeysphere record. Omitted domainId selects Default; an unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> GetRecordRelationshipsAsync(
         MonkeysphereRemoteQueries queries,
+        IHttpContextAccessor accessor,
         Guid id,
         string? domainId = null,
         CancellationToken cancellationToken = default) =>
-        queries.GetRecordRelationshipsAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.GetRecordRelationshipsAsync(id, ParseOptionalGuid(domainId, "domainId"), cancellationToken));
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Schema;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Monkeysphere.Core;
 
@@ -96,40 +97,46 @@ public sealed class MonkeysphereSchemaTools
 {
     private static readonly JsonSerializerOptions SchemaOptions = CreateSchemaOptions();
 
-    [McpServerTool(Name = "query_domains", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "query_domains", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<RemoteDomain>))]
     [Description("Pages through isolated domains. Page size is 1-100. Requires records.read.")]
-    public static PagedResult<RemoteDomain> QueryDomains(MonkeysphereSchemaQueries queries, int page = 1, int pageSize = 25) =>
-        queries.QueryDomains(page, pageSize);
+    public static CallToolResult QueryDomains(MonkeysphereSchemaQueries queries, IHttpContextAccessor accessor, int page = 1, int pageSize = 25) =>
+        RemoteReadResults.Run(accessor, () => queries.QueryDomains(page, pageSize));
 
-    [McpServerTool(Name = "query_record_types", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Pages through all record-type summaries, including retired types. Use get_record_type for fields. Requires records.read.")]
-    public static Task<PagedResult<RemoteTypeSummary>> QueryTypesAsync(MonkeysphereSchemaQueries queries,
+    [McpServerTool(Name = "query_record_types", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<RemoteTypeSummary>))]
+    [Description("Pages through all record-type summaries, including retired types. Use get_record_type for fields. Requires records.read. An unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> QueryTypesAsync(MonkeysphereSchemaQueries queries, IHttpContextAccessor accessor,
         int page = 1, int pageSize = 25, Guid? domainId = null, CancellationToken cancellationToken = default) =>
-        queries.QueryTypesAsync(page, pageSize, domainId, cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.QueryTypesAsync(page, pageSize, domainId, cancellationToken));
 
-    [McpServerTool(Name = "list_field_definitions", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Pages through reusable field definitions, including configuration, choice options, lifecycle and provenance. Requires records.read.")]
-    public static Task<PagedResult<RemoteReusableField>> QueryFieldsAsync(MonkeysphereSchemaQueries queries,
+    [McpServerTool(Name = "list_field_definitions", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<RemoteReusableField>))]
+    [Description("Pages through reusable field definitions, including configuration, choice options, lifecycle and provenance. Requires records.read. An unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> QueryFieldsAsync(MonkeysphereSchemaQueries queries, IHttpContextAccessor accessor,
         int page = 1, int pageSize = 25, Guid? domainId = null, CancellationToken cancellationToken = default) =>
-        queries.QueryFieldsAsync(page, pageSize, domainId, cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.QueryFieldsAsync(page, pageSize, domainId, cancellationToken));
 
-    [McpServerTool(Name = "list_relationship_types", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Pages through relationship definitions with directionality, inverse labels and lifecycle. Requires records.read.")]
-    public static Task<PagedResult<RemoteRelationshipType>> QueryRelationshipTypesAsync(MonkeysphereSchemaQueries queries,
+    [McpServerTool(Name = "list_relationship_types", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<RemoteRelationshipType>))]
+    [Description("Pages through relationship definitions with directionality, inverse labels and lifecycle. Requires records.read. An unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> QueryRelationshipTypesAsync(MonkeysphereSchemaQueries queries, IHttpContextAccessor accessor,
         int page = 1, int pageSize = 25, Guid? domainId = null, CancellationToken cancellationToken = default) =>
-        queries.QueryRelationshipTypesAsync(page, pageSize, domainId, cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.QueryRelationshipTypesAsync(page, pageSize, domainId, cancellationToken));
 
-    [McpServerTool(Name = "query_record_relationships", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Pages through all relationships for one record, with total count and directional labels. Requires records.read.")]
-    public static Task<PagedResult<RelationshipView>> QueryRelationshipsAsync(MonkeysphereSchemaQueries queries, Guid id,
+    [McpServerTool(Name = "query_record_relationships", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(PagedResult<RelationshipView>))]
+    [Description("Pages through all relationships for one record, with total count and directional labels. Requires records.read. An unknown domainId fails with a structured validation error.")]
+    public static Task<CallToolResult> QueryRelationshipsAsync(MonkeysphereSchemaQueries queries, IHttpContextAccessor accessor, Guid id,
         int page = 1, int pageSize = 25, Guid? domainId = null, CancellationToken cancellationToken = default) =>
-        queries.QueryRelationshipsAsync(id, page, pageSize, domainId, cancellationToken);
+        RemoteReadResults.RunAsync(accessor, () => queries.QueryRelationshipsAsync(id, page, pageSize, domainId, cancellationToken));
 
-    [McpServerTool(Name = "get_field_type_schema", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "get_field_type_schema", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteFieldTypeSchema))]
     [Description("Gets the Core input value shape for a field type. Unknown valid identifiers retain scalar text. Field-specific choices come from its definition. Requires records.read.")]
-    public static RemoteFieldTypeSchema GetFieldTypeSchema(IHttpContextAccessor accessor, string typeId)
+    public static CallToolResult GetFieldTypeSchema(IHttpContextAccessor accessor, string typeId) =>
+        RemoteReadResults.Run(accessor, () =>
+        {
+            RemoteReadAuthorization.Demand(accessor);
+            return BuildFieldTypeSchema(typeId);
+        });
+
+    private static RemoteFieldTypeSchema BuildFieldTypeSchema(string typeId)
     {
-        RemoteReadAuthorization.Demand(accessor);
         string normalized = FieldTypes.NormalizeTypeId(typeId);
         (string property, Type type, string validation) = normalized switch
         {
@@ -149,13 +156,14 @@ public sealed class MonkeysphereSchemaTools
             normalized == FieldTypes.Choice, validation);
     }
 
-    [McpServerTool(Name = "list_field_types", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_field_types", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteFieldTypeCatalog))]
     [Description("Lists the built-in field types and their Core input shapes. Custom identifiers use the scalar-text fallback. Requires records.read.")]
-    public static RemoteFieldTypeCatalog ListFieldTypes(IHttpContextAccessor accessor)
-    {
-        RemoteReadAuthorization.Demand(accessor);
-        return new(FieldTypes.Recognized.Select(type => GetFieldTypeSchema(accessor, type)).ToArray(), AllowsCustomTypes: true);
-    }
+    public static CallToolResult ListFieldTypes(IHttpContextAccessor accessor) =>
+        RemoteReadResults.Run(accessor, () =>
+        {
+            RemoteReadAuthorization.Demand(accessor);
+            return new RemoteFieldTypeCatalog(FieldTypes.Recognized.Select(BuildFieldTypeSchema).ToArray(), AllowsCustomTypes: true);
+        });
 
     private static JsonSerializerOptions CreateSchemaOptions()
     {

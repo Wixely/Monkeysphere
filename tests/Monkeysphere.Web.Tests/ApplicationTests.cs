@@ -1240,10 +1240,18 @@ public sealed class RemoteAccessApplicationTests
         {
             Monkeysphere.Web.Remote.MonkeysphereRemoteQueries queries =
                 scope.ServiceProvider.GetRequiredService<Monkeysphere.Web.Remote.MonkeysphereRemoteQueries>();
-            await Assert.ThrowsAsync<DomainValidationException>(() =>
-                Monkeysphere.Web.Remote.MonkeysphereRemoteTools.SearchRecordsAsync(
+            // Read tools report a malformed selector as a structured tool error rather than
+            // throwing, so a client can distinguish a bad argument from a server fault.
+            Microsoft.AspNetCore.Http.IHttpContextAccessor accessor =
+                scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
+            ModelContextProtocol.Protocol.CallToolResult malformed =
+                await Monkeysphere.Web.Remote.MonkeysphereRemoteTools.SearchRecordsAsync(
                     queries,
-                    recordTypeId: "not-a-uuid"));
+                    accessor,
+                    recordTypeId: "not-a-uuid");
+            Assert.True(malformed.IsError);
+            Assert.Equal("validation_failed",
+                malformed.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString());
         }
 
         IReadOnlyList<DnaXRemoteAuditRecord> audit = await administration.GetRecentActivityAsync(20);

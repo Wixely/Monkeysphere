@@ -172,17 +172,22 @@ Owner: Agent. Next action: document the transport contract; confirm with an SDK 
 
 ## Structured errors on read tools
 
-Status: Open defect, found 2026-09-08 during the same live run. Low severity.
+Status: Fixed on 2026-09-10.
 
-An invalid `domainId` makes the older `records.read` tools return an unstructured `An error occurred invoking '<tool>'` message instead of a structured error. `list_record_types`, `search_records`, `list_field_definitions`, `get_record` and `query_record_types` all behave this way, while `query_records` and every write and export tool return a structured `validation_failed`.
+An invalid `domainId` made the older `records.read` tools return an unstructured `An error occurred invoking '<tool>'` instead of a structured error. They failed closed and disclosed nothing, so this was a contract defect rather than a security one, but a client could not tell a bad selector from a server fault.
 
-Nothing leaks: the tools fail closed and disclose no data from any domain, so the isolation invariant holds and this is not a security defect. It is a contract defect. Clients are told errors are structured, so they cannot distinguish a bad selector from a server fault, and cannot act on the difference.
+A pinning test was written first. It calls every domain-scoped read tool with an unknown domain and requires a structured `validation_failed` or `not_found`, and it initially failed for eleven tools. A shared `RemoteReadResults` helper now applies the same error mapping the write, export and `query_records` adapters already used, across `RemoteModels`, `RemoteSchema` and `RemotePresets`.
 
-The fix is to wrap the read adapters in the same error mapping the write adapters already use. Add a test covering an invalid selector on every read tool rather than the one that happens to be correct.
+Two things the tests caught that a quick fix would have got wrong:
 
-MCP disposition: **Included**, since the fix is the error contract of the tools themselves.
+- `list_relationship_presets` is a deployment-wide catalogue that takes no domain selector, so it is deliberately excluded rather than "fixed" into having one.
+- `get_record` and `get_record_type` return null for a record that does not exist, which the SDK rendered as an empty content list. Wrapping the result initially turned that into a `null` content block and broke cross-domain isolation assertions. The helper now preserves the empty-content shape, and both the not-found shape and the success envelope are pinned by test.
 
-Owner: Agent. Next action: apply the shared error mapping to the read adapters. Review: 2026-09-21.
+The first pass also dropped the generated `outputSchema` from the converted tools, leaving only two of fifty-two tools declaring one. That proved avoidable: `McpServerToolAttribute.OutputSchemaType` declares a schema explicitly alongside a `CallToolResult` return, so all eighteen read tools now advertise their output shape and return structured errors. The surface is better documented than before the change rather than worse.
+
+MCP disposition: **Included**; this is the error contract of the tools themselves.
+
+Owner: Agent. Review: 2026-09-21.
 
 ## Preset upgrade workflow
 
