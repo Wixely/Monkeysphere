@@ -90,3 +90,23 @@ public sealed class ContactUploadService(IRemoteUploadStore uploads)
         return await uploads.ReadSealedAsync(owner, uploadId, VCardParser.ParseAsync, cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>
+/// Attaches staged bytes to a record as an image. The upload must have been staged for the
+/// record_image purpose, so contact bytes cannot arrive here, and the shared image service still
+/// performs every existing check: decoding, dimension and pixel bounds, the per-record limit,
+/// opaque storage paths and metadata-stripped derivatives.
+/// </summary>
+public sealed class RecordImageUploadService(IRemoteUploadStore uploads, IRecordImageService images)
+{
+    public async Task<RecordImage> AttachAsync(UploadOwner owner, Guid uploadId, Guid recordId, string originalFileName,
+        CancellationToken cancellationToken = default)
+    {
+        UploadStatus status = await uploads.GetAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(status.Purpose, UploadPurposes.RecordImage, StringComparison.Ordinal))
+            throw new UploadException("purpose_mismatch", "This upload was not staged for the record_image purpose.");
+        _ = await uploads.SealAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
+        return await uploads.ReadSealedAsync(owner, uploadId,
+            (stream, token) => images.AddAsync(recordId, stream, originalFileName, token), cancellationToken).ConfigureAwait(false);
+    }
+}

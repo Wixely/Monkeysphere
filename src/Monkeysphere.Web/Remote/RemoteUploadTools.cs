@@ -60,11 +60,26 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
     public Task<CallToolResult> CompleteAsync(Guid domainId, Guid uploadId, CancellationToken cancellationToken) =>
         RunAsync(domainId, uploadId, "uploads.complete", async owner =>
     {
-        IReadOnlyList<VCard> cards = await validator.ValidateAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
-        await uploads.RecordAuditAsync(new(domainId, uploadId, "uploads.complete", "validated", owner.CorrelationId), cancellationToken).ConfigureAwait(false);
+        UploadStatus staged = await uploads.GetAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
+        int contactCount = 0;
+        bool validated = false;
+        if (staged.Purpose == UploadPurposes.ContactImport)
+        {
+            contactCount = (await validator.ValidateAsync(owner, uploadId, cancellationToken).ConfigureAwait(false)).Count;
+            validated = true;
+        }
+        else
+        {
+            // Record images are sealed for byte integrity here. The image itself is decoded and
+            // bounded by the shared pipeline when add_record_image attaches it, so completion
+            // deliberately does not claim the content was validated.
+            _ = await uploads.SealAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
+        }
+
+        await uploads.RecordAuditAsync(new(domainId, uploadId, "uploads.complete", validated ? "validated" : "sealed", owner.CorrelationId), cancellationToken).ConfigureAwait(false);
         UploadStatus status = await uploads.GetAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
         if (status.State != "sealed") throw new UploadException("upload_not_ready", "The upload became unavailable during validation.");
-        return new RemoteUploadCompletion(Adapt(status), cards.Count, true);
+        return new RemoteUploadCompletion(Adapt(status), contactCount, validated);
     });
 
     private UploadStatus Adapt(UploadStatus status) => status with { MaximumChunkBytes = Limits.MaximumChunkBytes };

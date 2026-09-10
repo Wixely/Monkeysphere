@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.15
+- Contract version: 1.16
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -47,7 +47,7 @@ Accept: application/json, text/event-stream
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
 | `list_record_types` | `records.read` | Optional `domainId`. Up to 100 record types with their field definitions |
 | `get_record_type` | `records.read` | Required `id`, optional `domainId`. One type or null |
-| `begin_upload` | `contacts.import` | Required `domainId`, `purpose` (`contact_import`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session |
+| `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
 | `complete_upload` | `contacts.import` | Required `domainId`, `uploadId`. Integrity and UTF-8 vCard validation; returns upload status, contact count and `contentValidated` |
@@ -57,6 +57,8 @@ Accept: application/json, text/event-stream
 | `read_contact_import_evidence` | `contacts.import` | Required `domainId`, `previewId`, zero-based `contactIndex`; byte `offset` (0), `count` (16384). Complete evidence through bounded Base64 byte ranges |
 | `apply_contact_import` | `contacts.import` | Required `domainId`, `previewId`, `expectedRevision`, UUID `idempotencyKey`, and one explicit selection per contact. Atomic import and durable receipt |
 | `get_contact_import_result` | `contacts.import` | Required `domainId`, import `idempotencyKey`; `page` (1), `pageSize` (100). Durable receipt and paged per-contact outcomes |
+| `add_record_image` | `media.write` | Required `domainId`, `recordId`, `uploadId`; optional `fileName`. Attaches a completed `record_image` upload as a new image and returns its metadata |
+| `read_record_image` | `media.read` | Required `domainId`, `recordId`, `imageId`; `variant` (`preview`), byte `offset` (0), `count` (16384). One image variant read through bounded Base64 byte ranges with a whole-content digest |
 | `export_contacts` | `contacts.export` | Required `domainId` and 1-100 distinct `recordIds` on the Person preset; byte `offset` (0), `count` (16384). One regenerated vCard 4.0 document read through bounded Base64 byte ranges with a whole-document digest |
 | `query_records` | `records.read` | Optional `query`, `recordTypeId`, up to 10 `filters`, `sort`, `page`, `pageSize`, `domainId`. Structured filtering and sorting with strict bounds and snapshot-consistent totals |
 | `search_records` | `records.read` | Optional `query`, `recordTypeId`, `page` (1), `pageSize` (25), `domainId`. Bounded result with total count |
@@ -180,7 +182,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.15",
+  "contractVersion": "1.16",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -217,6 +219,20 @@ The result is one vCard 4.0 document read through bounded ranges. Offset is zero
 No export state is staged or stored. Each call regenerates the document from current records, which keeps the transient-storage quotas, expiry sweeps and restore invalidation of the upload path out of a read-only operation. `contentDigest` is the uppercase SHA-256 hexadecimal digest of the complete document and is returned with every range. A client must check that one export's ranges all report the same digest: a change means the underlying records were edited between ranges, and the read must restart at offset 0. The `recordIds` order is part of the document, so requesting the same records in a different order is a different export with a different digest.
 
 Export preserves the same semantics as the browser download, including opaque source properties and Apple labels retained at import. `get_capabilities` advertises `contactExportLimits` with the contact, chunk and response bounds. Each call records bounded `contacts.export` audit metadata with no record names, IDs or document bytes. Reads are audited but not rate-limited beyond the shared transport limits.
+
+## Record images in 1.16
+
+Contract 1.16 has 54 tools and completes the M3 transfer surface with `add_record_image` and `read_record_image`, under a new `media.write` and `media.read` pair. The two are split for the same reason `contacts.export` was split from `contacts.import`: reading an `original` returns the retained bytes as uploaded, which can still carry camera metadata such as location that the display copies remove. Writing images does not permit reading them back, and neither implies `records.read`.
+
+An upload now declares its purpose. `begin_upload` takes `contact_import` or `record_image`, authenticates against the grant that purpose requires, and the purpose is persisted with the session by staging migration 4. `contact_import` accepts `text/vcard` or `text/x-vcard` up to 5 MiB; `record_image` accepts `image/jpeg`, `image/png` or `image/webp` up to 10 MiB, matching the browser's own image limit. A retry that reuses a key with a different purpose fails with `retry_conflict`, and attaching an upload staged for another purpose fails with `purpose_mismatch`, so contact bytes can never arrive as an image or the reverse.
+
+`complete_upload` behaves according to that purpose. A contact upload is parsed and reports `contentValidated: true` with its contact count. An image upload is sealed for byte integrity only and reports `contentValidated: false`, because the image itself is decoded when it is attached. Sealing has always meant integrity rather than semantics, and for images that distinction is now explicit.
+
+`add_record_image` reuses the same pipeline the browser uses, so every existing rule still applies: the format must decode, dimensions are capped at 24 megapixels and 12,000 pixels per side, a record holds at most 50 images, the original is stored under an opaque name, and metadata-stripped WebP preview and thumbnail derivatives are generated. The optional `fileName` is retained as display metadata only, at most 200 characters, and never becomes a server path.
+
+`read_record_image` returns one variant through bounded ranges: `preview` and `thumbnail` are the generated WebP copies, `original` is byte-identical to what was uploaded. Offset is zero-based, `count` is 1-16384, and `nextOffset` chains ranges until null. `contentDigest` is the uppercase SHA-256 of the complete variant and must match across every range of one read; a change means the image was replaced, so restart at offset 0. An offset equal to `totalBytes` returns empty content and a greater offset fails, matching `read_contact_import_evidence` and `export_contacts`. Nothing is staged for a read: each call reads the stored variant, so a torn read is detectable rather than silently mixed.
+
+`get_capabilities` advertises `imageLimits` with the chunk, response, upload-byte, per-record and file-name bounds. Both tools record bounded `images.add` and `images.read` audit metadata containing no record names, image identifiers or bytes.
 
 ## Relationship revisions in 1.5
 
