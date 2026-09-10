@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M2 complete as of 2026-09-10; M3 is the only open alpha milestone, needing record images and a live transfer demonstration
+- Status: M0-M3 complete as of 2026-09-10; M4-M7 remain and belong to beta
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -148,7 +148,7 @@ M1 required integration tests proving scope denial, revoked credentials, expired
 
 M2 required an MCP-only scenario that creates a domain, completes setup, creates two typed and aliased records, links, edits, searches and deletes them, repeated in a second domain for isolation and under a read-only credential for denial, with browser behaviour intact. `McpManagementWorkflowTests.McpOnlyManagementWorksInTwoDomainsAndReadOnlyCredentialCannotRepeatWrites` implements exactly that, and the live client and browser gates it was waiting on closed on 2026-09-08.
 
-M3 stays open. Upload, validation, durable preview, transactional apply and bounded selected-contact export are delivered; record image transfer and a demonstration through a deployed client path remain. Owner: Agent; next action: implement record images, then demonstrate transfer with an SDK client against a disposable instance; review: 2026-09-21.
+M3 closed on 2026-09-10. Contract 1.16 adds record image transfer under media.write and media.read, staging migration 4 persists each upload's declared purpose, and the exit criterion asking for a demonstration through the intended client path was met by driving a separately launched published process from a standalone external client through the whole image lifecycle. Owner: Agent; next action: M4 field and record-type lifecycle management, which is beta scope; review: 2026-09-21.
 
 
 | Decision/action | Proposed direction | Owner | Review date |

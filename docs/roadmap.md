@@ -20,7 +20,7 @@ The product is pre-alpha in maturity even though alpha packages are published. T
 
 | Phase | Theme | Exit criteria | Review |
 | --- | --- | --- | --- |
-| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | MCP management milestones M0-M3 closed. Every deployment shape now has live lifecycle evidence except upgrade. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
+| Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | Met on 2026-09-10: M0-M3 closed and every deployment shape has live lifecycle evidence. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
 | Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed; complete script/style CSP enforced; accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
 | 1.0 | Operational confidence for a self-hosting user who is not the author | Interaction timeline shipped; upgrade path across at least two prior minor versions verified; documented backup/restore drill repeated on a clean host; no open High residual risk in the [threat model](threat-model.md) | 2027-02-01 |
 
@@ -31,7 +31,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Item | Section | Status | Owner | Review |
 | --- | --- | --- | --- | --- |
 | Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Complete; `v0.1.0-alpha.3` published and its artifacts verified | Wixely | 2026-09-14 |
-| MCP record image transfer, the last alpha blocker | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
+| MCP record image transfer | [MCP instance management](#mcp-instance-management) | Complete; M3 closed 2026-09-10 | Agent | 2026-09-21 |
 | Document the MCP transport requirements a client must meet | [MCP client interoperability](#mcp-client-interoperability) | Corrected 2026-09-10; not a defect, a documentation gap | Agent | 2026-09-14 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
 | Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Mechanism verified alpha.3 to alpha.4 on both platforms; a schema-changing upgrade is still untested | TBD | 2026-12-01 |
@@ -90,19 +90,19 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M0 | Source/deployment inventory, capability discovery, contract and permission design | Complete 2026-09-10; its last open item, deployed-client discovery, was verified on 2026-09-08 | Agent | 2026-09-14 |
 | M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | Complete 2026-09-10 against its exit criteria; preview families and long operations for later tools move to the milestones that need them | Agent | 2026-09-14 |
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
-| M3 | File transfer, vCard preview/apply/export, and record images | In progress and now the only open alpha milestone; upload/validation/preview/apply and selected-contact export are done, record images and a live transfer demonstration remain | Agent | 2026-09-21 |
+| M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Planned; depends on M2 | Agent | 2026-09-28 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0, M1 and M2 were audited against their written exit criteria on 2026-09-10 and closed; M3 is the only alpha milestone still open. Recommended next action: Agent implements record image transfer and demonstrates a transfer through a deployed client.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta. Recommended next action: Wixely reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 
 These apply to every milestone above and are the most common reason a milestone stays open after its local tests pass.
 
-- **Live client verification.** Done for contract 1.15 on 2026-09-08 against the published `v0.1.0-alpha.3` win-x64 package over its randomized endpoint: 52 tools, a full create-then-export round trip with digest verification, and live grant separation. It found two defects the test host could not, recorded under [MCP client interoperability](#mcp-client-interoperability). Repeat for each future contract revision. Owner: Agent; review 2026-09-14.
+- **Live client verification.** Repeated for contract 1.16 on 2026-09-10, demonstrating the full record image lifecycle against a separately launched published process, which also closes M3's demonstration criterion and positively confirms client interoperability. Previously done for contract 1.15 on 2026-09-08 against the published `v0.1.0-alpha.3` win-x64 package over its randomized endpoint: 52 tools, a full create-then-export round trip with digest verification, and live grant separation. It found two defects the test host could not, recorded under [MCP client interoperability](#mcp-client-interoperability). Repeat for each future contract revision. Owner: Agent; review 2026-09-14.
 - **Interactive browser verification.** Done on 2026-09-08 against the same published package: login, the setup wizard and its transactional install, Settings, and the Remote access page through permission selection, credential rotation, activation and the redacted audit table. Owner: Agent; review 2026-09-14.
 - **Permission user interface.** Verified interactively on 2026-09-08: every defined grant renders, and selecting four of them produced a credential with exactly those scopes. Owner: Agent; review 2026-09-21.
 - **Contract documentation.** [The MCP contract](mcp-contract.md) must be regenerated or corrected in the same change that alters tool count, inputs, limits, or grants.
