@@ -6,6 +6,36 @@
 - Owner: Agent
 - Next review: 2026-09-14
 
+## Transport requirements for clients
+
+The surface speaks MCP revision `2026-07-28` over Streamable HTTP. These requirements come from the official MCP SDK, not from Monkeysphere or DnaX, so a client built on that SDK satisfies them automatically. They are recorded here because a hand-written JSON-RPC client will otherwise fail with an opaque HTTP 400 before reaching any tool.
+
+Every request must carry:
+
+- `Authorization: Bearer <credential>` for the activated surface.
+- `MCP-Protocol-Version: 2026-07-28`.
+- `Mcp-Method: <json-rpc method>`, for example `tools/list` or `tools/call`. Omitting it returns `-32020` "Missing required Mcp-Method header."
+- `Mcp-Name: <tool name>` in addition, on `tools/call`. Omitting it returns `-32020` "Missing required Mcp-Name header."
+- `params._meta` carrying `io.modelcontextprotocol/protocolVersion` and an `io.modelcontextprotocol/clientCapabilities` object.
+
+`initialize` is not available on this revision and is rejected with `-32601`; begin with `tools/list` or `tools/call`. Responses may arrive as `application/json` or as a `text/event-stream` frame, so accept both and read the `data:` line when the response is streamed.
+
+A minimal exchange that succeeds, with the randomized endpoint from the Remote access page:
+
+```
+POST /dnax-mcp-<random>/mcp
+Authorization: Bearer <credential>
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: tools/call
+Mcp-Name: get_instance_info
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+  "name":"get_instance_info","arguments":{},
+  "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",
+           "io.modelcontextprotocol/clientCapabilities":{}}}}
+```
+
 ## Implemented tools
 
 | Tool | Required grant | Inputs / result |

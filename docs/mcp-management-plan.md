@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M2 in progress; discovery, record writes/deletion and basic relationship commands locally verified
+- Status: M0-M2 complete as of 2026-09-10; M3 is the only open alpha milestone, needing record images and a live transfer demonstration
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -13,7 +13,7 @@ An authorized MCP client should be able to set up a domain, manage its structure
 
 Application management is the delivery target. Initial deployment, administrator bootstrap, host credentials, service installation/restart, application upgrades, deployment configuration, and offline restore remain operator workflows. Expose useful status and documented next steps for these boundaries. Do not add arbitrary SQL, shell execution, server-path uploads, filesystem browsing, or live restore to achieve parity. Domain deletion/transfer and preset upgrades remain separate roadmap work; assess MCP when those features are designed. Debug reset remains outside the production tool set.
 
-M0-M1 are in progress, and initial M2 validate/create/patch adapters pass local tool-level verification; remaining delivery stays planned. Tool names and scope names are proposed contracts unless explicitly marked implemented. Review dates and owners are in the roadmap; each implementation PR must update both milestone status and remaining work.
+M0, M1 and M2 were audited against their written exit criteria on 2026-09-10 and closed; remaining delivery stays planned. Tool names and scope names are proposed contracts unless explicitly marked implemented. Review dates and owners are in the roadmap; each implementation PR must update both milestone status and remaining work.
 
 ## Verified starting point
 
@@ -139,6 +139,17 @@ Dependencies: M3-M6. Owner: Wixely / Agent.
 Exit criteria: supported management workflows pass through MCP, current read clients remain compatible, no undocumented coverage gap remains, and release notes distinguish implemented behavior from deferred operator or application features. Publishing or changing a live deployment is a separate operational action.
 
 ## Decisions and next actions
+
+2026-09-10 milestone audit: M0, M1 and M2 were read against their written exit criteria and closed.
+
+M0 required a reviewable matrix and contract, discovery and schema tests, unchanged existing reads, a resolved or recorded deployment/discovery mismatch, and no unresolved foundational blocker. The first three were already met. The deployment mismatch item was closed by the 2026-09-08 live client run against the published package, which observed 52 tools over the randomized endpoint. The last foundational uncertainty, whether the transport's header requirements were a DnaX constraint, was resolved on 2026-09-10: they originate in the official MCP SDK, so nothing in this repository or DnaX needs to change and the transport is now documented in the contract.
+
+M1 required integration tests proving scope denial, revoked credentials, expired previews, stale edits, wrong-domain references, rollback, concurrent browser/MCP edits and replay after restart, and that no write tool ships before its authorization and retry behaviour pass. All of these are covered. The residual narrative items, other preview families and long-operation lifecycle, are not in M1's exit criteria and are properties of tools that do not exist yet; they move to M4, M5 and M6 rather than holding the foundation milestone open indefinitely.
+
+M2 required an MCP-only scenario that creates a domain, completes setup, creates two typed and aliased records, links, edits, searches and deletes them, repeated in a second domain for isolation and under a read-only credential for denial, with browser behaviour intact. `McpManagementWorkflowTests.McpOnlyManagementWorksInTwoDomainsAndReadOnlyCredentialCannotRepeatWrites` implements exactly that, and the live client and browser gates it was waiting on closed on 2026-09-08.
+
+M3 stays open. Upload, validation, durable preview, transactional apply and bounded selected-contact export are delivered; record image transfer and a demonstration through a deployed client path remain. Owner: Agent; next action: implement record images, then demonstrate transfer with an SDK client against a disposable instance; review: 2026-09-21.
+
 
 | Decision/action | Proposed direction | Owner | Review date |
 | --- | --- | --- | --- |

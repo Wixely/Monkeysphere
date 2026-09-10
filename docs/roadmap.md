@@ -31,8 +31,8 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Item | Section | Status | Owner | Review |
 | --- | --- | --- | --- | --- |
 | Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Complete; `v0.1.0-alpha.3` published and its artifacts verified | Wixely | 2026-09-14 |
-| MCP record image transfer (contact export done) | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
-| Standard MCP clients cannot connect; DnaX headers required | [MCP client interoperability](#mcp-client-interoperability) | Open defect | Agent | 2026-09-14 |
+| MCP record image transfer, the last alpha blocker | [MCP instance management](#mcp-instance-management) | In progress (M3) | Agent | 2026-09-21 |
+| Document the MCP transport requirements a client must meet | [MCP client interoperability](#mcp-client-interoperability) | Corrected 2026-09-10; not a defect, a documentation gap | Agent | 2026-09-14 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
 | Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Mechanism verified alpha.3 to alpha.4 on both platforms; a schema-changing upgrade is still untested | TBD | 2026-12-01 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
@@ -87,16 +87,16 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 
 | Milestone | Scope | Status | Owner | Review date |
 | --- | --- | --- | --- | --- |
-| M0 | Source/deployment inventory, capability discovery, contract and permission design | In progress; local discovery/schema tools and chunk probe pass | Agent | 2026-09-14 |
-| M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | In progress; revisions/receipts, failure audit, batch/deletion previews and media cleanup tested; other workflows pending | Agent | 2026-09-14 |
-| M2 | Records, relationships, domain setup, and minimum structure creation | Implemented locally; full two-domain MCP setup, typed editing, relationships, structured search and reviewed deletion pass; live client/browser gates remain | Agent | 2026-09-21 |
-| M3 | File transfer, vCard preview/apply/export, and record images | In progress; MCP upload/validation/preview/apply and bounded selected-contact export verified locally; record images remain | Agent | 2026-09-21 |
+| M0 | Source/deployment inventory, capability discovery, contract and permission design | Complete 2026-09-10; its last open item, deployed-client discovery, was verified on 2026-09-08 | Agent | 2026-09-14 |
+| M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | Complete 2026-09-10 against its exit criteria; preview families and long operations for later tools move to the milestones that need them | Agent | 2026-09-14 |
+| M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
+| M3 | File transfer, vCard preview/apply/export, and record images | In progress and now the only open alpha milestone; upload/validation/preview/apply and selected-contact export are done, record images and a live transfer demonstration remain | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Planned; depends on M2 | Agent | 2026-09-28 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. Recommended next action: Agent implements record image transfer to complete M3 while closing the remaining M0-M1 gates. Bounded selected-contact export shipped in contract 1.15 under a separate `contacts.export` grant.
+Dates are review checkpoints, not delivery commitments. M0, M1 and M2 were audited against their written exit criteria on 2026-09-10 and closed; M3 is the only alpha milestone still open. Recommended next action: Agent implements record image transfer and demonstrates a transfer through a deployed client.
 
 ### Cross-cutting gates
 
@@ -154,32 +154,21 @@ MCP disposition for the remaining items: **Deferred** until their designs exist.
 
 ## MCP client interoperability
 
-Status: Open defect, found 2026-09-08 by the first live client run against a deployed package.
+Status: Corrected on 2026-09-10. This was recorded on 2026-09-08 as an open defect that might need a DnaX change and separate-repository approval. That was wrong, and the correction matters because the earlier text implied a fault in DnaX that does not exist.
 
-A standard MCP client cannot use the deployed MCP surface. Every request must carry a `Mcp-Method` header naming the JSON-RPC method, and `tools/call` must additionally carry `Mcp-Name` naming the tool. Without them the request fails with HTTP 400 (`-32020`) before reaching any tool:
+The deployed surface requires a `Mcp-Method` header on every request and `Mcp-Name` on `tools/call`, plus `_meta/io.modelcontextprotocol/protocolVersion` and `_meta/io.modelcontextprotocol/clientCapabilities`. Those requirements come from the **official MCP SDK, not from DnaX or Monkeysphere**: the rejection message `Missing required Mcp-Method header.` is compiled into `ModelContextProtocol.AspNetCore.dll`, and `ModelContextProtocol.Core.dll`, the client library, references the same header names. A client built on the SDK therefore sends them.
 
-| Request | Result |
-| --- | --- |
-| Standard client, no extra headers | HTTP 400, "Missing required Mcp-Method header." |
-| `Mcp-Method` only | HTTP 400, "Missing required Mcp-Name header." |
-| `Mcp-Method` + `Mcp-Name` | HTTP 200 |
+What actually happened on 2026-09-08 is that a hand-written client failed because it did not implement the `2026-07-28` revision, not because the surface is non-interoperable. Neither DnaX nor Monkeysphere has a defect here, and nothing needs to be relaxed.
 
-Requests must also carry `_meta/io.modelcontextprotocol/protocolVersion` and `_meta/io.modelcontextprotocol/clientCapabilities`, and `initialize` is rejected as unavailable on protocol version `2026-07-28`.
+### What genuinely remains
 
-This went unnoticed because `RemoteDiscoveryTests` builds every request through a helper that always sets both headers, so the in-process suite can never fail this way. It is the concrete reason the live-client gate was worth keeping open.
+A documentation gap. [The MCP contract](mcp-contract.md) describes tools, grants and limits but never states what a client must satisfy at the transport, so a reader would reasonably expect a naive JSON-RPC client to work and would hit an opaque HTTP 400. Record the required headers, the `_meta` fields, and that `initialize` is not available on this revision.
 
-### What must be decided
+Optionally confirm with an off-the-shelf SDK client against a disposable instance. That would replace inference with a positive observation, and it fits the M3 exit criterion that asks for a demonstration through the intended client path.
 
-First establish whether `Mcp-Method` and `Mcp-Name` are part of the MCP `2026-07-28` revision or a DnaX addition. That is a question about the specification and the DnaX implementation, and it is not answered by this repository.
+MCP disposition: **Not applicable.** Transport documentation rather than a tool.
 
-- If they are DnaX-specific, the surface is not interoperable with standard clients and the requirement should be relaxed to optional, with the routing and audit information derived from the JSON-RPC body instead. That is a DnaX change and needs approval.
-- If the revision does define them, then the requirement is correct and the gap is documentation: [the MCP contract](mcp-contract.md) and the README should state the exact transport requirements a client must satisfy, because a reader today would reasonably expect a stock client to work.
-
-Either way, add at least one test that exercises the surface without the headers so the answer is pinned.
-
-MCP disposition: **Not applicable.** This is the transport contract itself rather than a tool.
-
-Owner: Agent. Next action: check the revision, then either raise a DnaX issue or document the requirement. Review: 2026-09-14.
+Owner: Agent. Next action: document the transport contract; confirm with an SDK client when M3 is demonstrated. Review: 2026-09-14.
 
 ## Structured errors on read tools
 
