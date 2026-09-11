@@ -61,6 +61,15 @@ builder.Services.AddSingleton(provider => new BackstageAvailability(
 builder.Services.AddScoped<IBackstageAccount, HttpBackstageAccount>();
 builder.Services.AddScoped<IBackstageVisibility, BackstageVisibility>();
 builder.Services.AddHostedService<BackstageStartupWorker>();
+// The deployment's only outbound request, and only used when an import asks for it. Registered as
+// a concrete type rather than as IContactPhotoFetcher so nothing can acquire one by accident.
+builder.Services.AddHttpClient<ContactPhotoFetcher>(ContactPhotoFetcher.Configure)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 3,
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+    });
 builder.Services.AddScoped<ICurrentDomainScope, HttpCurrentDomain>();
 builder.Services.AddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
 builder.Services.AddMonkeysphereData();

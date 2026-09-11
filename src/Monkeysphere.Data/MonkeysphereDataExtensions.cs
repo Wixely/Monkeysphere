@@ -68,6 +68,9 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IRecordSourceStore, SqliteRecordSourceStore>();
         services.AddScoped<IRecordSourceService, RecordSourceService>();
         services.AddScoped<IVCardService, VCardService>();
+        services.AddScoped<ContactPhotoImporter>();
+        services.AddScoped<IContactSourceCardStore, SqliteContactSourceCardStore>();
+        services.AddScoped<IContactEnrichmentBackfill, ContactEnrichmentBackfill>();
         services.AddScoped<IRecordImageService, RecordImageService>();
         services.AddScoped<IBackupService, BackupService>();
         services.AddScoped<IRelationshipStore, SqliteRelationshipStore>();

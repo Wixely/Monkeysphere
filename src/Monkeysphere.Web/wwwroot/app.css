@@ -1987,6 +1987,23 @@ input[type="checkbox"] {
     margin-top: 1.5rem;
 }
 
+/* The enrichment offers sit inside the review panel, so they need their own boundary. */
+.enrichment-offers {
+    margin-bottom: 1.25rem;
+}
+
+.enrichment-offers .item-list li {
+    display: block;
+    padding: .6rem 0;
+}
+
+.enrichment-offers .checkbox-label {
+    display: inline-flex;
+    gap: .5rem;
+    align-items: center;
+    margin-right: .5rem;
+}
+
 .pagination {
     display: flex;
     align-items: center;

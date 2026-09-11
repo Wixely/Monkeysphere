@@ -46,6 +46,20 @@ public interface IMonkeysphereStore
         DateTimeOffset now,
         string? expectedRevision = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates a field carrying a reserved canonical key. Only contact-import enrichment uses this:
+    /// a canonical key is not something a person types, and one colliding with a preset's would
+    /// silently rebind that preset's field on the next import.
+    /// </summary>
+    Task<FieldDefinition> CreateEnrichmentFieldAsync(
+        Guid recordTypeId,
+        Guid fieldDefinitionId,
+        string name,
+        string typeId,
+        string canonicalKey,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
     Task AttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,
@@ -171,6 +185,10 @@ public interface IMonkeysphereService
         CancellationToken cancellationToken = default);
 
     Task<FieldDefinition> CreateAndAttachFieldAsync(Guid recordTypeId, CreateFieldRequest request, string? expectedRevision = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates an import-enrichment field, which carries a reserved canonical key.</summary>
+    Task<FieldDefinition> CreateEnrichmentFieldAsync(
+        Guid recordTypeId, string name, string typeId, string canonicalKey, CancellationToken cancellationToken = default);
 
     Task AttachFieldAsync(Guid recordTypeId, Guid fieldDefinitionId, bool isRequired, string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default);
 

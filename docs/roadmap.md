@@ -30,6 +30,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 
 | Item | Section | Status | Owner | Review |
 | --- | --- | --- | --- | --- |
+| Common vCard fields, photos, and retroactive filling | [Contact enrichment](#contact-enrichment) | Complete; verified interactively against a deployed process 2026-09-11 | Agent | 2026-10-02 |
 | Bulk contact import survives an unusable card | [Partial contact imports](#partial-contact-imports) | Complete; verified interactively against a deployed process 2026-09-11 | Agent | 2026-09-25 |
 | Retained import source data, inspectable | [Retained source material](#retained-source-material) | Complete; verified interactively against a deployed process 2026-09-11 | Agent | 2026-09-25 |
 | Backstage mode and hidden records | [Backstage](#backstage) | Complete; verified interactively against a deployed process 2026-09-10 | Agent | 2026-09-17 |
@@ -341,6 +342,34 @@ External basemap tiles are off by default. When an administrator explicitly enab
 An operator who needs stricter isolation currently has only two options: leave tiles off, or accept that disclosure. A configurable tile-source setting would let them point at an approved internal or self-hosted tile service instead. The design must keep the default off, keep the disclosure text accurate for whichever provider is configured, validate the URL template without permitting arbitrary outbound requests derived from record data, and preserve the build check that rejects undeclared public HTTP dependencies in first-party browser entry points.
 
 MCP disposition: **Deferred** to MCP milestone M5, which covers settings. The underlying setting should be readable and writable there once the browser design is settled, since it is deployment configuration rather than a visual interaction. Linked item: this section. Owner: TBD. Review: 2026-11-01.
+
+## Contact enrichment
+
+Status: Complete. Covered by tests and verified interactively against a separately launched Release process on 2026-09-11, including against a real Android-era export; the evidence is in [verification status](verification.md).
+
+A vCard carries more than the Person preset had fields for, and the importer previously dropped all of it. Worse, it imported some of it badly: HTC phones write an `<HTCData>` block into `NOTE`, so importing such a contact filled its notes field with markup nobody wrote. A real 2012 Google/HTC export measured before this work mapped only its name and phone number: the structured name, the photo, the categories and the note's real content were all either discarded or corrupted.
+
+What is built:
+
+- **A catalogue, not a rule.** Nine enrichments covering what real exports carry: photos, categories, address, organisation, job title, family and given name, social handles, and the Facebook identifier inside an HTC note block. A generic "make a field for every unmapped property" rule was rejected: it produces fields named REV and PRODID that mean nothing to the person reading them.
+- **Offered, never assumed.** A preview reports each enrichment with the number of contacts it would affect and whether its field exists yet. Ticking one creates a field on the Person record type, which is permanent, so the choice is explicit and the count is shown before it is made.
+- **A field, so it behaves like one.** Enrichment fields carry a reserved canonical key, so a later import recognises them, an export round-trips them, and their values are searchable like any other. The key belongs to the catalogue and cannot be supplied by a caller, or a field could be bound to a preset's key and silently rebind it.
+- **Notes are tidied regardless.** A vendor block never reaches the notes field whether or not anything is enabled. Nothing is lost: the property is retained verbatim as source material either way.
+- **Retroactive filling.** The same fields can be created and filled for contacts imported long before, by re-reading the source material each import retained. No file is needed and nothing is re-fetched. A value already present is never overwritten, and a record typed in by hand has no source material so is never touched.
+
+Photos, and the first outbound request:
+
+The application made no outbound request of any kind until this. A photo carried inside a card is decoded locally and still needs none. A card that only references a photo by address — which is how Google exports write them — can now be fetched, but only when an administrator ticks that box for that import, after a warning naming exactly what is disclosed. The request is bounded to absolute http or https, three redirects, an image content type, a 10 MiB ceiling enforced while reading rather than trusted from a header, and a 15-second timeout; only the host is logged, because the address identifies the contact. This is recorded as TM-19 in the [threat model](threat-model.md), including the honest residual: the addresses come from the imported file, so enabling it for a file of unknown origin is a server-side request the operator chose to make.
+
+Known gaps, stated rather than implied:
+
+- `ADR` is written out as lines rather than parsed into separate columns. Addresses differ too much between countries for a fixed set of columns to be honest, and no location lookup is performed, so no coordinates are stored.
+- Only the Facebook identifier is taken from an HTC block. It is not general XML and is not parsed as such; any other shape is left alone and retained.
+- Photo enrichment has nothing to fill retroactively, because retained material holds the reference rather than the picture. Fetching belongs to an import, where the disclosure is presented.
+
+MCP disposition: **Not yet included.** The browser is where the disclosure for photo fetching is presented and where creating a permanent field is confirmed, and neither belongs in a tool call made unattended. The retained source material a backfill reads is already inspectable over MCP. Revisit if a remote caller needs to drive an import end to end.
+
+Owner: Agent. Review: 2026-10-02.
 
 ## Partial contact imports
 

@@ -155,6 +155,33 @@ public sealed class MonkeysphereService(
             cancellationToken);
     }
 
+    public Task<FieldDefinition> CreateEnrichmentFieldAsync(
+        Guid recordTypeId,
+        string name,
+        string typeId,
+        string canonicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        // The catalogue owns the key, so a caller cannot bind a field to an arbitrary one.
+        ContactEnrichmentKind kind = ContactEnrichments.All.FirstOrDefault(candidate =>
+                string.Equals(candidate.CanonicalKey, canonicalKey, StringComparison.Ordinal))
+            ?? throw new DomainValidationException("That canonical key is not a contact enrichment.");
+        string normalizedType = FieldTypes.NormalizeTypeId(typeId);
+        if (!string.Equals(normalizedType, kind.FieldTypeId, StringComparison.Ordinal))
+        {
+            throw new DomainValidationException("The field type does not match that enrichment.");
+        }
+
+        return store.CreateEnrichmentFieldAsync(
+            recordTypeId,
+            Guid.CreateVersion7(),
+            FieldTypes.Required(name, "Field name", 200),
+            normalizedType,
+            canonicalKey,
+            timeProvider.GetUtcNow(),
+            cancellationToken);
+    }
+
     public Task AttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,

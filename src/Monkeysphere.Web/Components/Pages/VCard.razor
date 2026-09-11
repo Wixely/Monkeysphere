@@ -5,6 +5,9 @@
 @rendermode InteractiveServer
 @inject IVCardService VCards
 @inject IMonkeysphereService Records
+@inject ContactPhotoImporter ContactPhotos
+@inject ContactPhotoFetcher PhotoFetcher
+@inject IContactEnrichmentBackfill Backfill
 
 <PageTitle>Import and export · Monkeysphere</PageTitle>
 
@@ -85,6 +88,59 @@
     </section>
 </div>
 
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Already imported</p>
+            <h2>Fill fields from retained source data</h2>
+            <p class="muted">
+                Every contact import keeps the card it came from, exactly as it arrived. If a field did not exist at
+                the time, its value is still there and can be recovered now without the original file. Values already
+                present are never overwritten.
+            </p>
+        </div>
+        <button class="button" type="button" disabled="@_backfillBusy" @onclick="LoadBackfillAsync">
+            @(_backfillBusy ? "Checking…" : "Check what can be filled")
+        </button>
+    </div>
+
+    @if (_backfill is not null)
+    {
+        @if (_backfill.Offers.Count == 0)
+        {
+            <p>Nothing further can be filled from the @_backfill.RecordsWithSource contact(s) holding source data.</p>
+        }
+        else
+        {
+            <p class="muted">@_backfill.RecordsWithSource contact(s) hold retained source data.</p>
+            <ul class="item-list">
+                @foreach (ContactBackfillOffer offer in _backfill.Offers)
+                {
+                    <li>
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@_selectedBackfill.Contains(offer.Key)"
+                                   @onchange="args => ToggleBackfill(offer.Key, args)" />
+                            <strong>@offer.Label</strong>
+                        </label>
+                        <span class="muted">@(offer.RecordCount - offer.AlreadyFilledCount) of @offer.RecordCount contact(s) would be filled</span>
+                        @if (!offer.FieldExists)
+                        {
+                            <span class="pill">creates a &ldquo;@offer.FieldName&rdquo; field</span>
+                        }
+                        <div class="muted">@offer.Description</div>
+                    </li>
+                }
+            </ul>
+            <div class="action-row">
+                <button class="button primary" type="button" disabled="@(_backfillBusy || _selectedBackfill.Count == 0)"
+                        @onclick="ApplyBackfillAsync">
+                    @(_backfillBusy ? "Filling…" : "Fill selected fields")
+                </button>
+            </div>
+        }
+    }
+</section>
+
 @if (_preview is not null)
 {
     <section class="panel vcard-review">
@@ -96,6 +152,70 @@
             </div>
             <span class="pill">Target: @_preview.RecordTypeName</span>
         </div>
+        @if (_preview.EnrichmentOffers.Count > 0)
+        {
+            <div class="panel enrichment-offers">
+                <h3>This file carries more than the fields you have</h3>
+                <p class="muted">
+                    Tick anything you want kept. Creating a field adds it to the Person record type for good, so it
+                    is filled by this import and by every later one. Everything here is retained as source data
+                    whether or not you tick it.
+                </p>
+                <ul class="item-list">
+                    @foreach (VCardEnrichmentOffer offer in _preview.EnrichmentOffers)
+                    {
+                        <li>
+                            <label class="checkbox-label">
+                                <input type="checkbox" disabled="@(offer.FieldExists && !offer.CreatesRecordImage)"
+                                       checked="@_selectedEnrichments.Contains(offer.Key)"
+                                       @onchange="args => ToggleEnrichment(offer.Key, args)" />
+                                <strong>@offer.Label</strong>
+                            </label>
+                            <span class="muted">@offer.ContactCount contact(s)</span>
+                            @if (offer.CreatesRecordImage)
+                            {
+                                <span class="pill">record image</span>
+                            }
+                            else if (offer.FieldExists)
+                            {
+                                <span class="pill">field exists</span>
+                            }
+                            else
+                            {
+                                <span class="pill">creates a &ldquo;@offer.FieldName&rdquo; field</span>
+                            }
+                            <div class="muted">@offer.Description</div>
+                        </li>
+                    }
+                </ul>
+
+                @if (RemotePhotoCount > 0)
+                {
+                    <div class="notice warning" role="note">
+                        <p>
+                            <strong>@RemotePhotoCount photo(s) in this file are not in the file itself</strong> &mdash; the cards
+                            only say where to find them. Monkeysphere makes no outbound request of any kind unless you ask it to
+                            here. Fetching them contacts those servers directly, which tells them this deployment's IP address,
+                            when you imported, and that you hold these contacts.
+                        </p>
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_fetchRemotePhotos" />
+                            Fetch photos held elsewhere and store them locally.
+                        </label>
+                    </div>
+                }
+
+                @if (PendingFieldEnrichments.Count > 0)
+                {
+                    <div class="action-row">
+                        <button class="button" type="button" disabled="@_busy" @onclick="CreateFieldsAsync">
+                            @(_busy ? "Creating…" : $"Create {PendingFieldEnrichments.Count} field(s) and preview again")
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+
         @if (_preview.Rejected.Count > 0)
         {
             <div class="notice warning" role="status">
@@ -190,7 +310,109 @@
 
 @code {
     private VCardImportPreview? _preview;
+    private readonly HashSet<string> _selectedEnrichments = new(StringComparer.Ordinal);
+    private bool _fetchRemotePhotos;
+    private bool _busy;
+    private byte[]? _lastFile;
     private int _fileInputVersion;
+
+    private ContactBackfillPreview? _backfill;
+    private readonly HashSet<string> _selectedBackfill = new(StringComparer.Ordinal);
+    private bool _backfillBusy;
+
+    private void ToggleBackfill(string key, ChangeEventArgs args)
+    {
+        if (args.Value is true) _selectedBackfill.Add(key);
+        else _selectedBackfill.Remove(key);
+    }
+
+    private async Task LoadBackfillAsync()
+    {
+        _backfillBusy = true;
+        try
+        {
+            _backfill = await Backfill.PreviewAsync();
+            _selectedBackfill.Clear();
+            _message = _backfill.Offers.Count == 0
+                ? "Nothing further can be filled from retained source data."
+                : $"{_backfill.Offers.Count} field(s) can be filled from retained source data.";
+            _isError = false;
+        }
+        catch (DomainValidationException exception)
+        {
+            _backfill = null;
+            _message = exception.Message;
+            _isError = true;
+        }
+        finally
+        {
+            _backfillBusy = false;
+        }
+    }
+
+    private async Task ApplyBackfillAsync()
+    {
+        _backfillBusy = true;
+        try
+        {
+            ContactBackfillResult result = await Backfill.ApplyAsync([.. _selectedBackfill]);
+            _message = $"Filled {result.ValuesWritten} value(s) across {result.RecordsUpdated} contact(s), creating {result.FieldsCreated} field(s).";
+            _isError = false;
+            _backfill = await Backfill.PreviewAsync();
+            _selectedBackfill.Clear();
+            await ReloadPeopleAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+        finally
+        {
+            _backfillBusy = false;
+        }
+    }
+
+    private int RemotePhotoCount => _preview?.EnrichmentOffers
+        .Where(offer => offer.CreatesRecordImage)
+        .Sum(offer => offer.RemotePhotoCount) ?? 0;
+
+    /// <summary>Selected enrichments that still need their field created before they can apply.</summary>
+    private IReadOnlyList<string> PendingFieldEnrichments => _preview is null
+        ? []
+        : [.. _preview.EnrichmentOffers
+            .Where(offer => !offer.CreatesRecordImage && !offer.FieldExists && _selectedEnrichments.Contains(offer.Key))
+            .Select(offer => offer.Key)];
+
+    private void ToggleEnrichment(string key, ChangeEventArgs args)
+    {
+        if (args.Value is true) _selectedEnrichments.Add(key);
+        else _selectedEnrichments.Remove(key);
+    }
+
+    private async Task CreateFieldsAsync()
+    {
+        if (_preview is null || _lastFile is null) return;
+        _busy = true;
+        try
+        {
+            IReadOnlyList<FieldDefinition> created = await VCards.EnableEnrichmentsAsync(PendingFieldEnrichments);
+            // Creating a field changes the structure revision, so the preview in hand is stale.
+            // Reading the file again is the only honest way to show what will now be imported.
+            await PreviewBytesAsync(_lastFile);
+            _message = $"Created {created.Count} field(s). The preview below now includes their values.";
+            _isError = false;
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
+        {
+            _message = exception.Message;
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
     private readonly List<ImportEditor> _importEditors = [];
     private IReadOnlyList<RecordSummary> _people = [];
     private int _peopleTotal;
@@ -228,22 +450,35 @@
     {
         try
         {
+            // Held so that creating fields can preview the same file again without asking for it
+            // twice. Bounded by the parser's own file ceiling, and dropped once the import applies.
             await using Stream stream = args.File.OpenReadStream(VCardParser.MaximumBytes);
-            _preview = await VCards.PreviewAsync(stream);
-            _importEditors.Clear();
-            _importEditors.AddRange(_preview.Contacts.Select(contact => new ImportEditor(contact)));
-            _message = _preview.Rejected.Count == 0
-                ? $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying."
-                : $"Previewed {_preview.Contacts.Count} contact(s); {_preview.Rejected.Count} could not be read and are listed below.";
-            _isError = false;
+            using MemoryStream buffer = new();
+            await stream.CopyToAsync(buffer);
+            _selectedEnrichments.Clear();
+            _fetchRemotePhotos = false;
+            await PreviewBytesAsync(buffer.ToArray());
         }
         catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException or IOException)
         {
             _preview = null;
+            _lastFile = null;
             _importEditors.Clear();
             _message = exception.Message;
             _isError = true;
         }
+    }
+
+    private async Task PreviewBytesAsync(byte[] content)
+    {
+        _lastFile = content;
+        _preview = await VCards.PreviewAsync(content);
+        _importEditors.Clear();
+        _importEditors.AddRange(_preview.Contacts.Select(contact => new ImportEditor(contact)));
+        _message = _preview.Rejected.Count == 0
+            ? $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying."
+            : $"Previewed {_preview.Contacts.Count} contact(s); {_preview.Rejected.Count} could not be read and are listed below.";
+        _isError = false;
     }
 
     private async Task ApplyAsync()
@@ -260,9 +495,25 @@
                 editor.Action,
                 Guid.TryParse(editor.ExistingRecordValue, out Guid existingId) ? existingId : null)).ToArray();
             VCardImportResult result = await VCards.ApplyAsync(_preview, selections);
-            _message = $"Import complete: {result.Created} created, {result.Merged} merged, {result.Replaced} replaced, {result.Skipped} skipped.";
+            string summary = $"Import complete: {result.Created} created, {result.Merged} merged, {result.Replaced} replaced, {result.Skipped} skipped.";
+            if (_selectedEnrichments.Contains(ContactEnrichments.Photo))
+            {
+                // Photos are attached after the records exist. A photo that cannot be had is
+                // reported here rather than undoing an import that otherwise succeeded.
+                ContactPhotoImportResult photos = await ContactPhotos.AttachAsync(
+                    _preview, _fetchRemotePhotos ? PhotoFetcher : null);
+                summary += $" Photos: {photos.Attached} attached";
+                if (photos.Skipped > 0) summary += $", {photos.Skipped} skipped";
+                if (photos.Failed > 0) summary += $", {photos.Failed} could not be read";
+                summary += ".";
+            }
+
+            _message = summary;
             _isError = false;
             _preview = null;
+            _lastFile = null;
+            _selectedEnrichments.Clear();
+            _fetchRemotePhotos = false;
             _importEditors.Clear();
             await ReloadPeopleAsync();
         }

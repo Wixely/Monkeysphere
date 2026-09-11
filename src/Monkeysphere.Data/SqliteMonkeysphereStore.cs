@@ -381,6 +381,49 @@ public sealed partial class SqliteMonkeysphereStore(
         return created;
     }
 
+    public async Task<FieldDefinition> CreateEnrichmentFieldAsync(
+        Guid recordTypeId,
+        Guid fieldDefinitionId,
+        string name,
+        string typeId,
+        string canonicalKey,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // Two imports enabling the same enrichment must not produce two fields bound to one key.
+        string? existing = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+            "SELECT Id FROM FieldDefinitions WHERE CanonicalKey = @CanonicalKey AND Lifecycle = 0;",
+            new { CanonicalKey = canonicalKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            throw new DomainValidationException("A field for that contact enrichment already exists.");
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO FieldDefinitions
+                (Id, Name, TypeId, ConfigurationJson, Lifecycle, CreatedAtUtc, UpdatedAtUtc, CanonicalKey)
+            VALUES
+                (@Id, @Name, @TypeId, '{}', 0, @Now, @Now, @CanonicalKey);
+            """,
+            new
+            {
+                Id = Key(fieldDefinitionId),
+                Name = name,
+                TypeId = typeId,
+                CanonicalKey = canonicalKey,
+                Now = Timestamp(now),
+            }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        await AttachFieldCoreAsync(connection, transaction, recordTypeId, fieldDefinitionId, false, now, cancellationToken).ConfigureAwait(false);
+        FieldDefinition created = await QueryFieldDefinitionAsync(connection, fieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Created field could not be read back.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return created;
+    }
+
     private static async Task<FieldDefinition> CreateAndAttachFieldCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
         Guid recordTypeId, Guid fieldDefinitionId, string name, string typeId, string configurationJson, bool isRequired,
         DateTimeOffset now, CancellationToken cancellationToken)

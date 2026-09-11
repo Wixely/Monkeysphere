@@ -39,7 +39,30 @@ public sealed record VCardContactPreview(
     VCardImportAction RecommendedAction)
 {
     public IReadOnlyList<VCardImportDuplicateCandidate> ImportDuplicateCandidates { get; init; } = [];
+
+    /// <summary>Enrichments this card could produce, whether or not their field exists yet.</summary>
+    public IReadOnlyList<string> DetectedEnrichments { get; init; } = [];
+
+    /// <summary>Photos this card carries or references. Remote ones are only fetched if asked for.</summary>
+    public IReadOnlyList<ContactPhotoCandidate> Photos { get; init; } = [];
+
+    /// <summary>True when a vendor block was taken out of the note rather than imported verbatim.</summary>
+    public bool NoteWasTidied { get; init; }
 }
+
+/// <summary>
+/// One enrichment offered for an import, and whether the field it needs already exists. A kind
+/// whose field is missing is not applied: the operator chooses to create it first.
+/// </summary>
+public sealed record VCardEnrichmentOffer(
+    string Key,
+    string Label,
+    string Description,
+    string? FieldName,
+    bool FieldExists,
+    bool CreatesRecordImage,
+    int ContactCount,
+    int RemotePhotoCount);
 
 public sealed record VCardImportPreview(
     Guid RecordTypeId,
@@ -52,6 +75,12 @@ public sealed record VCardImportPreview(
     /// their presence never blocks the contacts that could be read.
     /// </summary>
     public IReadOnlyList<VCardRejectedCard> Rejected { get; init; } = [];
+
+    /// <summary>
+    /// What this file carries beyond the fields already installed. Each offer says how many
+    /// contacts it would affect and whether its field has to be created first.
+    /// </summary>
+    public IReadOnlyList<VCardEnrichmentOffer> EnrichmentOffers { get; init; } = [];
 }
 
 public sealed record VCardImportSelection(
@@ -101,6 +130,14 @@ public interface IVCardStore
     Task<IReadOnlyList<VCardExportRecord>> ReadExportAsync(
         IReadOnlyList<Guid> recordIds,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The record each imported card became, by the card's own fingerprint. Answered from the
+    /// provenance an import records, so it needs nothing carried through the import result.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, Guid>> MapImportedRecordsAsync(
+        IReadOnlyList<string> fingerprints,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IVCardService
@@ -116,6 +153,14 @@ public interface IVCardService
         CancellationToken cancellationToken = default);
 
     Task<byte[]> ExportAsync(IReadOnlyList<Guid> recordIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates the fields the named enrichments need, so that a later preview maps their values.
+    /// Creating a field is a structure change, so an existing preview is stale afterwards and the
+    /// caller must preview again. Enrichments whose field already exists are left alone.
+    /// </summary>
+    Task<IReadOnlyList<FieldDefinition>> EnableEnrichmentsAsync(
+        IReadOnlyList<string> enrichmentKeys, CancellationToken cancellationToken = default);
 }
 
 public sealed class VCardService(
@@ -177,7 +222,11 @@ public sealed class VCardService(
 
         if (revision != await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false))
             throw new ConcurrencyConflictException("Contacts or structures changed while preparing this preview. Preview the file again.");
-        return new(person.Id, person.Name, contacts, revision) { Rejected = parsed.Rejected };
+        return new(person.Id, person.Name, contacts, revision)
+        {
+            Rejected = parsed.Rejected,
+            EnrichmentOffers = BuildOffers(contacts, fields),
+        };
     }
 
     public async Task<VCardImportResult> ApplyAsync(
@@ -250,6 +299,71 @@ public sealed class VCardService(
         return VCardSerializer.Serialize(sources.Select(BuildExportProperties).ToArray());
     }
 
+    /// <summary>
+    /// What this file carries beyond the installed fields. An offer is reported whether or not its
+    /// field exists, because knowing a file has 200 addresses is the point even once it is enabled.
+    /// </summary>
+    private static VCardEnrichmentOffer[] BuildOffers(
+        IReadOnlyList<VCardContactPreview> contacts,
+        Dictionary<string, FieldDefinition> fields)
+    {
+        List<VCardEnrichmentOffer> offers = [];
+        foreach (ContactEnrichmentKind kind in ContactEnrichments.All)
+        {
+            int count = contacts.Count(contact => contact.DetectedEnrichments.Contains(kind.Key, StringComparer.Ordinal));
+            if (count == 0) continue;
+            bool image = kind.Outcome == ContactEnrichmentOutcome.RecordImage;
+            int remote = image
+                ? contacts.Sum(contact => contact.Photos.Count(photo => photo.IsRemote))
+                : 0;
+            offers.Add(new(
+                kind.Key,
+                kind.Label,
+                kind.Description,
+                kind.FieldName,
+                // A record image needs no field, so it is always ready to apply.
+                image || (kind.CanonicalKey is not null && fields.ContainsKey(kind.CanonicalKey)),
+                image,
+                count,
+                remote));
+        }
+
+        return offers.ToArray();
+    }
+
+    public async Task<IReadOnlyList<FieldDefinition>> EnableEnrichmentsAsync(
+        IReadOnlyList<string> enrichmentKeys,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(enrichmentKeys);
+        RecordType person = (await records.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false))
+            .SingleOrDefault(type =>
+                type.Lifecycle == RecordTypeLifecycle.Active &&
+                string.Equals(type.PresetKey, PersonPresetKey, StringComparison.Ordinal))
+            ?? throw new DomainValidationException("Install the Person preset before importing contacts.");
+
+        List<FieldDefinition> created = [];
+        foreach (string key in enrichmentKeys.Distinct(StringComparer.Ordinal))
+        {
+            ContactEnrichmentKind kind = ContactEnrichments.Require(key);
+            if (kind.Outcome != ContactEnrichmentOutcome.Field) continue;
+
+            // Re-read the type each time: creating a field changes its revision, and a stale read
+            // would either duplicate a field or fail the next creation.
+            RecordTypeDetails type = await records.GetRecordTypeAsync(person.Id, cancellationToken).ConfigureAwait(false)
+                ?? throw new DomainValidationException("The installed Person record type could not be loaded.");
+            if (type.Fields.Any(field => string.Equals(field.Definition.CanonicalKey, kind.CanonicalKey, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            created.Add(await records.CreateEnrichmentFieldAsync(
+                person.Id, kind.FieldName!, kind.FieldTypeId!, kind.CanonicalKey!, cancellationToken).ConfigureAwait(false));
+        }
+
+        return created;
+    }
+
     private static VCardContactPreview PreviewCard(
         int index,
         VCard card,
@@ -302,6 +416,51 @@ public sealed class VCardService(
             mappings.Add(new(propertyIndex, field.Id, field.Name, canonicalKey, input));
         }
 
+        // Enrichments are mapped separately from the one-property-one-field table above, because
+        // one property can feed two fields (N) and two properties can feed one (social handles).
+        // Only kinds whose field is already installed are mapped; the rest are offered instead.
+        IReadOnlyList<string> detected = ContactEnrichments.Detect(card);
+        foreach (string key in detected)
+        {
+            ContactEnrichmentKind kind = ContactEnrichments.Require(key);
+            if (kind.Outcome != ContactEnrichmentOutcome.Field ||
+                kind.CanonicalKey is null ||
+                !fields.TryGetValue(kind.CanonicalKey, out FieldDefinition? enrichmentField) ||
+                !mappedFields.Add(enrichmentField.Id))
+            {
+                continue;
+            }
+
+            ContactEnrichmentValue? value = ContactEnrichments.Extract(key, card);
+            if (value is null) continue;
+            int propertyIndex = FirstPropertyIndex(card, kind.PropertyNames);
+            mappings.Add(new(propertyIndex, enrichmentField.Id, enrichmentField.Name, kind.CanonicalKey,
+                new FieldValueInput(enrichmentField.Id, value.ScalarValue, value.Tags)));
+            opaque.Remove(propertyIndex);
+        }
+
+        // A note carrying a vendor block is imported without it. The block itself is never lost:
+        // the whole property is retained as source material either way.
+        bool noteTidied = false;
+        for (int mappingIndex = 0; mappingIndex < mappings.Count; mappingIndex++)
+        {
+            VCardFieldMapping mapping = mappings[mappingIndex];
+            if (!string.Equals(mapping.CanonicalKey, "monkeysphere.person.notes", StringComparison.Ordinal)) continue;
+            string? text = mapping.Input.ScalarValue;
+            if (text is null || !ContactEnrichments.NoteCarriesVendorBlock(text)) continue;
+            string cleaned = ContactEnrichments.CleanNote(text);
+            noteTidied = true;
+            if (cleaned.Length == 0)
+            {
+                mappings.RemoveAt(mappingIndex--);
+                opaque.Add(mapping.PropertyIndex);
+            }
+            else
+            {
+                mappings[mappingIndex] = mapping with { Input = mapping.Input with { ScalarValue = cleaned } };
+            }
+        }
+
         List<VCardDuplicateCandidate> duplicates = [];
         foreach (VCardExistingContact candidate in existing)
         {
@@ -339,7 +498,12 @@ public sealed class VCardService(
             : duplicates.Count == 1
                 ? VCardImportAction.MergeNonConflicting
                 : VCardImportAction.CreateSeparately;
-        return new(index, card, displayName, aliases, mappings, opaque.Order().ToArray(), duplicates, recommended);
+        return new(index, card, displayName, aliases, mappings, opaque.Order().ToArray(), duplicates, recommended)
+        {
+            DetectedEnrichments = detected,
+            Photos = ContactEnrichments.Photos(card),
+            NoteWasTidied = noteTidied,
+        };
     }
 
     private static VCardImportDuplicateCandidate? CompareImportedContacts(
@@ -407,6 +571,20 @@ public sealed class VCardService(
         }
 
         return trimmed;
+    }
+
+    /// <summary>Where an enrichment's value came from, so the preview can stop calling it unused.</summary>
+    private static int FirstPropertyIndex(VCard card, IReadOnlyList<string> propertyNames)
+    {
+        for (int index = 0; index < card.Properties.Count; index++)
+        {
+            if (propertyNames.Contains(card.Properties[index].Name, StringComparer.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     private static bool TryInput(FieldDefinition field, VCardProperty property, out FieldValueInput input)

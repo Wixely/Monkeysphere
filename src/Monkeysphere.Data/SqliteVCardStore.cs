@@ -190,6 +190,32 @@ public sealed class SqliteVCardStore(
         return new(created, merged, replaced, skipped);
     }
 
+    public async Task<IReadOnlyDictionary<string, Guid>> MapImportedRecordsAsync(
+        IReadOnlyList<string> fingerprints,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprints);
+        if (fingerprints.Count == 0) return new Dictionary<string, Guid>(StringComparer.Ordinal);
+
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        IEnumerable<ImportRow> rows = await connection.QueryAsync<ImportRow>(new CommandDefinition("""
+            SELECT RecordId, Fingerprint FROM RecordSourceImports
+            WHERE SourceKind = 'vcard' AND Fingerprint IN @Fingerprints
+            ORDER BY ImportedAtUtc DESC, Id DESC;
+            """,
+            new { Fingerprints = fingerprints.Distinct(StringComparer.Ordinal).ToArray() },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        Dictionary<string, Guid> map = new(StringComparer.Ordinal);
+        foreach (ImportRow row in rows)
+        {
+            // Newest first, so the first row for a fingerprint is the record it most recently became.
+            map.TryAdd(row.Fingerprint, Parse(row.RecordId));
+        }
+
+        return map;
+    }
+
     public async Task<IReadOnlyList<VCardExportRecord>> ReadExportAsync(
         IReadOnlyList<Guid> recordIds,
         CancellationToken cancellationToken = default)
@@ -327,6 +353,17 @@ public sealed class SqliteVCardStore(
             ApproximationNote = value.Temporal?.ApproximationNote,
             Now = timestamp,
         }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        // Until contact enrichment, no vCard property mapped to a tag field, so this path only ever
+        // wrote scalar and temporal values. Categories and social handles are tag fields, and
+        // without this their values persisted as a row holding nothing.
+        for (int ordinal = 0; ordinal < (value.Tags?.Count ?? 0); ordinal++)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO FieldValueTags (FieldValueId, Ordinal, Value) VALUES (@FieldValueId, @Ordinal, @Value);",
+                new { FieldValueId = Key(value.Id), Ordinal = ordinal, Value = value.Tags![ordinal] },
+                transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
     }
 
     private static async Task StoreProvenanceAsync(
@@ -361,7 +398,12 @@ public sealed class SqliteVCardStore(
         int nextOrdinal = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
             SELECT COALESCE(MAX(Ordinal) + 1, 0) FROM RecordSourceValues WHERE RecordId = @RecordId;
             """, new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        Dictionary<int, VCardFieldMapping> fieldMappings = imported.Preview.FieldMappings.ToDictionary(mapping => mapping.PropertyIndex);
+        // One property can feed more than one field: a structured name supplies both the family
+        // and the given name. Provenance records a single field per retained line, so the first
+        // mapping wins; the line itself is retained in full either way.
+        Dictionary<int, VCardFieldMapping> fieldMappings = imported.Preview.FieldMappings
+            .GroupBy(mapping => mapping.PropertyIndex)
+            .ToDictionary(group => group.Key, group => group.First());
         for (int index = 0; index < imported.Preview.Card.Properties.Count; index++)
         {
             VCardProperty property = imported.Preview.Card.Properties[index];

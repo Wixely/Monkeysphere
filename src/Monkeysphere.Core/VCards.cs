@@ -448,6 +448,38 @@ public static class VCardText
         return values;
     }
 
+    /// <summary>
+    /// Splits a structured value such as N or ADR on its semicolons, honouring escapes. The
+    /// components are positional, so empty ones are kept rather than discarded.
+    /// </summary>
+    public static IReadOnlyList<string> SplitStructured(string value)
+    {
+        List<string> values = [];
+        StringBuilder current = new();
+        bool escaped = false;
+        foreach (char character in value)
+        {
+            if (!escaped && character == '\\')
+            {
+                escaped = true;
+                current.Append(character);
+            }
+            else if (!escaped && character == ';')
+            {
+                values.Add(Decode(current.ToString()));
+                current.Clear();
+            }
+            else
+            {
+                current.Append(character);
+                escaped = false;
+            }
+        }
+
+        values.Add(Decode(current.ToString()));
+        return values;
+    }
+
     public static string Decode(string value)
     {
         StringBuilder decoded = new(value.Length);
