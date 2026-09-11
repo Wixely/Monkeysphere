@@ -197,7 +197,7 @@ public sealed partial class RemoteDiscoveryTests
 
         using JsonDocument capabilities = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_capabilities");
         RemoteCapabilities permissions = Structured(capabilities).Deserialize<RemoteCapabilities>(JsonOptions)!;
-        Assert.Equal("1.16", permissions.ContractVersion);
+        Assert.Equal("1.19", permissions.ContractVersion);
         Assert.True(permissions.Tools.Single(tool => tool.Name == "export_contacts").Allowed);
         Assert.Equal(new RemoteContactExportLimits(), permissions.ContactExportLimits);
         // Exporting must not imply importing, reading or writing anything else.

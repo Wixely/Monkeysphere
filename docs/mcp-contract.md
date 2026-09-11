@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.16
+- Contract version: 1.19
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-07
 - Owner: Agent
@@ -182,7 +182,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.16",
+  "contractVersion": "1.19",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -360,3 +360,53 @@ The response is a compact receipt with created/merged/replaced/skipped counts, c
 Exact retries return the receipt before consulting temporary preview/upload state, so clients can resolve a lost response after expiry, cancellation or restart. Reusing a key with another revision, preview or selection payload returns `retry_conflict`. A second key cannot consume an already applied preview and returns `preview_consumed`, including while its application tombstone remains. A replacement credential cannot read or replay another credential's receipt. Result pages depend on the receipt window, not staging. `get_capabilities.contactPreviewLimits` advertises import selection, outcome page, receipt/outcome quota and retention limits.
 
 Additional structured errors include `concurrency_conflict`, `preview_expired`, `preview_unavailable`, `preview_consumed`, `retry_conflict` and `retry_expired`. Images and deployed MCPHub verification remain outstanding. Owner: Agent; next action: record image transfer, then M4-M7. Review: 2026-09-14.
+
+## Backstage records in 1.17
+
+Contract 1.17 keeps the same 54 tools and adds one permission, `backstage`. It is not a scope in the ordinary sense: it authorizes no tool and grants no read on its own, and a credential holding it alone can call nothing. What it does is change what the tools the credential already holds are allowed to see.
+
+Monkeysphere lets an administrator mark a record with a backstage policy state. The first such state is `hidden`, and a hidden record is withheld from every ordinary read: `search_records` and `query_records` do not return it and do not count it, `get_record` answers as though it does not exist, and it appears in no relationship, graph, calendar, map, dashboard, reminder, duplicate-discovery or contact-export result. A visible record linked to a hidden one discloses no trace of the link. A credential without the grant cannot tell a hidden record apart from one that was never created.
+
+A credential **with** the grant sees those records through every tool it can already use, exactly as an ordinary record. Two properties of the grant matter to an integrator:
+
+- **It does not expire.** The browser's backstage mode ends 24 hours after it is entered, whether or not anyone remembers to leave. The grant has no equivalent: it applies on every call until an administrator removes the permission and rotates the credential. Treat it as standing authority and review it whenever credentials are rotated.
+- **The deployment gate overrules it.** Backstage is off unless the deployment enables `Monkeysphere:Backstage:Available`. While it is off, a credential carrying the grant sees nothing of hidden records, the same as any other credential.
+
+Existing credentials never gain the grant automatically; an administrator selects it when rotating a credential, the same as every other permission. It is offered on the MCP surface only.
+
+Writes are unchanged: the grant does not permit changing a record's backstage state, which remains a browser operation performed by an account standing backstage.
+
+## Retained source material in 1.18
+
+Contract 1.18 has 56 tools and adds `get_record_source` and `read_record_source_value`, both under the existing `contacts.export` grant.
+
+Monkeysphere has always kept the raw material an import arrived as, not only the parts it understood. What 1.18 adds is the ability to read it back. `get_record_source` returns the import occasions for one record — source kind, the producer's own format label such as a vCard version, the content fingerprint of the imported item, and when it happened — followed by every retained line with its grouping, name and parameters exactly as received.
+
+The field that matters is `usedAs`. A line reported as `display_name`, `aliases` or `field_value` also exists as ordinary record data, and `field_value` names the field it landed in. A line reported as `unused` was understood by nothing: custom `X-` properties, vendor labels and embedded payloads all fall here, and they exist nowhere else in the record. That is what makes this surface worth calling rather than reading the record.
+
+Values are summarized, never inlined. Each line carries `valueLength` and a `valuePreview` of at most 256 characters with `isPreviewTruncated` set when there is more, because an embedded photo or key routinely runs past what any listing should carry. `read_record_source_value` then reads one line in full through bounded character ranges: offset from 0, count 1-16384, `nextOffset` chaining until null, and a `contentDigest` that must be identical across every range of one read. It is returned as text exactly as retained, so an embedded payload arrives in whatever encoding the source used, commonly Base64. An offset equal to `totalLength` returns empty content and a null `nextOffset`; a greater offset fails. Nothing is staged and no record changes.
+
+Two deliberate choices:
+
+- **No new grant.** `export_contacts` already returns this same material, round-tripped into a vCard, so a separate permission would restrict nothing while implying a boundary that does not exist. A credential that can export contacts can inspect retained source material, and one that cannot do the former cannot do the latter.
+- **A record that does not resolve and a record that retained nothing answer identically**, with empty content. Neither can be used to probe for the existence of records, and a record withheld by backstage policy discloses nothing here either.
+
+`importId` is null for material retained before imports were individually attributed, which is everything imported by a deployment upgraded from schema 29 or earlier where the record had more than one import.
+
+## Partial contact files in 1.19
+
+Contract 1.19 adds no tools. It changes what `complete_upload` does with a contact file that is only partly usable.
+
+Previously a single card the parser could not read failed the whole upload, so one unusable entry in a 200-contact export cost the caller all 200. That is the wrong trade for a format whose files are produced by other people's address books. A card that cannot be read is now set aside and reported, and the rest of the file proceeds.
+
+`complete_upload` gains `rejectedContacts`. Each entry carries:
+
+- `position` — where the card sat in the file, counting from 1 and including rejected cards, so it can be found in the source.
+- `label` — a best-effort identifier taken from whatever the card did carry: `FN`, then `N`, `ORG`, `EMAIL`, `TEL`, `UID`. Null when the card carried nothing usable. Bounded to 100 characters and collapsed to a single line.
+- `reason` — why it could not be read, in the same words the whole file used to fail with.
+
+`contactCount` counts only the cards that can be imported, and rejected cards are absent from every later preview and apply step. A file whose cards are all unusable completes with `contactCount` 0 and every reason listed, which tells a caller more than a bare failure did.
+
+What still fails the whole upload is structural damage: a missing `END` marker, a nested `BEGIN`, content outside a card, a continuation line with nothing to continue, invalid UTF-8, or exceeding the file, card-count or byte ceilings. In those cases card boundaries are unknowable, so salvaging part of the file would mean inventing contacts.
+
+The same rule applies to the browser import, which lists rejected cards above the reviewable ones and imports the rest. `preview_contact_import` does not re-report the rejections: the parse happens at `complete_upload`, which is where the caller already receives them, and the staged preview holds only importable contacts. Storing them a second time would need a staging schema change to repeat information the caller has.

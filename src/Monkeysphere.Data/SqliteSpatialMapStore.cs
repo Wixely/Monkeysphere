@@ -4,8 +4,10 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connections) : ISpatialMapStore
+public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : ISpatialMapStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<PagedResult<SpatialMapEntry>> QueryAsync(
         SpatialMapQuery query,
         CancellationToken cancellationToken = default)
@@ -29,13 +31,13 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
             Offset = offset,
         };
 
-        const string filters = """
+        string filters = $"""
             spatial.MaxLatitude >= @South AND spatial.MinLatitude <= @North
             AND ((@West <= @East AND spatial.MaxLongitude >= @West AND spatial.MinLongitude <= @East)
                  OR (@West > @East AND (spatial.MaxLongitude >= @West OR spatial.MinLongitude <= @East)))
             AND (@RecordTypeId IS NULL OR r.RecordTypeId = @RecordTypeId)
             AND (@FieldDefinitionId IS NULL OR fv.FieldDefinitionId = @FieldDefinitionId)
-            AND (@FieldDefinitionCount = 0 OR fv.FieldDefinitionId IN @FieldDefinitionIds)
+            AND (@FieldDefinitionCount = 0 OR fv.FieldDefinitionId IN @FieldDefinitionIds){Visible("r")}
             """;
 
         string sql = $"""

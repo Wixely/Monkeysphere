@@ -8,14 +8,6 @@ public enum VCardImportAction
     ReplaceMappedValues,
 }
 
-public enum VCardPropertyMappingKind
-{
-    Opaque,
-    DisplayName,
-    Aliases,
-    FieldValue,
-}
-
 public sealed record VCardFieldMapping(
     int PropertyIndex,
     Guid FieldDefinitionId,
@@ -53,7 +45,14 @@ public sealed record VCardImportPreview(
     Guid RecordTypeId,
     string RecordTypeName,
     IReadOnlyList<VCardContactPreview> Contacts,
-    string Revision = "");
+    string Revision = "")
+{
+    /// <summary>
+    /// Cards the file contained that could not be read. They are reported rather than imported, and
+    /// their presence never blocks the contacts that could be read.
+    /// </summary>
+    public IReadOnlyList<VCardRejectedCard> Rejected { get; init; } = [];
+}
 
 public sealed record VCardImportSelection(
     int ContactIndex,
@@ -82,7 +81,7 @@ public sealed record VCardExportRecord(
 public sealed record VCardStoredProperty(
     int Ordinal,
     VCardProperty Property,
-    VCardPropertyMappingKind MappingKind,
+    RecordSourceMapping MappingKind,
     Guid? FieldDefinitionId = null,
     int? ValueOrdinal = null);
 
@@ -143,8 +142,9 @@ public sealed class VCardService(
     public async Task<VCardImportPreview> PreviewAsync(Stream content, CancellationToken cancellationToken = default)
         => await PreviewCardsAsync(await VCardParser.ParseAsync(content, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 
-    private async Task<VCardImportPreview> PreviewCardsAsync(IReadOnlyList<VCard> cards, CancellationToken cancellationToken)
+    private async Task<VCardImportPreview> PreviewCardsAsync(VCardParseResult parsed, CancellationToken cancellationToken)
     {
+        IReadOnlyList<VCard> cards = parsed.Cards;
         string revision = await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false);
         RecordType person = (await records.ListRecordTypesAsync(cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(type =>
@@ -177,7 +177,7 @@ public sealed class VCardService(
 
         if (revision != await store.GetImportRevisionAsync(cancellationToken).ConfigureAwait(false))
             throw new ConcurrencyConflictException("Contacts or structures changed while preparing this preview. Preview the file again.");
-        return new(person.Id, person.Name, contacts, revision);
+        return new(person.Id, person.Name, contacts, revision) { Rejected = parsed.Rejected };
     }
 
     public async Task<VCardImportResult> ApplyAsync(
@@ -468,14 +468,14 @@ public sealed class VCardService(
     {
         List<VCardProperty> result = [];
         VCardStoredProperty? formattedName = source.StoredProperties.FirstOrDefault(property =>
-            property.MappingKind == VCardPropertyMappingKind.DisplayName);
+            property.MappingKind == RecordSourceMapping.DisplayName);
         result.Add(formattedName is null
             ? new(null, "FN", [], VCardSerializer.EncodeText(source.Record.Record.DisplayName))
             : formattedName.Property with { Value = VCardSerializer.EncodeText(source.Record.Record.DisplayName) });
         if (source.Record.Aliases.Count > 0)
         {
             VCardStoredProperty? nicknames = source.StoredProperties.FirstOrDefault(property =>
-                property.MappingKind == VCardPropertyMappingKind.Aliases);
+                property.MappingKind == RecordSourceMapping.Aliases);
             string value = string.Join(',', source.Record.Aliases.Select(VCardSerializer.EncodeText));
             result.Add(nicknames is null
                 ? new(null, "NICKNAME", [], value)
@@ -483,13 +483,13 @@ public sealed class VCardService(
         }
 
         foreach (VCardStoredProperty stored in source.StoredProperties.Where(property =>
-            property.MappingKind == VCardPropertyMappingKind.Opaque))
+            property.MappingKind == RecordSourceMapping.Opaque))
         {
             result.Add(stored.Property);
         }
 
         Dictionary<Guid, VCardStoredProperty> mapped = source.StoredProperties
-            .Where(property => property.MappingKind == VCardPropertyMappingKind.FieldValue && property.FieldDefinitionId.HasValue)
+            .Where(property => property.MappingKind == RecordSourceMapping.FieldValue && property.FieldDefinitionId.HasValue)
             .GroupBy(property => property.FieldDefinitionId!.Value)
             .ToDictionary(group => group.Key, group => group.First());
         foreach (RecordValue value in source.Record.Values)

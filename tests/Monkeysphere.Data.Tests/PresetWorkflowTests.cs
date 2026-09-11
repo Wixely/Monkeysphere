@@ -211,7 +211,7 @@ public sealed class PresetWorkflowTests
         Assert.Contains("FN:Augusta King", exportedText, StringComparison.Ordinal);
         Assert.Contains("X-MONKEYSPHERE-FAVOURITE:Analytical Engine", exportedText, StringComparison.Ordinal);
         Assert.Contains("ITEM1.X-ABLABEL:iPhone", exportedText, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(2, Assert.Single(VCardParser.Parse(exported)).Named("TEL").Count);
+        Assert.Equal(2, Assert.Single(VCardParser.Parse(exported).Cards).Named("TEL").Count);
 
         byte[] batchSource = Encoding.UTF8.GetBytes("""
             BEGIN:VCARD

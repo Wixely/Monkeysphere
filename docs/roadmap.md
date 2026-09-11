@@ -2,7 +2,7 @@
 
 - Last reviewed: 2026-09-07
 - Owner: Wixely / Agent unless otherwise noted
-- Current release: `0.1.0-alpha.2` prerelease; active branches `main` and `feature/domains`
+- Current release: `0.2.0-alpha.1` prerelease; active branch `main`
 
 ## How to read this roadmap
 
@@ -30,6 +30,9 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 
 | Item | Section | Status | Owner | Review |
 | --- | --- | --- | --- | --- |
+| Bulk contact import survives an unusable card | [Partial contact imports](#partial-contact-imports) | Complete; verified interactively against a deployed process 2026-09-11 | Agent | 2026-09-25 |
+| Retained import source data, inspectable | [Retained source material](#retained-source-material) | Complete; verified interactively against a deployed process 2026-09-11 | Agent | 2026-09-25 |
+| Backstage mode and hidden records | [Backstage](#backstage) | Complete; verified interactively against a deployed process 2026-09-10 | Agent | 2026-09-17 |
 | Publish a replacement prerelease; both alphas are unupgradable | [Migration ledger compatibility](#migration-ledger-compatibility) | Complete; `v0.1.0-alpha.3` published and its artifacts verified | Wixely | 2026-09-14 |
 | MCP record image transfer | [MCP instance management](#mcp-instance-management) | Complete; M3 closed 2026-09-10 | Agent | 2026-09-21 |
 | Document the MCP transport requirements a client must meet | [MCP client interoperability](#mcp-client-interoperability) | Corrected 2026-09-10; not a defect, a documentation gap | Agent | 2026-09-14 |
@@ -338,6 +341,71 @@ External basemap tiles are off by default. When an administrator explicitly enab
 An operator who needs stricter isolation currently has only two options: leave tiles off, or accept that disclosure. A configurable tile-source setting would let them point at an approved internal or self-hosted tile service instead. The design must keep the default off, keep the disclosure text accurate for whichever provider is configured, validate the URL template without permitting arbitrary outbound requests derived from record data, and preserve the build check that rejects undeclared public HTTP dependencies in first-party browser entry points.
 
 MCP disposition: **Deferred** to MCP milestone M5, which covers settings. The underlying setting should be readable and writable there once the browser design is settled, since it is deployment configuration rather than a visual interaction. Linked item: this section. Owner: TBD. Review: 2026-11-01.
+
+## Partial contact imports
+
+Status: Complete. Covered by tests and verified interactively against a separately launched Release process on 2026-09-11; the evidence is in [verification status](verification.md).
+
+A vCard file is produced by somebody else's address book, and real exports contain entries no parser can make sense of: a contact with no formatted name, one still on vCard 2.1, a property line mangled by whatever wrote it. The parser used to reject the whole file on the first such card, so one bad entry in a 200-contact export cost all 200. That is the wrong trade for this format.
+
+A card that cannot be read is now set aside and reported, and the rest of the file imports. Each rejection carries its position in the file counting from 1, a best-effort label taken from whatever the card did carry (`FN`, then `N`, `ORG`, `EMAIL`, `TEL`, `UID`, or null when nothing was usable), and the reason in the same words the whole file used to fail with. The browser lists them above the reviewable contacts; `complete_upload` returns them as `rejectedContacts`. Nothing about a rejected card is imported or retained.
+
+What still fails the whole file is structural damage: a missing `END` marker, a nested `BEGIN`, content outside a card, a continuation line with nothing to continue, invalid UTF-8, or exceeding the file, card-count or byte ceilings. Where card boundaries are unknowable, salvaging part of the file would mean inventing contacts, so it is refused outright. Per-card ceilings moved the other way: a single card with too many properties is that card's problem, not the file's.
+
+A file whose cards are all unusable now completes with zero importable contacts and every reason listed, rather than one error about whichever card happened to be first. That is strictly more useful for fixing the source.
+
+MCP disposition: **Included**, as `rejectedContacts` on `complete_upload` in contract 1.19. `preview_contact_import` deliberately does not repeat them: the parse happens at completion, which is where the caller already receives them, and the staged preview holds only importable contacts.
+
+Owner: Agent. Review: 2026-09-25.
+
+## Retained source material
+
+Status: Complete. Covered by tests and verified interactively against a separately launched Release process on 2026-09-11; the evidence is in [verification status](verification.md).
+
+Monkeysphere always kept the raw material an import arrived as, not merely the parts it could map: every vCard line was persisted with its group, name, parameters and value, which is why a round-trip export can reproduce vendor extensions and Apple labels. What was missing was any way to *look* at it. The only reader was the export path, so a custom property or an embedded photo was retained, invisible, and effectively unrecoverable without reading the database directly.
+
+What changed:
+
+- **A general facility, not a vCard one.** Migration 30 replaces `VCardImports` and `VCardProperties` with `RecordSourceImports` and `RecordSourceValues`, which describe an import occasion and the lines it carried in producer-neutral terms: source kind, the producer's own format label, a content fingerprint, a grouping, a name, parameters, the raw value, and what the application did with it. vCard is the first `sourceKind`; a later importer keeps its raw material here rather than inventing a second store. Existing rows migrate in place.
+- **Attribution.** Each retained line now records the import it arrived on, so a record merged from several cards can be read apart. Material retained before this could not be attributed retrospectively where a record had more than one import, and is reported as an earlier import rather than guessed at.
+- **Inspection in the browser.** A record's **Imported source data** panel lists its imports and every retained line, marking each as display name, aliases, a named field, or *not used*. The last is the one a person is looking for: it exists there and nowhere else in the record.
+- **Bounded reads.** An embedded photo or key routinely exceeds anything a listing should carry, so values are summarized with their length and a 256-character preview. The whole value is read separately: in the browser as a private, no-store, `nosniff` `text/plain` attachment, and over MCP through bounded ranges with a whole-value digest, matching how exports and image variants are already read.
+- **Visibility.** Source material is record data, so a record held back by backstage policy discloses none of it. It is the seventeenth surface in `BackstageLeakTests`.
+
+Deliberate choices worth restating:
+
+- **The migration does not rewrite history.** Migrations 24 and 27 hung deletion-revision and import-revision triggers on the replaced tables, and their SQL is immutable. Migration 30 recreates equivalent triggers on the new tables instead, after copying the data so that upgrading does not churn every record's deletion revision and invalidate outstanding deletion previews.
+- **A replace-mapped-values import still keeps opaque lines.** Only previously-mapped material is cleared, so re-importing a contact cannot silently discard the custom properties an earlier card carried.
+
+MCP disposition: **Included**, as `get_record_source` and `read_record_source_value` under the existing `contacts.export` grant. That grant already returns the same material round-tripped as a vCard, so a separate permission would restrict nothing while implying a boundary that does not exist. Recorded in the [MCP contract](mcp-contract.md) and the [threat model](threat-model.md) rather than left implicit.
+
+Next: a second `sourceKind` is what will prove the shape is genuinely producer-neutral. The Android contact importer is the likely first test of that. Owner: Agent. Review: 2026-09-25.
+
+## Backstage
+
+Status: Complete. Covered by tests and verified interactively against a separately launched Release process on 2026-09-10; the evidence is in [verification status](verification.md).
+
+Backstage is a per-account mode that reveals records held back by backstage policy and offers the options that change that policy. The first such state is `hidden`, and the requirement it has to meet is absolute rather than best-effort: outside backstage a hidden record must appear nowhere at all — not in a search, not in the graph, and not in any relationship or other metadata anywhere.
+
+What is built:
+
+- **Storage.** Application migration 29 adds a nullable `BackstageState` to `Records`, constrained to the known states and partially indexed. The set is deliberately extensible; `hidden` is the first member, not the only conceivable one.
+- **One rule, applied everywhere.** Every read of `Records` carries a single predicate. The safety net is `BackstageLeakTests`, which enumerates sixteen read surfaces — direct retrieval, listing and its total count, name/alias/field-value search, relationships from a visible record in both list and paged form, graph nodes and edges, the spatial map, the calendar, dashboard upcoming dates, active reminders, the field-conversion preview, contact duplicate discovery and contact export — and asserts that an ordinary reader reaches none of them and a backstage reader reaches all sixteen. The second direction is what stops a surface from passing merely because the fixture never reached it.
+- **Traversal, not just projection.** The relationship graph refuses to enter a hidden node during recursion, so a path that exists only through a hidden record is never disclosed either.
+- **Expiry.** Entering backstage lasts 24 hours and then ends on its own, so forgetting to leave cannot leave records exposed indefinitely. Activations live in the domain registry, keyed by account, because standing backstage is a property of the person rather than of one domain.
+- **Per-account by design.** There is one administrator account today, and the account identifier is carried as a string end to end. Per-account backstage needs no storage or contract change when accounts arrive.
+- **Deployment gate.** Off unless `Monkeysphere:Backstage:Available` is set (`MONKEYSPHERE_BACKSTAGE_AVAILABLE` in the supplied Compose file). It is a kill switch, not merely a way to hide the settings section: with it off nothing observes a hidden record, including a credential holding the MCP grant. Existing hidden records stay hidden, and startup logs a warning naming the count and the domains so an operator is never left with records that are silently absent.
+- **MCP.** A `backstage` permission lets a remote credential see these records through the tools it already holds. It authorizes no read on its own and is MCP-only. Unlike the browser mode it does not expire: the grant applies until it is removed. That is a deliberate choice, recorded in the [security boundary](security.md) and the [MCP contract](mcp-contract.md) rather than left implicit.
+
+What is deliberately not hidden, because hiding it would destroy data rather than conceal it:
+
+- Structural guards, counts and revision hashes still include hidden records, so a record type or field a hidden record uses cannot be retired, merged or deleted while it exists. The refusal is the correct behaviour; the count it reports does disclose that something is there, which is accepted.
+- A field type conversion still rewrites hidden values. Filtering them would silently leave them behind in the old type. The snapshot that drives conversion therefore stays complete and marks backstage values; only the holding record's name is withheld from the preview an administrator reads.
+- Backups contain hidden records like any other record. Backstage is concealment within one administrator's own deployment, not protection from whoever administers the host, the volume, or the backups.
+
+MCP disposition: **Included**, as the `backstage` permission described above. Reading is not browser-only; changing a record's state remains a browser operation performed by an account standing backstage.
+
+Owner: Agent. Next action: none outstanding. Review: 2026-09-17, to reconsider whether a second backstage state is warranted and whether per-account backstage has arrived.
 
 ## Interaction timeline
 

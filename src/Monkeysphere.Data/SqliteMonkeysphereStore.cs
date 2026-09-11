@@ -12,8 +12,14 @@ public sealed partial class SqliteMonkeysphereStore(
     MonkeysphereConnectionFactory connections,
     IDnaXPaths paths,
     ICurrentDomain currentDomain,
-    RecordMediaLocks mediaLocks) : IMonkeysphereStore
+    RecordMediaLocks mediaLocks,
+    IBackstageVisibility visibility) : IMonkeysphereStore
 {
+    // Every read that can surface a record's identity carries this. Mutation and integrity paths
+    // deliberately do not: a structural guard blind to hidden records would let an ordinary caller
+    // destroy them, and a revision hash blind to them would conflict for backstage callers.
+    private string RecordsVisible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -696,7 +702,7 @@ public sealed partial class SqliteMonkeysphereStore(
             UPDATE Reminders SET FieldDefinitionId = @TargetId
             WHERE FieldDefinitionId = @SourceId;
 
-            UPDATE VCardProperties SET FieldDefinitionId = @TargetId
+            UPDATE RecordSourceValues SET FieldDefinitionId = @TargetId
             WHERE FieldDefinitionId = @SourceId;
 
             UPDATE RecordTypeFields AS target
@@ -760,7 +766,7 @@ public sealed partial class SqliteMonkeysphereStore(
         int savedViews = await counts.ReadSingleAsync<int>().ConfigureAwait(false);
 
         FieldUsageValueRow[] rows = (await connection.QueryAsync<FieldUsageValueRow>(new CommandDefinition("""
-            SELECT fv.Id, fv.RecordId, r.DisplayName AS RecordDisplayName,
+            SELECT fv.Id, fv.RecordId, r.DisplayName AS RecordDisplayName, r.BackstageState,
                    fv.FieldDefinitionId, fd.Name AS FieldName, fd.TypeId, fv.Ordinal,
                    fv.TextValue, fv.NumberValue, fv.NumberSortValue, fv.DateValue,
                    fv.TemporalValue, fv.TemporalPrecision, fv.TemporalSortKey,
@@ -806,7 +812,8 @@ public sealed partial class SqliteMonkeysphereStore(
                 tagLookup.GetValueOrDefault(row.Id, []), row.TemporalValue,
                 row.TemporalPrecision is null ? null : (TemporalPrecision?)row.TemporalPrecision,
                 row.TemporalSortKey, row.IsApproximate != 0, row.ApproximationNote,
-                locationLookup.GetValueOrDefault(row.Id)))).ToArray();
+                locationLookup.GetValueOrDefault(row.Id)),
+            row.BackstageState is not null)).ToArray();
         string revision = await ComputeFieldRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new FieldUsageSnapshot(definition, revision, attachments, savedViews, values);
@@ -901,7 +908,7 @@ public sealed partial class SqliteMonkeysphereStore(
         await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE RecordTypeFields SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE Reminders SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
-            UPDATE VCardProperties SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
+            UPDATE RecordSourceValues SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewColumns SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViewFilters SET FieldDefinitionId = @TargetId WHERE FieldDefinitionId = @SourceId;
             UPDATE SavedViews SET GroupByFieldDefinitionId = @TargetId WHERE GroupByFieldDefinitionId = @SourceId;
@@ -995,16 +1002,19 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
-        return await QueryRecordAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false);
+        return await QueryRecordAsync(connection, transaction, id, cancellationToken, RecordsVisible("r")).ConfigureAwait(false);
     }
 
-    private static async Task<RecordDetails?> QueryRecordAsync(SqliteConnection connection, SqliteTransaction transaction, Guid id, CancellationToken cancellationToken)
+    // visibilityFilter is empty for the read-back after a write: the caller is being shown what it
+    // just wrote, and reaching that path already required authority over the record.
+    private static async Task<RecordDetails?> QueryRecordAsync(SqliteConnection connection, SqliteTransaction transaction, Guid id, CancellationToken cancellationToken, string visibilityFilter = "")
     {
-        RecordSummaryRow? row = await connection.QuerySingleOrDefaultAsync<RecordSummaryRow>(new CommandDefinition("""
-            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc, r.Revision
+        RecordSummaryRow? row = await connection.QuerySingleOrDefaultAsync<RecordSummaryRow>(new CommandDefinition($"""
+            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc,
+                   r.BackstageState, r.Revision
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
-            WHERE r.Id = @Id;
+            WHERE r.Id = @Id{visibilityFilter};
             """,
             new { Id = Key(id) },
             transaction,
@@ -1327,6 +1337,7 @@ public sealed partial class SqliteMonkeysphereStore(
 
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        where.Append(RecordsVisible("r"));
         int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT COUNT(*) FROM Records r" + where + ";",
             parameters, transaction,
@@ -1336,7 +1347,7 @@ public sealed partial class SqliteMonkeysphereStore(
         parameters.Add("Offset", (search.Page - 1) * search.PageSize);
         string orderBy = BuildOrderBy(search.Sort, parameters);
         IEnumerable<RecordSummaryRow> rows = await connection.QueryAsync<RecordSummaryRow>(new CommandDefinition("""
-            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc
+            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc, r.BackstageState
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
             """ + where + orderBy + " LIMIT @Limit OFFSET @Offset;",
@@ -1771,7 +1782,8 @@ public sealed partial class SqliteMonkeysphereStore(
             row.PresetVersion, row.Revision);
 
     private static RecordSummary MapSummary(RecordSummaryRow row) =>
-        new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName, ParseTimestamp(row.UpdatedAtUtc));
+        new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName,
+            ParseTimestamp(row.UpdatedAtUtc), row.BackstageState);
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
 
@@ -1845,6 +1857,7 @@ public sealed partial class SqliteMonkeysphereStore(
         public required string RecordTypeName { get; init; }
         public required string DisplayName { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public string? BackstageState { get; init; }
         public string Revision { get; init; } = string.Empty;
     }
 
@@ -1871,6 +1884,7 @@ public sealed partial class SqliteMonkeysphereStore(
         public required string Id { get; init; }
         public required string RecordId { get; init; }
         public required string RecordDisplayName { get; init; }
+        public string? BackstageState { get; init; }
         public required string FieldDefinitionId { get; init; }
         public required string FieldName { get; init; }
         public required string TypeId { get; init; }

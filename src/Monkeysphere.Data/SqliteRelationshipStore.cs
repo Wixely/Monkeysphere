@@ -5,8 +5,14 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connections) : IRelationshipStore
+public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : IRelationshipStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
+    // A relationship is observable only when both of its endpoints are. Filtering in the JOIN keeps
+    // the rule beside the join it constrains, so no caller has to remember to extend a WHERE clause.
+    private string RelationshipSelect => RelationshipSelectSql(Visible("source"), Visible("target"));
+
     public async Task<IReadOnlyList<RelationshipType>> ListTypesAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -182,8 +188,13 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
         var parameters = new { RecordId = Key(recordId), Limit = pageSize, Offset = (page - 1) * pageSize };
-        int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            "SELECT COUNT(*) FROM Relationships WHERE SourceRecordId = @RecordId OR TargetRecordId = @RecordId;",
+        int total = await connection.ExecuteScalarAsync<int>(new CommandDefinition($"""
+            SELECT COUNT(*)
+            FROM Relationships r
+            JOIN Records source ON source.Id = r.SourceRecordId{Visible("source")}
+            JOIN Records target ON target.Id = r.TargetRecordId{Visible("target")}
+            WHERE r.SourceRecordId = @RecordId OR r.TargetRecordId = @RecordId;
+            """,
             parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         IEnumerable<RelationshipRow> rows = await connection.QueryAsync<RelationshipRow>(new CommandDefinition(RelationshipSelect + """
              WHERE r.SourceRecordId = @RecordId OR r.TargetRecordId = @RecordId
@@ -214,14 +225,14 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     internal static async Task<StoredRelationship?> GetByIdAsync(SqliteConnection connection, Guid id, CancellationToken cancellationToken, SqliteTransaction? transaction = null)
     {
         RelationshipRow? row = await connection.QuerySingleOrDefaultAsync<RelationshipRow>(new CommandDefinition(
-            RelationshipSelect + " WHERE r.Id = @Id;",
+            RelationshipSelectSql(string.Empty, string.Empty) + " WHERE r.Id = @Id;",
             new { Id = Key(id) },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return row is null ? null : MapRelationship(row);
     }
 
-    private const string RelationshipSelect = """
+    private static string RelationshipSelectSql(string sourceVisible, string targetVisible) => $"""
         SELECT r.Id, r.RelationshipTypeId, rt.Name AS TypeName, rt.Directionality, rt.InverseName,
                rt.Lifecycle AS TypeLifecycle, rt.CreatedAtUtc AS TypeCreatedAtUtc, rt.UpdatedAtUtc AS TypeUpdatedAtUtc,
                rt.PresetKey AS TypePresetKey, rt.PresetVersion AS TypePresetVersion, rt.Revision AS TypeRevision,
@@ -230,8 +241,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                r.Note, r.CreatedAtUtc, r.UpdatedAtUtc, r.Revision
         FROM Relationships r
         JOIN RelationshipTypes rt ON rt.Id = r.RelationshipTypeId
-        JOIN Records source ON source.Id = r.SourceRecordId
-        JOIN Records target ON target.Id = r.TargetRecordId
+        JOIN Records source ON source.Id = r.SourceRecordId{sourceVisible}
+        JOIN Records target ON target.Id = r.TargetRecordId{targetVisible}
         """;
 
     private static RelationshipType MapType(RelationshipTypeRow row) => new(

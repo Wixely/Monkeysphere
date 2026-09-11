@@ -2,11 +2,17 @@ using System.Globalization;
 
 namespace Monkeysphere.Core;
 
-public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider timeProvider) : IMonkeysphereService
+public sealed class MonkeysphereService(
+    IMonkeysphereStore store,
+    TimeProvider timeProvider,
+    IBackstageVisibility visibility) : IMonkeysphereService
 {
     public const int MaximumSearchLength = 500;
     public const int MaximumFilterLength = 2_000;
     public const int MaximumSearchPage = 10_000;
+
+    /// <summary>Stands in for a backstage record's name wherever an ordinary caller would see it.</summary>
+    public const string WithheldRecordName = "(withheld)";
 
     public Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default) =>
         store.ListRecordTypesAsync(cancellationToken);
@@ -456,7 +462,12 @@ public sealed class MonkeysphereService(IMonkeysphereStore store, TimeProvider t
                 failed++;
                 if (issues.Count < 25)
                 {
-                    issues.Add(new FieldConversionIssue(value.RecordId, value.RecordDisplayName, exception.Message));
+                    // The conversion still rewrites this value; only the name of who holds it is withheld.
+                    bool withhold = value.IsBackstage && !visibility.IncludeBackstageRecords;
+                    issues.Add(new FieldConversionIssue(
+                        withhold ? Guid.Empty : value.RecordId,
+                        withhold ? WithheldRecordName : value.RecordDisplayName,
+                        exception.Message));
                 }
             }
         }

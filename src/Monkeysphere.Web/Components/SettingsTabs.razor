@@ -1,4 +1,5 @@
 @inject IConfiguration Configuration
+@inject BackstageAvailability Availability
 
 <nav class="section-tabs settings-tabs" aria-label="Settings sections">
     <a class="@(Active == "domains" ? "active" : null)"
@@ -22,6 +23,12 @@
     <a class="@(Active == "remote-access" ? "active" : null)"
        aria-current="@(Active == "remote-access" ? "page" : null)"
        href="/settings/remote-access">Remote access</a>
+    @if (Availability.Enabled)
+    {
+        <a class="@(Active == "backstage" ? "active" : null)"
+           aria-current="@(Active == "backstage" ? "page" : null)"
+           href="/settings/backstage">Backstage</a>
+    }
     @if (DebugResetEnabled)
     {
         <a class="@(Active == "debug" ? "active" : null)"

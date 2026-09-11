@@ -68,7 +68,9 @@ public sealed record RecordSummary(
     Guid RecordTypeId,
     string RecordTypeName,
     string DisplayName,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    // Only ever set for a caller standing backstage; every other caller cannot see the record at all.
+    string? BackstageState = null);
 
 public sealed record RecordValue(
     Guid Id,
@@ -201,7 +203,10 @@ public sealed record FieldConversionPreview(
 public sealed record FieldValueUsage(
     Guid RecordId,
     string RecordDisplayName,
-    RecordValue Value);
+    RecordValue Value,
+    // A conversion must rewrite backstage values too, so they are present here and marked rather
+    // than filtered out. Anything that shows a usage to a person must withhold the marked ones.
+    bool IsBackstage = false);
 
 public sealed record FieldUsageSnapshot(
     FieldDefinition Definition,

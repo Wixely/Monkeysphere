@@ -8,8 +8,11 @@ namespace Monkeysphere.Data;
 
 public sealed class SqliteVCardStore(
     MonkeysphereConnectionFactory connections,
-    IMonkeysphereStore records) : IVCardStore
+    IMonkeysphereStore records,
+    IBackstageVisibility visibility) : IVCardStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     private const string PersonPresetKey = "monkeysphere.person";
 
     public async Task<string> GetImportRevisionAsync(CancellationToken cancellationToken = default)
@@ -24,8 +27,8 @@ public sealed class SqliteVCardStore(
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        ExistingRow[] contacts = (await connection.QueryAsync<ExistingRow>(new CommandDefinition("""
-            SELECT Id, DisplayName FROM Records WHERE RecordTypeId = @RecordTypeId ORDER BY Id;
+        ExistingRow[] contacts = (await connection.QueryAsync<ExistingRow>(new CommandDefinition($"""
+            SELECT Id, DisplayName FROM Records WHERE RecordTypeId = @RecordTypeId{Visible("")} ORDER BY Id;
             """, new { RecordTypeId = Key(recordTypeId) }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         if (contacts.Length == 0)
         {
@@ -46,7 +49,9 @@ public sealed class SqliteVCardStore(
             ORDER BY fv.RecordId, fd.CanonicalKey, fv.Ordinal;
             """, new { Ids = ids }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         ImportRow[] fingerprints = (await connection.QueryAsync<ImportRow>(new CommandDefinition("""
-            SELECT RecordId, Fingerprint FROM VCardImports WHERE RecordId IN @Ids ORDER BY RecordId, Fingerprint;
+            SELECT RecordId, Fingerprint FROM RecordSourceImports
+            WHERE RecordId IN @Ids AND SourceKind = 'vcard' AND Fingerprint IS NOT NULL
+            ORDER BY RecordId, Fingerprint;
             """, new { Ids = ids }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
 
         return contacts.Select(contact => new VCardExistingContact(
@@ -137,7 +142,7 @@ public sealed class SqliteVCardStore(
                     await connection.ExecuteAsync(new CommandDefinition("""
                         UPDATE Records SET DisplayName = @DisplayName, UpdatedAtUtc = @Now WHERE Id = @RecordId;
                         DELETE FROM RecordAliases WHERE RecordId = @RecordId;
-                        DELETE FROM VCardProperties WHERE RecordId = @RecordId AND MappingKind <> 0;
+                        DELETE FROM RecordSourceValues WHERE RecordId = @RecordId AND Mapping <> 0;
                         """, new
                     {
                         RecordId = Key(recordId),
@@ -191,17 +196,18 @@ public sealed class SqliteVCardStore(
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         string[] ids = recordIds.Select(Key).ToArray();
-        HashSet<string> people = (await connection.QueryAsync<string>(new CommandDefinition("""
+        HashSet<string> people = (await connection.QueryAsync<string>(new CommandDefinition($"""
             SELECT r.Id
             FROM Records r
             INNER JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
-            WHERE r.Id IN @Ids AND rt.PresetKey = @PresetKey;
+            WHERE r.Id IN @Ids AND rt.PresetKey = @PresetKey{Visible("r")};
             """, new { Ids = ids, PresetKey = PersonPresetKey }, cancellationToken: cancellationToken)).ConfigureAwait(false))
             .ToHashSet(StringComparer.Ordinal);
         PropertyRow[] propertyRows = (await connection.QueryAsync<PropertyRow>(new CommandDefinition("""
-            SELECT RecordId, Ordinal, GroupName, PropertyName, ParametersJson, RawValue,
-                   MappingKind, FieldDefinitionId, ValueOrdinal
-            FROM VCardProperties WHERE RecordId IN @Ids ORDER BY RecordId, Ordinal;
+            SELECT RecordId, Ordinal, Grouping AS GroupName, Name AS PropertyName,
+                   ParametersJson, RawValue,
+                   Mapping AS MappingKind, FieldDefinitionId, ValueOrdinal
+            FROM RecordSourceValues WHERE RecordId IN @Ids ORDER BY RecordId, Ordinal;
             """, new { Ids = ids }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
 
         List<VCardExportRecord> result = [];
@@ -332,18 +338,28 @@ public sealed class SqliteVCardStore(
         string timestamp,
         CancellationToken cancellationToken)
     {
+        string importId = Key(Guid.CreateVersion7());
         await connection.ExecuteAsync(new CommandDefinition("""
-            INSERT OR IGNORE INTO VCardImports (Fingerprint, RecordId, SourceVersion, ImportedAtUtc)
-            VALUES (@Fingerprint, @RecordId, @SourceVersion, @Now);
+            INSERT INTO RecordSourceImports (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc)
+            VALUES (@Id, @RecordId, 'vcard', @SourceVersion, @Fingerprint, @Now)
+            ON CONFLICT (RecordId, SourceKind, Fingerprint) WHERE Fingerprint IS NOT NULL DO NOTHING;
             """, new
         {
+            Id = importId,
             imported.Preview.Card.Fingerprint,
             RecordId = Key(recordId),
             SourceVersion = imported.Preview.Card.Version,
             Now = timestamp,
         }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        // Re-importing the same card keeps the original import event, so attribute to whichever row
+        // now holds this fingerprint rather than to the id we just tried to insert.
+        importId = await connection.ExecuteScalarAsync<string>(new CommandDefinition("""
+            SELECT Id FROM RecordSourceImports
+            WHERE RecordId = @RecordId AND SourceKind = 'vcard' AND Fingerprint = @Fingerprint;
+            """, new { RecordId = Key(recordId), imported.Preview.Card.Fingerprint }, transaction,
+            cancellationToken: cancellationToken)).ConfigureAwait(false) ?? importId;
         int nextOrdinal = await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
-            SELECT COALESCE(MAX(Ordinal) + 1, 0) FROM VCardProperties WHERE RecordId = @RecordId;
+            SELECT COALESCE(MAX(Ordinal) + 1, 0) FROM RecordSourceValues WHERE RecordId = @RecordId;
             """, new { RecordId = Key(recordId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         Dictionary<int, VCardFieldMapping> fieldMappings = imported.Preview.FieldMappings.ToDictionary(mapping => mapping.PropertyIndex);
         for (int index = 0; index < imported.Preview.Card.Properties.Count; index++)
@@ -354,27 +370,28 @@ public sealed class SqliteVCardStore(
                 continue;
             }
 
-            VCardPropertyMappingKind kind = property.Name switch
+            RecordSourceMapping kind = property.Name switch
             {
-                _ when imported.Preview.OpaquePropertyIndexes.Contains(index) => VCardPropertyMappingKind.Opaque,
-                "FN" => VCardPropertyMappingKind.DisplayName,
-                "NICKNAME" => VCardPropertyMappingKind.Aliases,
+                _ when imported.Preview.OpaquePropertyIndexes.Contains(index) => RecordSourceMapping.Opaque,
+                "FN" => RecordSourceMapping.DisplayName,
+                "NICKNAME" => RecordSourceMapping.Aliases,
                 _ when fieldMappings.TryGetValue(index, out VCardFieldMapping? mapping) &&
-                       effectiveMappedFields.Contains(mapping.FieldDefinitionId) => VCardPropertyMappingKind.FieldValue,
-                _ => VCardPropertyMappingKind.Opaque,
+                       effectiveMappedFields.Contains(mapping.FieldDefinitionId) => RecordSourceMapping.FieldValue,
+                _ => RecordSourceMapping.Opaque,
             };
-            VCardFieldMapping? fieldMapping = kind == VCardPropertyMappingKind.FieldValue ? fieldMappings[index] : null;
+            VCardFieldMapping? fieldMapping = kind == RecordSourceMapping.FieldValue ? fieldMappings[index] : null;
             await connection.ExecuteAsync(new CommandDefinition("""
-                INSERT INTO VCardProperties
-                    (RecordId, Ordinal, GroupName, PropertyName, ParametersJson, RawValue,
-                     MappingKind, FieldDefinitionId, ValueOrdinal)
+                INSERT INTO RecordSourceValues
+                    (RecordId, Ordinal, ImportId, Grouping, Name, ParametersJson, RawValue,
+                     Mapping, FieldDefinitionId, ValueOrdinal)
                 VALUES
-                    (@RecordId, @Ordinal, @GroupName, @PropertyName, @ParametersJson, @RawValue,
+                    (@RecordId, @Ordinal, @ImportId, @GroupName, @PropertyName, @ParametersJson, @RawValue,
                      @MappingKind, @FieldDefinitionId, @ValueOrdinal);
                 """, new
             {
                 RecordId = Key(recordId),
                 Ordinal = nextOrdinal++,
+                ImportId = importId,
                 GroupName = property.Group,
                 PropertyName = property.Name,
                 ParametersJson = JsonSerializer.Serialize(property.Parameters),
@@ -435,7 +452,7 @@ public sealed class SqliteVCardStore(
             row.PropertyName,
             JsonSerializer.Deserialize<VCardParameter[]>(row.ParametersJson) ?? [],
             row.RawValue),
-        (VCardPropertyMappingKind)row.MappingKind,
+        (RecordSourceMapping)row.MappingKind,
         row.FieldDefinitionId is null ? null : Parse(row.FieldDefinitionId),
         row.ValueOrdinal);
 

@@ -44,8 +44,15 @@ public sealed partial class RemoteDiscoveryTests
         AssertWriteError(incomplete, "validation_failed");
         using JsonDocument written = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "write_upload_chunk", write);
         Assert.Equal(bytes.Length, Structured(written).GetProperty("acceptedBytes").GetInt64());
-        using JsonDocument invalidContent = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "complete_upload", new { domainId, uploadId });
-        AssertWriteError(invalidContent, "validation_failed");
+        // The one card in this file cannot be read, so completion reports it rather than failing:
+        // a caller uploading 200 contacts must be told which one is unusable, not lose the batch.
+        using JsonDocument completed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "complete_upload", new { domainId, uploadId });
+        JsonElement completion = Structured(completed);
+        Assert.Equal(0, completion.GetProperty("contactCount").GetInt32());
+        Assert.True(completion.GetProperty("contentValidated").GetBoolean());
+        JsonElement rejected = Assert.Single(completion.GetProperty("rejectedContacts").EnumerateArray().ToArray());
+        Assert.Equal(1, rejected.GetProperty("position").GetInt32());
+        Assert.Contains("formatted name", rejected.GetProperty("reason").GetString()!, StringComparison.OrdinalIgnoreCase);
         using JsonDocument pending = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "begin_upload", request with { idempotencyKey = Guid.NewGuid() });
         Guid pendingId = Structured(pending).GetProperty("uploadId").GetGuid();
         byte[] partial = bytes[..5];

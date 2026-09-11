@@ -18,6 +18,19 @@ public static class MonkeysphereDataExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(new DebugResetAvailability(false));
+        services.TryAddSingleton(new BackstageAvailability(false));
+        // Both default to withholding. A host that can establish backstage authority replaces them.
+        services.TryAddScoped<IBackstageVisibility>(_ => OrdinaryVisibility.Instance);
+        services.TryAddScoped<IBackstageAccount>(_ => NoBackstageAccount.Instance);
+        services.AddSingleton<SqliteBackstageSessionStore>();
+        // Every activation and deactivation goes through the cache so a read path can answer
+        // synchronously without touching storage.
+        services.AddSingleton(provider => new CachedBackstageSessions(
+            provider.GetRequiredService<SqliteBackstageSessionStore>(),
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IBackstageSessionStore>(provider => provider.GetRequiredService<CachedBackstageSessions>());
+        services.AddScoped<IBackstageRecordStore, SqliteBackstageRecordStore>();
+        services.AddScoped<IBackstageService, BackstageService>();
         services.TryAddScoped<ICurrentDomainScope, DefaultCurrentDomain>();
         services.TryAddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
         services.AddSingleton<DomainRegistryConnectionFactory>();
@@ -52,6 +65,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IReminderStore, SqliteReminderStore>();
         services.AddScoped<IReminderService, ReminderService>();
         services.AddScoped<IVCardStore, SqliteVCardStore>();
+        services.AddScoped<IRecordSourceStore, SqliteRecordSourceStore>();
+        services.AddScoped<IRecordSourceService, RecordSourceService>();
         services.AddScoped<IVCardService, VCardService>();
         services.AddScoped<IRecordImageService, RecordImageService>();
         services.AddScoped<IBackupService, BackupService>();
@@ -179,8 +194,8 @@ internal sealed class DebugDatabaseResetService(
             DELETE FROM SavedViews;
             DELETE FROM Relationships;
             DELETE FROM RelationshipTypes;
-            DELETE FROM VCardProperties;
-            DELETE FROM VCardImports;
+            DELETE FROM RecordSourceValues;
+            DELETE FROM RecordSourceImports;
             DELETE FROM Reminders;
             DELETE FROM RecordImages;
             DELETE FROM RecordAliases;

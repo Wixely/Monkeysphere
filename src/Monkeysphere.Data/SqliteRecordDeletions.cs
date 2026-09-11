@@ -42,8 +42,8 @@ public sealed partial class SqliteMonkeysphereStore : IRecordDeletionStore
                 (SELECT COUNT(*) FROM GraphViewNodePositions WHERE RecordId = @Id) AS GraphPositionCount,
                 (SELECT COUNT(*) FROM (SELECT GraphViewId FROM GraphViewRecords WHERE RecordId = @Id
                     UNION SELECT GraphViewId FROM GraphViewNodePositions WHERE RecordId = @Id)) AS AffectedGraphViewCount,
-                (SELECT COUNT(*) FROM VCardImports WHERE RecordId = @Id) AS ImportFingerprintCount,
-                (SELECT COUNT(*) FROM VCardProperties WHERE RecordId = @Id) AS ImportedPropertyCount;
+                (SELECT COUNT(*) FROM RecordSourceImports WHERE RecordId = @Id) AS ImportFingerprintCount,
+                (SELECT COUNT(*) FROM RecordSourceValues WHERE RecordId = @Id) AS ImportedPropertyCount;
             """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         RecordDeletionPreview preview = new(Guid.CreateVersion7(), id, record.Revision, record.DeletionRevision, impact,
             now.ToUniversalTime(), now.ToUniversalTime().AddMinutes(RecordCommandLimits.PreviewLifetimeMinutes));
@@ -112,8 +112,8 @@ public sealed partial class SqliteMonkeysphereStore : IRecordDeletionStore
                     OR EXISTS(SELECT 1 FROM Reminders WHERE RecordId = @Id)
                     OR EXISTS(SELECT 1 FROM GraphViewRecords WHERE RecordId = @Id)
                     OR EXISTS(SELECT 1 FROM GraphViewNodePositions WHERE RecordId = @Id)
-                    OR EXISTS(SELECT 1 FROM VCardImports WHERE RecordId = @Id)
-                    OR EXISTS(SELECT 1 FROM VCardProperties WHERE RecordId = @Id);
+                    OR EXISTS(SELECT 1 FROM RecordSourceImports WHERE RecordId = @Id)
+                    OR EXISTS(SELECT 1 FROM RecordSourceValues WHERE RecordId = @Id);
                 """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             if (hasDependencies) throw new DomainValidationException("This record has dependent data. Review a deletion preview and supply its previewId.");
         }

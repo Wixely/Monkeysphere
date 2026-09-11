@@ -25,6 +25,13 @@ else
             <p class="eyebrow">@(RecordId.HasValue ? "Edit record" : "New record")</p>
             <h1>@(RecordId.HasValue ? _model.DisplayName : "Add to your sphere")</h1>
         </div>
+        @if (_record is not null)
+        {
+            <div class="action-row wrap">
+                <BackstageRecordActions RecordId="_record.Record.Id" State="_record.Record.BackstageState"
+                                        OnChanged="ReloadBackstageStateAsync" />
+            </div>
+        }
     </div>
 
     @if (!string.IsNullOrWhiteSpace(_message))
@@ -294,6 +301,11 @@ else
                 }
             </section>
 
+            @if (_record is not null)
+            {
+                <RecordSourcePanel RecordId="_record.Record.Id" />
+            }
+
             <section class="panel danger-zone">
                 <h2>Delete record</h2>
                 <p>This removes the record, its field values, relationships, aliases, and attached images. Backups may still retain older copies.</p>
@@ -318,6 +330,15 @@ else
     private IReadOnlyList<RecordType> _types = [];
     private RecordTypeDetails? _selectedType;
     private RecordDetails? _record;
+
+    private async Task ReloadBackstageStateAsync()
+    {
+        if (RecordId is Guid id)
+        {
+            _record = await Service.GetRecordAsync(id);
+        }
+    }
+
     private string? _editRevision;
     private List<EditorField> _editors = [];
     private string _selectedTypeValue = string.Empty;

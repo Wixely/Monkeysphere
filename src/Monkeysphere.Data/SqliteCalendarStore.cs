@@ -5,14 +5,16 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connections) : ICalendarStore
+public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : ICalendarStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<IReadOnlyList<CalendarEntry>> QueryAsync(
         CalendarQuery query,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        IEnumerable<CalendarRow> rows = await connection.QueryAsync<CalendarRow>(new CommandDefinition("""
+        IEnumerable<CalendarRow> rows = await connection.QueryAsync<CalendarRow>(new CommandDefinition($"""
             SELECT fv.Id AS FieldValueId,
                    r.Id AS RecordId,
                    r.RecordTypeId,
@@ -35,7 +37,7 @@ public sealed class SqliteCalendarStore(MonkeysphereConnectionFactory connection
                        AND fv.TemporalValue IS NOT NULL))
               AND (CASE fd.TypeId WHEN 'exact-date' THEN fv.DateValue ELSE fv.TemporalValue END) BETWEEN @From AND @To
               AND (@RecordTypeId IS NULL OR r.RecordTypeId = @RecordTypeId)
-              AND (@FieldDefinitionId IS NULL OR fv.FieldDefinitionId = @FieldDefinitionId)
+              AND (@FieldDefinitionId IS NULL OR fv.FieldDefinitionId = @FieldDefinitionId){Visible("r")}
             ORDER BY EventDate, r.DisplayName COLLATE NOCASE, fd.Name COLLATE NOCASE, r.Id, fv.Ordinal
             LIMIT @Limit;
             """,

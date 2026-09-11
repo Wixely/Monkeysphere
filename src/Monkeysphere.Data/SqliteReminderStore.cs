@@ -5,8 +5,10 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connections) : IReminderStore
+public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : IReminderStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<Reminder> CreateAsync(
         Guid id,
         Guid fieldValueId,
@@ -57,7 +59,7 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
     public async Task<IReadOnlyList<ReminderItem>> ListActiveAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        IEnumerable<ReminderRow> rows = await connection.QueryAsync<ReminderRow>(new CommandDefinition("""
+        IEnumerable<ReminderRow> rows = await connection.QueryAsync<ReminderRow>(new CommandDefinition($"""
             SELECT m.Id AS ReminderId, fv.Id AS FieldValueId, m.ValueOrdinal, m.LeadDays, m.CreatedAtUtc,
                    m.RecordId, r.RecordTypeId, rt.Name AS RecordTypeName,
                    r.DisplayName AS RecordDisplayName, fv.FieldDefinitionId, fd.Name AS FieldName,
@@ -75,7 +77,7 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
                    OR (fd.TypeId = 'temporal'
                        AND fv.TemporalPrecision = @DayPrecision
                        AND fv.IsApproximate = 0
-                       AND fv.TemporalValue IS NOT NULL))
+                       AND fv.TemporalValue IS NOT NULL)){Visible("r")}
             ORDER BY EventDate, m.LeadDays DESC, r.DisplayName COLLATE NOCASE, m.Id;
             """, new { DayPrecision = (int)TemporalPrecision.Day }, cancellationToken: cancellationToken)).ConfigureAwait(false);
 

@@ -1,0 +1,56 @@
+@inject BackstageAvailability Availability
+@inject IBackstageVisibility Visibility
+@inject IBackstageService Backstage
+
+@* Renders nothing at all unless the viewer is standing backstage, so an ordinary viewer is never
+   told that these options exist, let alone that a particular record carries a state. *@
+@if (Show)
+{
+    <span class="backstage-actions">
+        @if (State == BackstageStates.Hidden)
+        {
+            <span class="pill backstage">Hidden</span>
+            <button class="button subtle" type="button" disabled="@_busy" @onclick="() => SetAsync(null)">
+                @(_busy ? "Working…" : "Unhide record")
+            </button>
+        }
+        else
+        {
+            <button class="button subtle" type="button" disabled="@_busy" @onclick="() => SetAsync(BackstageStates.Hidden)">
+                @(_busy ? "Working…" : "Hide record")
+            </button>
+        }
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid RecordId { get; set; }
+
+    /// <summary>The record's current backstage state, or null for an ordinary record.</summary>
+    [Parameter]
+    public string? State { get; set; }
+
+    /// <summary>Raised after the state changes so the caller can reload what it is showing.</summary>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private bool _busy;
+
+    private bool Show => Availability.Enabled && Visibility.IncludeBackstageRecords;
+
+    private async Task SetAsync(string? state)
+    {
+        _busy = true;
+        try
+        {
+            await Backstage.SetRecordStateAsync(RecordId, state);
+            State = state;
+            await OnChanged.InvokeAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

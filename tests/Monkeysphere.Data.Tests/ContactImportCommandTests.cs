@@ -222,7 +222,7 @@ public sealed partial class DomainIsolationTests
                 Assert.Equal(3, (await records.SearchRecordsAsync(new())).TotalCount);
 
                 await using SqliteConnection application = await scope.ServiceProvider.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
-                Assert.Equal("X-OPAQUE", await application.QuerySingleAsync<string>("SELECT PropertyName FROM VCardProperties WHERE PropertyName = 'X-OPAQUE';"));
+                Assert.Equal("X-OPAQUE", await application.QuerySingleAsync<string>("SELECT Name FROM RecordSourceValues WHERE Name = 'X-OPAQUE';"));
 
                 IContactImportCommandStore store = scope.ServiceProvider.GetRequiredService<IContactImportCommandStore>();
                 ContactImportOutcome[] outcomes = (await store.ReadOutcomesAsync(owner, importKey, 1, 100)).ToArray();
@@ -303,8 +303,8 @@ public sealed partial class DomainIsolationTests
             Assert.Equal(1, (await records.SearchRecordsAsync(new())).TotalCount);
             Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM ContactImportReceipts;"));
             Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM ContactImportOutcomes;"));
-            Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM VCardImports;"));
-            Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM VCardProperties;"));
+            Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM RecordSourceImports;"));
+            Assert.Equal(0, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM RecordSourceValues;"));
             await connection.ExecuteAsync("DROP TRIGGER TestFailContactImportAudit;");
             ContactImportReceipt receipt = await commands.ApplyAsync(owner, preview.PreviewId, preview.Revision,
                 key, [new(0, VCardImportAction.CreateSeparately)]);

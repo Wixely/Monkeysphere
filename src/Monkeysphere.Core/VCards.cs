@@ -20,13 +20,25 @@ public sealed record VCard(string Version, IReadOnlyList<VCardProperty> Properti
         Properties.Where(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
 }
 
+/// <summary>
+/// A card the file contained that could not be read. One unusable contact in a bulk export must
+/// not cost the caller the other 199, so the parser sets it aside and carries on.
+/// </summary>
+/// <param name="Position">Its position in the file, counting from 1, including rejected cards.</param>
+/// <param name="Label">Whatever identified it, if anything did. Null when nothing usable was found.</param>
+/// <param name="Reason">Why it could not be read, in the same words the whole file used to fail with.</param>
+public sealed record VCardRejectedCard(int Position, string? Label, string Reason);
+
+/// <summary>What a file yielded: the cards that can be imported, and the ones that cannot.</summary>
+public sealed record VCardParseResult(IReadOnlyList<VCard> Cards, IReadOnlyList<VCardRejectedCard> Rejected);
+
 public static class VCardParser
 {
     public const int MaximumBytes = 5 * 1024 * 1024;
     public const int MaximumCards = 1_000;
     public const int MaximumPropertiesPerCard = 2_000;
 
-    public static IReadOnlyList<VCard> Parse(ReadOnlySpan<byte> content)
+    public static VCardParseResult Parse(ReadOnlySpan<byte> content)
     {
         if (content.Length is 0 or > MaximumBytes)
         {
@@ -48,7 +60,7 @@ public static class VCardParser
         return parser.Complete();
     }
 
-    public static async Task<IReadOnlyList<VCard>> ParseAsync(Stream content, CancellationToken cancellationToken = default)
+    public static async Task<VCardParseResult> ParseAsync(Stream content, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(content);
         byte[] bytes = new byte[16 * 1024];
@@ -82,7 +94,12 @@ public static class VCardParser
         private readonly StringBuilder _physical = new();
         private readonly StringBuilder _logical = new();
         private readonly List<VCard> _cards = [];
+        private readonly List<VCardRejectedCard> _rejected = [];
         private List<VCardProperty>? _properties;
+        // Set as soon as something in the current card cannot be read. The remaining lines are still
+        // consumed so that the card's own END marker is found and the file stays in step.
+        private string? _failure;
+        private int _position;
 
         internal void Append(ReadOnlySpan<char> characters)
         {
@@ -118,29 +135,82 @@ public static class VCardParser
             {
                 if (_properties is not null) throw new DomainValidationException("Nested vCards are not valid.");
                 _properties = [];
+                _failure = null;
+                _position++;
             }
             else if (string.Equals(line, "END:VCARD", StringComparison.OrdinalIgnoreCase))
             {
                 if (_properties is null) throw new DomainValidationException("A vCard end marker has no matching start marker.");
-                _cards.Add(CreateCard(_properties));
-                if (_cards.Count > MaximumCards) throw new DomainValidationException($"A vCard file cannot contain more than {MaximumCards} contacts.");
+                FinishCard(_properties);
+                // Counted together so a file of nothing but unusable cards still fails fast.
+                if (_cards.Count + _rejected.Count > MaximumCards)
+                    throw new DomainValidationException($"A vCard file cannot contain more than {MaximumCards} contacts.");
                 _properties = null;
             }
             else
             {
                 if (_properties is null) throw new DomainValidationException("Content outside a vCard is not supported.");
-                _properties.Add(ParseProperty(line));
-                if (_properties.Count > MaximumPropertiesPerCard) throw new DomainValidationException($"A contact cannot contain more than {MaximumPropertiesPerCard} properties.");
+                if (_failure is not null) return;
+                try
+                {
+                    _properties.Add(ParseProperty(line));
+                }
+                catch (DomainValidationException exception)
+                {
+                    _failure = exception.Message;
+                    return;
+                }
+
+                if (_properties.Count > MaximumPropertiesPerCard)
+                    _failure = $"A contact cannot contain more than {MaximumPropertiesPerCard} properties.";
             }
         }
 
-        internal List<VCard> Complete()
+        private void FinishCard(List<VCardProperty> properties)
+        {
+            if (_failure is null)
+            {
+                try
+                {
+                    _cards.Add(CreateCard(properties));
+                    return;
+                }
+                catch (DomainValidationException exception)
+                {
+                    _failure = exception.Message;
+                }
+            }
+
+            _rejected.Add(new(_position, Label(properties), _failure!));
+            _failure = null;
+        }
+
+        /// <summary>
+        /// Best effort at something the reader will recognise. A card rejected for having no FN has
+        /// to be identifiable by whatever else it carried, or it cannot be found and fixed.
+        /// </summary>
+        private static string? Label(IReadOnlyList<VCardProperty> properties)
+        {
+            foreach (string name in new[] { "FN", "N", "ORG", "EMAIL", "TEL", "UID" })
+            {
+                VCardProperty? match = properties.FirstOrDefault(property =>
+                    string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (match is null) continue;
+                string text = match.TextValue.Replace(';', ' ').ReplaceLineEndings(" ").Trim();
+                if (text.Length == 0) continue;
+                return text.Length <= 100 ? text : text[..100];
+            }
+
+            return null;
+        }
+
+        internal VCardParseResult Complete()
         {
             FinishPhysicalLine();
             FinishLogicalLine();
             if (_properties is not null) throw new DomainValidationException("A vCard is missing its end marker.");
-            if (_cards.Count == 0) throw new DomainValidationException("No vCards were found.");
-            return _cards;
+            if (_cards.Count == 0 && _rejected.Count == 0) throw new DomainValidationException("No vCards were found.");
+            return new(_cards, _rejected);
         }
     }
     private static VCard CreateCard(IReadOnlyList<VCardProperty> properties)

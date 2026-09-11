@@ -59,7 +59,7 @@ public sealed partial class RecordWorkflowTests
         await Assert.ThrowsAsync<ConcurrencyConflictException>(() => vcards.ApplyAsync(preview, [new(0, VCardImportAction.CreateSeparately)]));
         preview = await vcards.PreviewAsync(bytes);
         await using var connection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
-        await connection.ExecuteAsync("INSERT INTO VCardImports (Fingerprint, RecordId, SourceVersion, ImportedAtUtc) VALUES (@Fingerprint, @Id, '4.0', @Now);",
+        await connection.ExecuteAsync("INSERT INTO RecordSourceImports (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc) VALUES (lower(hex(randomblob(4))) || '-0000-4000-8000-000000000000', @Id, 'vcard', '4.0', @Fingerprint, @Now);",
             new { Fingerprint = new string('A', 64), Id = person.Record.Id.ToString("D"), Now = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture) });
         Assert.NotEqual(preview.Revision, await store.GetImportRevisionAsync());
         string beforeRollback = await store.GetImportRevisionAsync();
@@ -72,7 +72,7 @@ public sealed partial class RecordWorkflowTests
         Assert.Equal(beforeRollback, await store.GetImportRevisionAsync());
         VCardImportPreview pending = await vcards.PreviewAsync(bytes);
         IReadOnlyList<VCardPreparedImport> prepared = await vcards.PrepareImportAsync(pending, [new(0, VCardImportAction.CreateSeparately)]);
-        await connection.ExecuteAsync("CREATE TRIGGER TestFailImport BEFORE INSERT ON VCardProperties BEGIN SELECT RAISE(ABORT, 'Test failure'); END;");
+        await connection.ExecuteAsync("CREATE TRIGGER TestFailImport BEFORE INSERT ON RecordSourceValues BEGIN SELECT RAISE(ABORT, 'Test failure'); END;");
         await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => store.ApplyAsync(prepared, pending.Revision, DateTimeOffset.UtcNow));
         Assert.Equal(pending.Revision, await store.GetImportRevisionAsync());
         Assert.Equal(1, (await records.SearchRecordsAsync(new())).TotalCount);

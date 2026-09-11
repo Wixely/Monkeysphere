@@ -4,8 +4,10 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory connections) : IRelationshipGraphStore
+public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : IRelationshipGraphStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<RelationshipGraphResult> QueryAsync(
         RelationshipGraphQuery query,
         CancellationToken cancellationToken = default)
@@ -21,11 +23,11 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
         string? relationshipTypeId = query.RelationshipTypeId?.ToString("D");
         int nodeTake = query.NodeLimit + 1;
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        IEnumerable<GraphNodeRow> nodeRows = await connection.QueryAsync<GraphNodeRow>(new CommandDefinition("""
+        IEnumerable<GraphNodeRow> nodeRows = await connection.QueryAsync<GraphNodeRow>(new CommandDefinition($"""
             WITH RECURSIVE connected(Id, Distance) AS (
                 SELECT record.Id, 0
                 FROM Records record
-                WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds)
+                WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds){Visible("record")}
                   AND ((@Pattern IS NOT NULL
                         AND (record.DisplayName LIKE @Pattern ESCAPE '\' COLLATE NOCASE
                              OR EXISTS (SELECT 1 FROM RecordAliases alias
@@ -44,6 +46,10 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
                 WHERE @DisplayMode = @ConnectedMode
                   AND connected.Distance < @Depth
                   AND (@RelationshipTypeId IS NULL OR relationship.RelationshipTypeId = @RelationshipTypeId)
+                  AND EXISTS (
+                      SELECT 1 FROM Records hop
+                      WHERE hop.Id = CASE WHEN relationship.SourceRecordId = connected.Id
+                                          THEN relationship.TargetRecordId ELSE relationship.SourceRecordId END{Visible("hop")})
             ), selected AS (
                 SELECT Id, min(Distance) AS Distance
                 FROM connected
@@ -63,7 +69,7 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             FROM selected
             INNER JOIN Records record ON record.Id = selected.Id
             INNER JOIN RecordTypes type ON type.Id = record.RecordTypeId
-            WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds)
+            WHERE (@HasRecordTypeFilter = 0 OR record.RecordTypeId IN @RecordTypeIds){Visible("record")}
             ORDER BY CASE WHEN @HasSelection = 1 AND record.Id IN @SelectedRecordIds THEN 0 ELSE 1 END,
                      selected.Distance, record.DisplayName COLLATE NOCASE, record.Id
             LIMIT @NodeTake;

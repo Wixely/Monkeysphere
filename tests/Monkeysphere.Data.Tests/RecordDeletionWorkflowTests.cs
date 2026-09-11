@@ -30,8 +30,9 @@ public sealed partial class RecordWorkflowTests
         await using (var connection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync())
         {
             await connection.ExecuteAsync("""
-                INSERT INTO VCardImports (Fingerprint, RecordId, SourceVersion, ImportedAtUtc) VALUES ('fixture', @Id, '4.0', '2026-09-07T00:00:00Z');
-                INSERT INTO VCardProperties (RecordId, Ordinal, PropertyName, ParametersJson, RawValue, MappingKind)
+                INSERT INTO RecordSourceImports (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc)
+                    VALUES ('00000000-0000-4000-8000-00000000f1a1', @Id, 'vcard', '4.0', 'fixture', '2026-09-07T00:00:00Z');
+                INSERT INTO RecordSourceValues (RecordId, Ordinal, Name, ParametersJson, RawValue, Mapping)
                 VALUES (@Id, 0, 'X-FIXTURE', '[]', 'opaque', 0);
                 """, new { Id = record.Record.Id.ToString("D") });
         }
@@ -61,8 +62,8 @@ public sealed partial class RecordWorkflowTests
         RecordCommandReceipt replay = await deletions.ApplyDeletionAsync(apply, record.Record.Id, record.Revision, preview.PreviewId, preview.ExpiresAtUtc.AddMinutes(1));
         Assert.Equal(receipt.Items.ToArray(), replay.Items.ToArray());
         await using var finalConnection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
-        Assert.Equal(0, await finalConnection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM VCardProperties;"));
-        Assert.Equal(0, await finalConnection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM VCardImports;"));
+        Assert.Equal(0, await finalConnection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM RecordSourceValues;"));
+        Assert.Equal(0, await finalConnection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM RecordSourceImports;"));
         Assert.Equal(1, await finalConnection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ApplicationCommandAudit WHERE Outcome = 'committed';"));
     }
 
@@ -87,8 +88,9 @@ public sealed partial class RecordWorkflowTests
         await using var connection = await application.Services.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
         var parameter = new { Id = record.Record.Id.ToString("D") };
         await connection.ExecuteAsync("""
-            INSERT INTO VCardImports (Fingerprint, RecordId, SourceVersion, ImportedAtUtc) VALUES ('fixture', @Id, '4.0', '2026-09-07T00:00:00Z');
-            INSERT INTO VCardProperties (RecordId, Ordinal, PropertyName, ParametersJson, RawValue, MappingKind)
+            INSERT INTO RecordSourceImports (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc)
+                VALUES ('00000000-0000-4000-8000-00000000f1a2', @Id, 'vcard', '4.0', 'fixture', '2026-09-07T00:00:00Z');
+            INSERT INTO RecordSourceValues (RecordId, Ordinal, Name, ParametersJson, RawValue, Mapping)
             VALUES (@Id, 0, 'X-FIXTURE', '[]', 'opaque', 0);
             """, parameter);
         string[] edits = [
@@ -97,8 +99,8 @@ public sealed partial class RecordWorkflowTests
             "UPDATE Reminders SET LeadDays = 2 WHERE RecordId = @Id;",
             "UPDATE GraphViewRecords SET SortOrder = 1 WHERE RecordId = @Id;",
             "UPDATE GraphViewNodePositions SET X = 100 WHERE RecordId = @Id;",
-            "UPDATE VCardImports SET SourceVersion = '3.0' WHERE RecordId = @Id;",
-            "UPDATE VCardProperties SET RawValue = 'Changed' WHERE RecordId = @Id;",
+            "UPDATE RecordSourceImports SET SourceFormat = '3.0' WHERE RecordId = @Id;",
+            "UPDATE RecordSourceValues SET RawValue = 'Changed' WHERE RecordId = @Id;",
         ];
         DateTimeOffset now = DateTimeOffset.UtcNow;
         foreach (string edit in edits)

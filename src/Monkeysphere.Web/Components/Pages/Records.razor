@@ -101,7 +101,10 @@
                                 {
                                     <td>@row.Values.GetValueOrDefault(column.Definition.Id, "—")</td>
                                 }
-                                <td class="muted">@row.Record.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                                <td class="muted">
+                                    @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g")
+                                    <BackstageRecordActions RecordId="row.Record.Id" State="row.Record.BackstageState" OnChanged="SearchAsync" />
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -118,6 +121,7 @@
                     <a href="/records/@record.Id">@record.DisplayName</a>
                     <span class="pill">@record.RecordTypeName</span>
                     <span class="muted">Updated @record.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
+                    <BackstageRecordActions RecordId="record.Id" State="record.BackstageState" OnChanged="SearchAsync" />
                 </li>
             }
         </ul>

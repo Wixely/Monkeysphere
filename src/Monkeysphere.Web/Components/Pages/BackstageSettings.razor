@@ -1,0 +1,126 @@
+@page "/settings/backstage"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject BackstageAvailability Availability
+@inject IBackstageService Backstage
+
+<PageTitle>Backstage · Monkeysphere</PageTitle>
+
+@if (!Availability.Enabled)
+{
+    <section class="panel"><h1>Not found</h1><p>This settings section is not enabled.</p></section>
+}
+else
+{
+    <SettingsTabs Active="backstage" />
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Restricted records</p>
+            <h1>Backstage</h1>
+            <p>
+                While you are backstage, records held back by backstage policy become visible to you and each
+                record gains the options that change that policy. Everyone and everything else continues to see
+                nothing of those records &mdash; not in search, not in the graph, and not in any relationship
+                or other metadata.
+            </p>
+        </div>
+    </div>
+
+    <section class="panel">
+        <h2>@(_status.Active ? "You are backstage" : "You are not backstage")</h2>
+        @if (_status.Active)
+        {
+            <p>
+                Backstage ends automatically at
+                <strong>@(_status.ExpiresAtUtc?.ToLocalTime().ToString("f"))</strong>
+                (@RemainingText), whether or not you remember to leave. Leaving now is always safer.
+            </p>
+            <button class="button" type="button" disabled="@_busy" @onclick="LeaveAsync">
+                @(_busy ? "Leaving…" : "Leave backstage")
+            </button>
+        }
+        else
+        {
+            <p>
+                Entering backstage lasts @BackstageSession.LifetimeHours hours and then ends on its own. It
+                applies to your account across every domain of this deployment.
+            </p>
+            <button class="button primary" type="button" disabled="@_busy" @onclick="EnterAsync">
+                @(_busy ? "Entering…" : "Enter backstage")
+            </button>
+        }
+        @if (_error is not null)
+        {
+            <p class="error" role="alert">@_error</p>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>What backstage does not cover</h2>
+        <ul>
+            <li>
+                A remote credential granted the <strong>Backstage records</strong> permission sees these records on
+                every call it makes. That grant does not expire after @BackstageSession.LifetimeHours hours the way
+                this does; remove the permission under Remote access to stop it.
+            </li>
+            <li>
+                Turning backstage off for the deployment leaves any hidden records hidden and unreachable by
+                everyone, including you. Turn it back on to reach them again.
+            </li>
+            <li>
+                Hidden records are still counted by structural guards, so a record type or field they use cannot be
+                retired or deleted while they exist, and a backup still contains them.
+            </li>
+        </ul>
+    </section>
+}
+
+@code {
+    private BackstageStatus _status = new(false, false, null);
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Availability.Enabled)
+        {
+            _status = await Backstage.GetStatusAsync();
+        }
+    }
+
+    private string RemainingText
+    {
+        get
+        {
+            if (_status.ExpiresAtUtc is not DateTimeOffset expiry) return "unknown";
+            TimeSpan left = expiry - DateTimeOffset.UtcNow;
+            return left <= TimeSpan.Zero
+                ? "expiring now"
+                : left.TotalHours >= 1
+                    ? $"in about {(int)left.TotalHours} hour{((int)left.TotalHours == 1 ? "" : "s")}"
+                    : $"in about {Math.Max(1, (int)left.TotalMinutes)} minute{((int)left.TotalMinutes == 1 ? "" : "s")}";
+        }
+    }
+
+    private Task EnterAsync() => RunAsync(Backstage.ActivateAsync);
+
+    private Task LeaveAsync() => RunAsync(Backstage.DeactivateAsync);
+
+    private async Task RunAsync(Func<CancellationToken, Task<BackstageStatus>> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _status = await action(CancellationToken.None);
+        }
+        catch (DomainValidationException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

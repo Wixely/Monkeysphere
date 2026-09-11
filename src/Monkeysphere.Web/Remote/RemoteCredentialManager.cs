@@ -1,5 +1,6 @@
 using DnaX.RemoteAccess;
 using Monkeysphere.Core;
+using Monkeysphere.Web.Security;
 
 namespace Monkeysphere.Web.Remote;
 
@@ -10,6 +11,7 @@ public sealed class RemoteCredentialManager(IDnaXRemoteAccessAdministration admi
     public static IReadOnlyList<RemoteScopeOption> AvailableScopes(DnaXRemoteSurface surface) => surface == DnaXRemoteSurface.Mcp
         ? [
             new("instance.read", "Instance discovery", "Read versions, supported tools and request limits."),
+            new(BackstageScopes.Backstage, "Backstage records", "See records held back by backstage policy, such as hidden records, through every tool this credential can already use. Unlike the browser, this grant does not expire after 24 hours: it applies on every call until the permission is removed. It grants no reads on its own, and it does nothing while backstage is disabled for the deployment."),
             new("contacts.import", "Import contacts", "Upload and validate contact files, then preview and apply reviewed create/skip/merge/replace decisions. Also select application data to discover target domains. Importing does not permit exporting contacts."),
             new("media.write", "Add and remove record images", "Upload image files and attach them to a record, or remove one. Select application data to discover the records involved."),
             new("media.read", "Read record images", "Download record image bytes, including retained originals which can carry camera metadata the display copies remove."),

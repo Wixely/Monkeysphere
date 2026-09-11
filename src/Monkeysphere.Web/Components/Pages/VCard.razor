@@ -96,6 +96,36 @@
             </div>
             <span class="pill">Target: @_preview.RecordTypeName</span>
         </div>
+        @if (_preview.Rejected.Count > 0)
+        {
+            <div class="notice warning" role="status">
+                <p>
+                    <strong>@_preview.Rejected.Count of @(_preview.Rejected.Count + _preview.Contacts.Count) card(s) in this file could not be read</strong>
+                    and are listed below. They are not imported and nothing else about them is retained. The
+                    remaining @_preview.Contacts.Count contact(s) import normally.
+                </p>
+                <ul>
+                    @foreach (VCardRejectedCard rejected in _preview.Rejected)
+                    {
+                        <li>
+                            <strong>Card @rejected.Position</strong>
+                            @if (rejected.Label is string label)
+                            {
+                                <text>&nbsp;&mdash;&nbsp;@label</text>
+                            }
+                            <div class="muted">@rejected.Reason</div>
+                        </li>
+                    }
+                </ul>
+                <p class="muted">Fix these entries in the source file and import it again to add them.</p>
+            </div>
+        }
+
+        @if (_preview.Contacts.Count == 0)
+        {
+            <p>No contact in this file could be read, so there is nothing to import.</p>
+        }
+
         <div class="vcard-preview-list">
             @foreach (ImportEditor editor in _importEditors)
             {
@@ -149,9 +179,12 @@
                 </article>
             }
         </div>
-        <div class="vcard-review-actions">
-            <button class="button primary" type="button" @onclick="ApplyAsync">Apply all choices transactionally</button>
-        </div>
+        @if (_preview.Contacts.Count > 0)
+        {
+            <div class="vcard-review-actions">
+                <button class="button primary" type="button" @onclick="ApplyAsync">Apply all choices transactionally</button>
+            </div>
+        }
     </section>
 }
 
@@ -199,7 +232,9 @@
             _preview = await VCards.PreviewAsync(stream);
             _importEditors.Clear();
             _importEditors.AddRange(_preview.Contacts.Select(contact => new ImportEditor(contact)));
-            _message = $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying.";
+            _message = _preview.Rejected.Count == 0
+                ? $"Previewed {_preview.Contacts.Count} contact(s). Review every action before applying."
+                : $"Previewed {_preview.Contacts.Count} contact(s); {_preview.Rejected.Count} could not be read and are listed below.";
             _isError = false;
         }
         catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException or IOException)

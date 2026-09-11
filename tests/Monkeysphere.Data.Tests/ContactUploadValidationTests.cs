@@ -33,9 +33,9 @@ public sealed partial class DomainIsolationTests
             byte[] valid = Encoding.UTF8.GetBytes("BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Zoë Example\r\nX-EXAMPLE:one\r\n two\r\nEND:VCARD\r\n");
             UploadStatus staged = await StageAsync(valid);
             Assert.Equal("upload_not_ready", (await Assert.ThrowsAsync<UploadException>(() => uploads.ReadSealedAsync(owner, staged.UploadId, VCardParser.ParseAsync))).Code);
-            IReadOnlyList<VCard> cards = await validator.ValidateAsync(owner, staged.UploadId);
-            Assert.Equal(Assert.Single(VCardParser.Parse(valid)).Fingerprint, Assert.Single(cards).Fingerprint);
-            Assert.Equal(cards[0].Fingerprint, Assert.Single(await validator.ValidateAsync(owner, staged.UploadId)).Fingerprint);
+            IReadOnlyList<VCard> cards = (await validator.ValidateAsync(owner, staged.UploadId)).Cards;
+            Assert.Equal(Assert.Single(VCardParser.Parse(valid).Cards).Fingerprint, Assert.Single(cards).Fingerprint);
+            Assert.Equal(cards[0].Fingerprint, Assert.Single((await validator.ValidateAsync(owner, staged.UploadId)).Cards).Fingerprint);
             await Assert.ThrowsAsync<UploadException>(() => validator.ValidateAsync(owner with { CredentialFingerprint = new string('B', 64) }, staged.UploadId));
             using IServiceScope scope = provider.CreateScope();
             Assert.Equal(0, (await scope.ServiceProvider.GetRequiredService<IMonkeysphereService>().SearchRecordsAsync(new())).TotalCount);
@@ -48,9 +48,18 @@ public sealed partial class DomainIsolationTests
                 return 0;
             });
             await Assert.ThrowsAsync<ObjectDisposedException>(async () => await retained!.ReadExactlyAsync(new byte[1]));
-            UploadStatus malformed = await StageAsync(Encoding.UTF8.GetBytes("BEGIN:VCARD\nVERSION:4.0\nEND:VCARD\n"));
+            // A card that cannot be read is set aside and reported rather than failing the upload,
+            // so a bulk file is not lost to one bad contact. Nothing about it is imported.
+            UploadStatus unusable = await StageAsync(Encoding.UTF8.GetBytes("BEGIN:VCARD\nVERSION:4.0\nEND:VCARD\n"));
+            VCardParseResult unusableResult = await validator.ValidateAsync(owner, unusable.UploadId);
+            Assert.Empty(unusableResult.Cards);
+            Assert.Single(unusableResult.Rejected);
+            Assert.Equal("sealed", (await uploads.GetAsync(owner, unusable.UploadId)).State); // Integrity is separate from semantic validation.
+
+            // Structural damage still fails the whole upload: there is no way to tell where one
+            // card ends and the next begins, so nothing can be salvaged safely.
+            UploadStatus malformed = await StageAsync(Encoding.UTF8.GetBytes("VERSION:4.0\nFN:Ada\n"));
             await Assert.ThrowsAsync<DomainValidationException>(() => validator.ValidateAsync(owner, malformed.UploadId));
-            Assert.Equal("sealed", (await uploads.GetAsync(owner, malformed.UploadId)).State); // Integrity is separate from semantic validation.
             _ = await uploads.CancelAsync(owner, staged.UploadId);
             await Assert.ThrowsAsync<UploadException>(() => validator.ValidateAsync(owner, staged.UploadId));
         }

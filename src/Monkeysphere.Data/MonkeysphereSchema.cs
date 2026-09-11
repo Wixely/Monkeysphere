@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 28,
+        currentVersion: 30,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -673,6 +673,123 @@ public static class MonkeysphereSchema
                     Revision TEXT NULL,
                     PRIMARY KEY (ReceiptId, ContactIndex)
                 );
+                """),
+            DnaXMigration.Sql(29, "backstage-record-states", "Record a backstage policy state that withholds a record from ordinary reads", """
+                ALTER TABLE Records ADD COLUMN BackstageState TEXT NULL
+                    CHECK (BackstageState IS NULL OR BackstageState IN ('hidden'));
+                CREATE INDEX IX_Records_BackstageState ON Records (BackstageState)
+                    WHERE BackstageState IS NOT NULL;
+                """),
+            DnaXMigration.Sql(30, "record-source-material", "Generalise retained vCard import material into inspectable per-record source data", """
+                CREATE TABLE RecordSourceImports (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RecordId TEXT NOT NULL,
+                    SourceKind TEXT NOT NULL CHECK (SourceKind IN ('vcard')),
+                    SourceFormat TEXT NULL,
+                    Fingerprint TEXT NULL,
+                    ImportedAtUtc TEXT NOT NULL,
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+
+                CREATE UNIQUE INDEX UX_RecordSourceImports_Identity
+                    ON RecordSourceImports(RecordId, SourceKind, Fingerprint)
+                    WHERE Fingerprint IS NOT NULL;
+                CREATE INDEX IX_RecordSourceImports_Record
+                    ON RecordSourceImports(RecordId, ImportedAtUtc);
+
+                CREATE TABLE RecordSourceValues (
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    ImportId TEXT NULL,
+                    Grouping TEXT NULL,
+                    Name TEXT NOT NULL,
+                    ParametersJson TEXT NOT NULL,
+                    RawValue TEXT NOT NULL,
+                    Mapping INTEGER NOT NULL CHECK (Mapping BETWEEN 0 AND 3),
+                    FieldDefinitionId TEXT NULL,
+                    ValueOrdinal INTEGER NULL CHECK (ValueOrdinal IS NULL OR ValueOrdinal >= 0),
+                    PRIMARY KEY (RecordId, Ordinal),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (ImportId) REFERENCES RecordSourceImports(Id) ON DELETE SET NULL,
+                    FOREIGN KEY (FieldDefinitionId) REFERENCES FieldDefinitions(Id),
+                    CHECK ((Mapping = 3 AND FieldDefinitionId IS NOT NULL AND ValueOrdinal IS NOT NULL) OR
+                           (Mapping <> 3 AND FieldDefinitionId IS NULL AND ValueOrdinal IS NULL))
+                );
+
+                CREATE INDEX IX_RecordSourceValues_Field
+                    ON RecordSourceValues(FieldDefinitionId, RecordId, ValueOrdinal)
+                    WHERE FieldDefinitionId IS NOT NULL;
+                CREATE INDEX IX_RecordSourceValues_Import
+                    ON RecordSourceValues(ImportId)
+                    WHERE ImportId IS NOT NULL;
+
+                INSERT INTO RecordSourceImports (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc)
+                SELECT lower(
+                           substr(hex(randomblob(4)), 1, 8) || '-' ||
+                           substr(hex(randomblob(2)), 1, 4) || '-4' ||
+                           substr(hex(randomblob(2)), 2, 3) || '-' ||
+                           substr('89ab', abs(random()) % 4 + 1, 1) ||
+                           substr(hex(randomblob(2)), 2, 3) || '-' ||
+                           substr(hex(randomblob(6)), 1, 12)),
+                       RecordId, 'vcard', SourceVersion, Fingerprint, ImportedAtUtc
+                FROM VCardImports;
+
+                -- Retained lines only carry an import where the record has exactly one, because
+                -- nothing before this migration recorded which card a line arrived on. The rest stay
+                -- unattributed rather than being guessed at.
+                INSERT INTO RecordSourceValues
+                    (RecordId, Ordinal, ImportId, Grouping, Name, ParametersJson, RawValue,
+                     Mapping, FieldDefinitionId, ValueOrdinal)
+                SELECT p.RecordId, p.Ordinal,
+                       (SELECT i.Id FROM RecordSourceImports i
+                        WHERE i.RecordId = p.RecordId
+                          AND (SELECT COUNT(*) FROM RecordSourceImports c WHERE c.RecordId = p.RecordId) = 1),
+                       p.GroupName, p.PropertyName, p.ParametersJson, p.RawValue,
+                       p.MappingKind, p.FieldDefinitionId, p.ValueOrdinal
+                FROM VCardProperties p;
+
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_INSERT AFTER INSERT ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_UPDATE AFTER UPDATE ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId, NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_DELETE AFTER DELETE ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceValues_DeletionRevision_INSERT AFTER INSERT ON RecordSourceValues BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceValues_DeletionRevision_UPDATE AFTER UPDATE ON RecordSourceValues BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId, NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceValues_DeletionRevision_DELETE AFTER DELETE ON RecordSourceValues BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId);
+                END;
+
+                CREATE TRIGGER RecordSourceImports_ContactImport_INSERT AFTER INSERT ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceImports_ContactImport_UPDATE AFTER UPDATE ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceImports_ContactImport_DELETE AFTER DELETE ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceValues_ContactImport_INSERT AFTER INSERT ON RecordSourceValues BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceValues_ContactImport_UPDATE AFTER UPDATE ON RecordSourceValues BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceValues_ContactImport_DELETE AFTER DELETE ON RecordSourceValues BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+
+                DROP INDEX IX_VCardProperties_Field;
+                DROP INDEX IX_VCardImports_Record;
+                DROP TABLE VCardProperties;
+                DROP TABLE VCardImports;
                 """),
         ]);
 }

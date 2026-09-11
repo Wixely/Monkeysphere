@@ -39,7 +39,7 @@ public sealed record RemoteCapabilities(
 [RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write")]
 public sealed class MonkeysphereDiscoveryTools
 {
-    private const string ContractVersion = "1.16";
+    private const string ContractVersion = "1.19";
 
     private static readonly string[] DiscoveryScopes =
         ["records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write"];
@@ -65,7 +65,7 @@ public sealed class MonkeysphereDiscoveryTools
         ClaimsPrincipal principal = DemandDiscoveryScope(accessor);
         string[] scopes = principal.FindAll(DnaXRemoteClaimTypes.Scope)
             .Select(claim => claim.Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools), typeof(MonkeysphereContactPreviewTools), typeof(MonkeysphereContactExportTools), typeof(MonkeysphereImageTools) }
+        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools), typeof(MonkeysphereContactPreviewTools), typeof(MonkeysphereContactExportTools), typeof(MonkeysphereImageTools), typeof(MonkeysphereRecordSourceTools) }
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static))
             .Select(method => (Method: method, Tool: method.GetCustomAttribute<McpServerToolAttribute>()))
             .Where(item => item.Tool is not null)

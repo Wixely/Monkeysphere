@@ -13,7 +13,8 @@ public sealed class MigrationTests
             "sha256:92a2229c1bb7b216b072f59957cb6ce5457974aa74a239996350c628c84bde75",
             "sha256:efe2860cc91f2b57e44e8aed34c64f5f9592ae4e598983deaa91ab19a37a43e1",
             "sha256:8b01f8e638175ba8998be2ed9ae2f58b87aff8f5bb45dd85c5f4b439dc2ddcd9",
-            "sha256:17831afa7d7c1f3666fe95d40617bbd92ad48d6f418ad5f55adca3193f8eabf4");
+            "sha256:17831afa7d7c1f3666fe95d40617bbd92ad48d6f418ad5f55adca3193f8eabf4",
+            "sha256:2eb1f66ddccc384dfb49e5a2338474ba701a313050c4cf4d552827125682c15c");
 
         AssertChecksums(MonkeysphereSchema.Manifest,
             "sha256:83526a45a8e61f30657a022434c9cf7eefc5276c8480d038b5a2e677a8d71ac1",
@@ -43,7 +44,9 @@ public sealed class MigrationTests
             "sha256:e1f0ba1c3d15a0fe88dc5b94d5f76b376aad3f52836f4ae81a4729a5f4455fe7",
             "sha256:61f3bfccd75d196ba1c577a0d3a875e82df089f6f413d8234899b5fc3d999eab",
             "sha256:b7d3dfeb4f4771d6be711c83b19b3f82848ca9f5946c0eeccc23830278d1d57f",
-            "sha256:63ade6531ba26172a5f1ae387690053e489e5ea146344d45d83b018337752a71");
+            "sha256:63ade6531ba26172a5f1ae387690053e489e5ea146344d45d83b018337752a71",
+            "sha256:9eacc477b665e3c1437067f7655ae6e6dd5a7920c149392d6e0770e3ec26f3d4",
+            "sha256:6af20497191d71f001ac59e6346241a5b09f5ea7820e25bb1a6fc89fa56a907a");
 
         AssertChecksums(RemoteUploadSchema.Manifest,
             "sha256:48112d7f6ce66e6dfa27e2042f0f72eae944e13fad96403c39676b631d5b8175",

@@ -23,7 +23,8 @@ public sealed record RemoteUploadTransferLimits(int MaximumChunkBytes, long Maxi
     }
 }
 
-public sealed record RemoteUploadCompletion(UploadStatus Upload, int ContactCount, bool ContentValidated);
+public sealed record RemoteUploadCompletion(
+    UploadStatus Upload, int ContactCount, bool ContentValidated, IReadOnlyList<VCardRejectedCard> RejectedContacts);
 
 public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUploadService validator, RemoteCommandIdentityProvider identities,
     IOptions<DnaXRemoteAccessOptions> options, IHttpContextAccessor accessor, ILogger<RemoteUploadCommands> logger)
@@ -63,9 +64,14 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
         UploadStatus staged = await uploads.GetAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
         int contactCount = 0;
         bool validated = false;
+        IReadOnlyList<VCardRejectedCard> rejected = [];
         if (staged.Purpose == UploadPurposes.ContactImport)
         {
-            contactCount = (await validator.ValidateAsync(owner, uploadId, cancellationToken).ConfigureAwait(false)).Count;
+            // A card the file could not yield is reported, not fatal: one unusable contact in a bulk
+            // export must not cost the caller the rest of the file.
+            VCardParseResult parsed = await validator.ValidateAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
+            contactCount = parsed.Cards.Count;
+            rejected = parsed.Rejected;
             validated = true;
         }
         else
@@ -79,7 +85,7 @@ public sealed class RemoteUploadCommands(IRemoteUploadStore uploads, ContactUplo
         await uploads.RecordAuditAsync(new(domainId, uploadId, "uploads.complete", validated ? "validated" : "sealed", owner.CorrelationId), cancellationToken).ConfigureAwait(false);
         UploadStatus status = await uploads.GetAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
         if (status.State != "sealed") throw new UploadException("upload_not_ready", "The upload became unavailable during validation.");
-        return new RemoteUploadCompletion(Adapt(status), contactCount, validated);
+        return new RemoteUploadCompletion(Adapt(status), contactCount, validated, rejected);
     });
 
     private UploadStatus Adapt(UploadStatus status) => status with { MaximumChunkBytes = Limits.MaximumChunkBytes };
@@ -151,7 +157,7 @@ public sealed class MonkeysphereUploadTools
     public static Task<CallToolResult> StatusAsync(RemoteUploadCommands commands, Guid domainId, Guid uploadId, CancellationToken cancellationToken = default) => commands.StatusAsync(domainId, uploadId, cancellationToken);
 
     [McpServerTool(Name = "complete_upload", ReadOnly = false, Destructive = false)]
-    [Description("Verifies uploaded length/hash and streams strict UTF-8 vCard 3.0/4.0 validation. Requires contacts.import and explicit domainId. Returns contact count and contentValidated, not contact contents. Safe to retry while live; does not extend expiry, import records or create an import preview. Contact preview/apply tools remain unimplemented.")]
+    [Description("Verifies uploaded length/hash and streams strict UTF-8 vCard 3.0/4.0 validation. Requires contacts.import and explicit domainId. Returns contactCount, contentValidated and rejectedContacts, not contact contents. A card the file contains that cannot be read does not fail the upload: it is reported in rejectedContacts with its position in the file counting from 1, a best-effort label taken from whatever identified it, and the reason, and it is excluded from contactCount. A file whose cards are all unusable completes with contactCount 0 and every reason listed. Structural damage that makes card boundaries unknowable, such as a missing END marker or content outside a card, still fails the whole upload. Safe to retry while live; does not extend expiry, import records or create an import preview.")]
     public static Task<CallToolResult> CompleteAsync(RemoteUploadCommands commands, Guid domainId, Guid uploadId, CancellationToken cancellationToken = default) => commands.CompleteAsync(domainId, uploadId, cancellationToken);
 
     [McpServerTool(Name = "cancel_upload", ReadOnly = false, Destructive = true)]

@@ -355,13 +355,18 @@ internal sealed class TestApplication : IAsyncDisposable
 
     public IServiceProvider Services => _scope.ServiceProvider;
 
-    public static async Task<TestApplication> CreateAsync()
+    public static async Task<TestApplication> CreateAsync(bool backstage = false)
     {
         string dataRoot = Path.Combine(Path.GetTempPath(), "Monkeysphere.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataRoot);
         ServiceCollection services = new();
         services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(dataRoot));
         services.AddDnaXHosting(options => options.WritableDataRoot = dataRoot);
+        if (backstage)
+        {
+            services.AddScoped<IBackstageVisibility>(_ => new BackstageReader());
+        }
+
         services.AddMonkeysphereData();
         ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
         await provider.MigrateDnaXDatabaseAsync(MonkeysphereDataExtensions.DatabaseName);
@@ -378,6 +383,11 @@ internal sealed class TestApplication : IAsyncDisposable
         {
             Directory.Delete(_dataRoot, recursive: true);
         }
+    }
+
+    private sealed class BackstageReader : IBackstageVisibility
+    {
+        public bool IncludeBackstageRecords => true;
     }
 
     private sealed class TestHostEnvironment(string contentRoot) : IHostEnvironment

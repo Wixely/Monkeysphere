@@ -5,8 +5,10 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connections) : IDashboardStore
+public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : IDashboardStore
 {
+    private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
+
     public async Task<DashboardConfiguration?> GetConfigurationAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -104,7 +106,7 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
         }
 
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        IEnumerable<DashboardDateRow> rows = await connection.QueryAsync<DashboardDateRow>(new CommandDefinition("""
+        IEnumerable<DashboardDateRow> rows = await connection.QueryAsync<DashboardDateRow>(new CommandDefinition($"""
             SELECT fv.Id AS FieldValueId,
                    r.Id AS RecordId,
                    r.RecordTypeId,
@@ -124,7 +126,7 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
                    OR (fd.TypeId = 'temporal'
                        AND fv.TemporalPrecision BETWEEN @DayPrecision AND @SecondPrecision
                        AND fv.IsApproximate = 0
-                       AND fv.TemporalValue IS NOT NULL));
+                       AND fv.TemporalValue IS NOT NULL)){Visible("r")};
             """, new
         {
             FieldDefinitionIds = fieldDefinitionIds.Select(Key).ToArray(),

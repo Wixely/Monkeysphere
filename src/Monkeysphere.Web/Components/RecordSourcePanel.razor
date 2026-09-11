@@ -1,0 +1,116 @@
+@inject IRecordSourceService Sources
+
+@* Only renders when something was actually retained, so a hand-made record shows nothing. *@
+@if (_snapshot is not null)
+{
+    <section class="panel record-source">
+        <h2>Imported source data</h2>
+        <p>
+            Exactly what the importer received, kept as it arrived. Lines marked
+            <span class="pill source-opaque">not used</span> were understood by nothing and exist only here &mdash;
+            custom properties and embedded payloads live in this list and nowhere else in the record.
+        </p>
+
+        <h3>Where it came from</h3>
+        <ul class="item-list">
+            @foreach (RecordSourceImport import in _snapshot.Imports)
+            {
+                <li>
+                    <span class="pill">@KindLabel(import.SourceKind)@(import.SourceFormat is null ? null : " " + import.SourceFormat)</span>
+                    <span class="muted">Imported @import.ImportedAtUtc.ToLocalTime().ToString("f")</span>
+                    @if (import.Fingerprint is string fingerprint)
+                    {
+                        <code class="muted" title="Content fingerprint of the imported item">@Shorten(fingerprint)</code>
+                    }
+                </li>
+            }
+        </ul>
+
+        <h3>What it contained</h3>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Property</th>
+                        <th>Details</th>
+                        <th>Value</th>
+                        <th>Used as</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (RecordSourceValue value in _snapshot.Values)
+                    {
+                        <tr>
+                            <td>
+                                <code>@(value.Grouping is null ? value.Name : value.Grouping + "." + value.Name)</code>
+                            </td>
+                            <td class="muted">
+                                @if (value.Parameters.Count == 0)
+                                {
+                                    <text>&mdash;</text>
+                                }
+                                else
+                                {
+                                    @string.Join("; ", value.Parameters.Select(p => $"{p.Name}={string.Join(",", p.Values)}"))
+                                }
+                            </td>
+                            <td>
+                                <code class="source-value">@value.ValuePreview</code>
+                                @if (value.IsPreviewTruncated)
+                                {
+                                    <div class="muted">
+                                        @value.ValueLength.ToString("N0", CultureInfo.CurrentCulture) characters in total.
+                                        <a href="@ValueUrl(value.Ordinal)" target="_blank" rel="noopener">Download the whole value</a>
+                                    </div>
+                                }
+                            </td>
+                            <td>
+                                @if (value.Mapping == RecordSourceMapping.Opaque)
+                                {
+                                    <span class="pill source-opaque">not used</span>
+                                }
+                                else if (value.Mapping == RecordSourceMapping.FieldValue)
+                                {
+                                    <span class="pill">@(value.FieldName ?? "a field")</span>
+                                }
+                                else
+                                {
+                                    <span class="pill">@(value.Mapping == RecordSourceMapping.DisplayName ? "Display name" : "Aliases")</span>
+                                }
+                                @if (Unattributed(value))
+                                {
+                                    <span class="muted" title="Imported before Monkeysphere recorded which import each line came from">earlier import</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid RecordId { get; set; }
+
+    private RecordSourceSnapshot? _snapshot;
+
+    protected override async Task OnParametersSetAsync() => _snapshot = await Sources.GetAsync(RecordId);
+
+    private string ValueUrl(int ordinal) =>
+        $"/records/{RecordId}/source/{ordinal.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>True only when other lines are attributed, so the note means something to the reader.</summary>
+    private bool Unattributed(RecordSourceValue value) =>
+        value.ImportId is null && _snapshot!.Imports.Count > 0;
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        RecordSourceKinds.VCard => "vCard",
+        _ => kind,
+    };
+
+    private static string Shorten(string fingerprint) =>
+        fingerprint.Length <= 12 ? fingerprint : fingerprint[..12] + "…";
+}

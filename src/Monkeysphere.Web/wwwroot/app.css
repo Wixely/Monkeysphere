@@ -1955,6 +1955,38 @@ input[type="checkbox"] {
     font-weight: 750;
 }
 
+/* Backstage options never render for an ordinary viewer, so this styling is only ever seen by
+   someone who is already standing backstage. */
+.pill.backstage {
+    border-color: var(--danger);
+    color: var(--danger-dark);
+    background: var(--danger-soft);
+}
+
+.backstage-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+/* Retained import material. The "not used" marker is the one a reader is looking for: it means the
+   value exists here and nowhere else in the record. */
+.pill.source-opaque {
+    border-color: var(--line-strong);
+    color: var(--muted);
+    background: transparent;
+}
+
+.record-source .source-value {
+    display: inline-block;
+    max-width: 34rem;
+    overflow-wrap: anywhere;
+}
+
+.record-source h3 {
+    margin-top: 1.5rem;
+}
+
 .pagination {
     display: flex;
     align-items: center;

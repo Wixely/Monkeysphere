@@ -84,7 +84,7 @@ public interface IRemoteUploadStore
 
 public sealed class ContactUploadService(IRemoteUploadStore uploads)
 {
-    public async Task<IReadOnlyList<VCard>> ValidateAsync(UploadOwner owner, Guid uploadId, CancellationToken cancellationToken = default)
+    public async Task<VCardParseResult> ValidateAsync(UploadOwner owner, Guid uploadId, CancellationToken cancellationToken = default)
     {
         _ = await uploads.SealAsync(owner, uploadId, cancellationToken).ConfigureAwait(false);
         return await uploads.ReadSealedAsync(owner, uploadId, VCardParser.ParseAsync, cancellationToken).ConfigureAwait(false);

@@ -54,6 +54,13 @@ builder.Services.AddOptions<KeyManagementOptions>()
     });
 builder.Services.AddSingleton(new DebugResetAvailability(
     builder.Configuration.GetValue<bool>("Monkeysphere:Debug:AllowDatabaseReset")));
+// Read from the composed configuration rather than the builder's, so a host that layers
+// configuration on afterwards (a packaged deployment, a test) still governs the gate.
+builder.Services.AddSingleton(provider => new BackstageAvailability(
+    provider.GetRequiredService<IConfiguration>().GetValue<bool>("Monkeysphere:Backstage:Available")));
+builder.Services.AddScoped<IBackstageAccount, HttpBackstageAccount>();
+builder.Services.AddScoped<IBackstageVisibility, BackstageVisibility>();
+builder.Services.AddHostedService<BackstageStartupWorker>();
 builder.Services.AddScoped<ICurrentDomainScope, HttpCurrentDomain>();
 builder.Services.AddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
 builder.Services.AddMonkeysphereData();
@@ -113,6 +120,7 @@ builder.Services.AddScoped<RemoteRecordWriter>();
 builder.Services.AddScoped<RemoteUploadCommands>();
 builder.Services.AddScoped<RemoteContactPreviewCommands>();
 builder.Services.AddScoped<RemoteContactExportCommands>();
+builder.Services.AddScoped<RemoteRecordSourceCommands>();
 builder.Services.AddScoped<RemoteImageCommands>();
 builder.Services.AddScoped<RecordImageUploadService>();
 builder.Services.AddHostedService<RecordPreviewCleanupWorker>();
@@ -149,6 +157,7 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeysphereUploadTools>()
     .WithTools<MonkeysphereContactPreviewTools>()
     .WithTools<MonkeysphereContactExportTools>()
+    .WithTools<MonkeysphereRecordSourceTools>()
     .WithTools<MonkeysphereImageTools>();
 
 string[] trustedProxyValues = (builder.Configuration["MONKEYSPHERE_TRUSTED_PROXIES"] ?? string.Empty)
@@ -221,6 +230,7 @@ app.MapGet("/health/ready", () => Results.Ok(new { status = "ready" })).AllowAno
 app.MapAdministratorAuthentication();
 app.MapDomainSelection();
 app.MapRecordImages();
+app.MapRecordSourceValues();
 app.MapCalendarExport();
 app.MapVCardExport();
 app.MapBackupDownloads();

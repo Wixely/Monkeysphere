@@ -14,7 +14,7 @@ public static class DomainRegistrySchema
     public const string DatabaseName = "MonkeysphereDomains";
 
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 4,
+        currentVersion: 5,
         migrations:
         [
             DnaXMigration.Sql(1, "domain-registry", "Create the Monkeysphere domain registry", """
@@ -84,6 +84,14 @@ public static class DomainRegistrySchema
                 CREATE TRIGGER Domains_Reserved_Rename BEFORE UPDATE OF Name ON Domains
                 WHEN EXISTS (SELECT 1 FROM DomainCreations WHERE Name = NEW.Name AND DomainId <> NEW.Id)
                 BEGIN SELECT RAISE(ABORT, 'Domain name is reserved'); END;
+                """),
+            DnaXMigration.Sql(5, "backstage-sessions", "Record time-boxed backstage activations for the whole deployment", """
+                CREATE TABLE BackstageSessions (
+                    AccountId TEXT NOT NULL PRIMARY KEY,
+                    ActivatedAtUtc TEXT NOT NULL,
+                    ExpiresAtUtc TEXT NOT NULL
+                );
+                CREATE INDEX IX_BackstageSessions_Expiry ON BackstageSessions (ExpiresAtUtc);
                 """),
         ]);
 }
