@@ -1,6 +1,7 @@
 @page "/login"
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
+@inject NavigationManager Navigation
 
 <PageTitle>Sign in · Monkeysphere</PageTitle>
 
@@ -12,6 +13,12 @@
     @if (Error == 1)
     {
         <div class="notice error" role="alert">The username or password was not accepted.</div>
+    }
+    else if (Error == 2)
+    {
+        <div class="notice warning" role="alert">
+            This sign-in page had been open too long to be used safely. It has been refreshed; please sign in again.
+        </div>
     }
 
     <form method="post" action="/auth/login">
@@ -30,11 +37,29 @@
 </section>
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationState { get; set; }
+
     [SupplyParameterFromQuery(Name = "error")]
     public int? Error { get; set; }
 
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
+
+    /// <summary>
+    /// Somebody already signed in is sent where they were going. Rendering the form for them would
+    /// bind its antiforgery token to their identity, and that token stops validating as soon as
+    /// their session ends, which is what made a stale sign-in page fail with a bare 400.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationState is null) return;
+        AuthenticationState state = await AuthenticationState;
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo(SafeReturnUrl, forceLoad: false, replace: true);
+        }
+    }
 
     private string SafeReturnUrl =>
         !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith("/", StringComparison.Ordinal) && !ReturnUrl.StartsWith("//", StringComparison.Ordinal)

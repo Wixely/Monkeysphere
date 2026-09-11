@@ -24,15 +24,31 @@ public static class AuthenticationEndpoints
         AdministratorCredential credential,
         TimeProvider timeProvider)
     {
-        if (!await ValidateAntiforgeryAsync(context, antiforgery).ConfigureAwait(false))
+        // Read before validating, so that where the operator was heading survives a token that has
+        // gone stale. Reading is not acting: no credential is used until the token has validated.
+        IFormCollection form;
+        try
         {
+            form = await context.Request.ReadFormAsync(context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or IOException)
+        {
+            context.Response.Redirect("/login?error=2&returnUrl=%2F");
             return;
         }
 
-        IFormCollection form = await context.Request.ReadFormAsync(context.RequestAborted).ConfigureAwait(false);
+        string returnUrl = LocalReturnUrl(form["returnUrl"].ToString());
+        if (!await ValidateAntiforgeryAsync(context, antiforgery).ConfigureAwait(false))
+        {
+            // A sign-in page that sat open while the session behind it ended posts a token bound to
+            // an identity that no longer matches. That is ordinary, not an attack, and it must lead
+            // back to a usable page rather than to a bare 400 the operator has to refresh out of.
+            context.Response.Redirect($"/login?error=2&returnUrl={Uri.EscapeDataString(returnUrl)}");
+            return;
+        }
+
         string username = form["username"].ToString();
         string password = form["password"].ToString();
-        string returnUrl = LocalReturnUrl(form["returnUrl"].ToString());
 
         if (!credential.Verify(username, password))
         {

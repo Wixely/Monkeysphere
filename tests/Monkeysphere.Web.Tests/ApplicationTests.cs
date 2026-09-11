@@ -16,7 +16,7 @@ using Monkeysphere.Web.Security;
 
 namespace Monkeysphere.Web.Tests;
 
-public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFactory>
+public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplicationFactory>
 {
     private const string AdministratorPassword = "test-only-LongPassword-2048!";
     private readonly MonkeysphereApplicationFactory _factory;
@@ -698,7 +698,14 @@ public sealed class ApplicationTests : IClassFixture<MonkeysphereApplicationFact
 
         HttpResponseMessage response = await client.PostAsync("/auth/login", form);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // Deliberately a redirect rather than the bare 400 this used to return: a sign-in page that
+        // sat open while its session ended posts a token that no longer matches, which is ordinary
+        // and must lead somewhere usable. What matters is unchanged, and is asserted below: the
+        // request is refused and nobody is signed in.
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.StartsWith("/login?error=2", response.Headers.Location!.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies) ? cookies : [],
+            cookie => cookie.Contains("Monkeysphere.Session", StringComparison.Ordinal));
     }
 
     [Theory]
