@@ -189,19 +189,70 @@
                     }
                 </ul>
 
-                @if (RemotePhotoCount > 0)
+                @if (_preview.RemotePhotos.Count > 0)
                 {
-                    <div class="notice warning" role="note">
+                    <div class="notice warning photo-review" role="note">
+                        <h4>Review the addresses this server would contact</h4>
                         <p>
-                            <strong>@RemotePhotoCount photo(s) in this file are not in the file itself</strong> &mdash; the cards
-                            only say where to find them. Monkeysphere makes no outbound request of any kind unless you ask it to
-                            here. Fetching them contacts those servers directly, which tells them this deployment's IP address,
-                            when you imported, and that you hold these contacts.
+                            <strong>@_preview.RemotePhotos.Count photo(s) in this file are not in the file itself.</strong>
+                            The cards only say where to find them. These addresses came out of the imported file, so read them
+                            before approving any of them. Contacting a server tells it this deployment's IP address, when you
+                            imported, and that you hold these contacts. Monkeysphere makes no outbound request of any kind
+                            unless you approve it here, and it will only contact the addresses you approve.
                         </p>
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_fetchRemotePhotos" />
-                            Fetch photos held elsewhere and store them locally.
-                        </label>
+
+                        @foreach (IGrouping<string, ContactRemotePhoto> host in PhotoHosts)
+                        {
+                            <div class="photo-host">
+                                @if (host.Key.Length == 0)
+                                {
+                                    <p class="photo-host-name">
+                                        <span class="pill danger-pill">cannot be read</span>
+                                        <strong>@host.Count() address(es) are not usable web addresses</strong>
+                                        and will never be contacted.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <label class="checkbox-label photo-host-name">
+                                        <input type="checkbox" checked="@_approvedPhotoHosts.Contains(host.Key)"
+                                               @onchange="args => TogglePhotoHost(host.Key, args)" />
+                                        <strong>@host.Key</strong>
+                                        <span class="muted">&mdash; @host.Count() photo(s)</span>
+                                    </label>
+                                }
+                                <ul class="photo-url-list">
+                                    @foreach (ContactRemotePhoto photo in host.Take(PhotoUrlsShownPerHost))
+                                    {
+                                        <li>
+                                            <span class="muted">@photo.ContactName</span>
+                                            <code>@photo.Url</code>
+                                        </li>
+                                    }
+                                </ul>
+                                @if (host.Count() > PhotoUrlsShownPerHost)
+                                {
+                                    <p class="muted">
+                                        and @(host.Count() - PhotoUrlsShownPerHost) more at this address.
+                                        Approving it approves all @host.Count().
+                                    </p>
+                                }
+                            </div>
+                        }
+
+                        <p class="muted">
+                            @if (ApprovedPhotoUrls.Count == 0)
+                            {
+                                <text>No address is approved, so no request will be made.</text>
+                            }
+                            else
+                            {
+                                <text>
+                                    <strong>@ApprovedPhotoUrls.Count photo(s)</strong> will be fetched from
+                                    @_approvedPhotoHosts.Count approved address(es) when you apply this import.
+                                </text>
+                            }
+                        </p>
                     </div>
                 }
 
@@ -311,7 +362,6 @@
 @code {
     private VCardImportPreview? _preview;
     private readonly HashSet<string> _selectedEnrichments = new(StringComparer.Ordinal);
-    private bool _fetchRemotePhotos;
     private bool _busy;
     private byte[]? _lastFile;
     private int _fileInputVersion;
@@ -373,9 +423,29 @@
         }
     }
 
-    private int RemotePhotoCount => _preview?.EnrichmentOffers
-        .Where(offer => offer.CreatesRecordImage)
-        .Sum(offer => offer.RemotePhotoCount) ?? 0;
+    /// <summary>Addresses listed in full per host before the list is summarised, so review stays readable.</summary>
+    private const int PhotoUrlsShownPerHost = 10;
+
+    private readonly HashSet<string> _approvedPhotoHosts = new(StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<IGrouping<string, ContactRemotePhoto>> PhotoHosts => (_preview?.RemotePhotos ?? [])
+        .GroupBy(photo => photo.Host, StringComparer.OrdinalIgnoreCase)
+        .OrderByDescending(group => group.Count());
+
+    /// <summary>
+    /// Exactly the addresses the server may contact. Built from the approved hosts rather than
+    /// from a flag, so an address nobody approved cannot be reached even by mistake.
+    /// </summary>
+    private IReadOnlySet<string> ApprovedPhotoUrls => (_preview?.RemotePhotos ?? [])
+        .Where(photo => photo.IsFetchable && _approvedPhotoHosts.Contains(photo.Host))
+        .Select(photo => photo.Url)
+        .ToHashSet(StringComparer.Ordinal);
+
+    private void TogglePhotoHost(string host, ChangeEventArgs args)
+    {
+        if (args.Value is true) _approvedPhotoHosts.Add(host);
+        else _approvedPhotoHosts.Remove(host);
+    }
 
     /// <summary>Selected enrichments that still need their field created before they can apply.</summary>
     private IReadOnlyList<string> PendingFieldEnrichments => _preview is null
@@ -456,7 +526,7 @@
             using MemoryStream buffer = new();
             await stream.CopyToAsync(buffer);
             _selectedEnrichments.Clear();
-            _fetchRemotePhotos = false;
+            _approvedPhotoHosts.Clear();
             await PreviewBytesAsync(buffer.ToArray());
         }
         catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException or IOException)
@@ -500,8 +570,9 @@
             {
                 // Photos are attached after the records exist. A photo that cannot be had is
                 // reported here rather than undoing an import that otherwise succeeded.
+                IReadOnlySet<string> approved = ApprovedPhotoUrls;
                 ContactPhotoImportResult photos = await ContactPhotos.AttachAsync(
-                    _preview, _fetchRemotePhotos ? PhotoFetcher : null);
+                    _preview, approved.Count == 0 ? null : PhotoFetcher, approved);
                 summary += $" Photos: {photos.Attached} attached";
                 if (photos.Skipped > 0) summary += $", {photos.Skipped} skipped";
                 if (photos.Failed > 0) summary += $", {photos.Failed} could not be read";
@@ -513,7 +584,7 @@
             _preview = null;
             _lastFile = null;
             _selectedEnrichments.Clear();
-            _fetchRemotePhotos = false;
+            _approvedPhotoHosts.Clear();
             _importEditors.Clear();
             await ReloadPeopleAsync();
         }

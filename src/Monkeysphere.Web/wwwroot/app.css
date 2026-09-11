@@ -2004,6 +2004,45 @@ input[type="checkbox"] {
     margin-right: .5rem;
 }
 
+/* The addresses the server would contact. Readable in full is the whole point, so the list is
+   allowed to scroll rather than being truncated into a summary nobody can check. */
+.photo-review h4 {
+    margin: 0 0 .5rem;
+}
+
+.photo-review .photo-host {
+    border-top: 1px solid var(--line-strong);
+    padding: .6rem 0;
+}
+
+.photo-review .photo-host-name {
+    display: flex;
+    gap: .5rem;
+    align-items: baseline;
+    margin-bottom: .35rem;
+}
+
+.photo-review .photo-url-list {
+    margin: 0;
+    padding-left: 1.4rem;
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+.photo-review .photo-url-list li {
+    margin-bottom: .2rem;
+}
+
+.photo-review .photo-url-list code {
+    overflow-wrap: anywhere;
+}
+
+.pill.danger-pill {
+    border-color: var(--danger);
+    color: var(--danger-dark);
+    background: var(--danger-soft);
+}
+
 .pagination {
     display: flex;
     align-items: center;

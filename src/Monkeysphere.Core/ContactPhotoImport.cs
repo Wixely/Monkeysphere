@@ -42,9 +42,14 @@ public sealed class ContactPhotoImporter(IRecordImageService images, IMonkeysphe
     /// Attaches photos to the records an import just produced. The records are found through the
     /// provenance the import recorded, so this needs nothing threaded through the import result.
     /// </summary>
+    /// <param name="approvedUrls">
+    /// The exact addresses a person reviewed and approved. An address absent from this set is never
+    /// contacted, even when a fetcher is supplied: approval is of addresses, not of the operation.
+    /// </param>
     public async Task<ContactPhotoImportResult> AttachAsync(
         VCardImportPreview preview,
         IContactPhotoFetcher? fetcher = null,
+        IReadOnlySet<string>? approvedUrls = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preview);
@@ -91,6 +96,13 @@ public sealed class ContactPhotoImporter(IRecordImageService images, IMonkeysphe
                 {
                     skipped++;
                     outcomes.Add(new(contact.Index, recordId, false, true, "the photo is held elsewhere and fetching was not enabled"));
+                    continue;
+                }
+
+                if (approvedUrls is null || !approvedUrls.Contains(url))
+                {
+                    skipped++;
+                    outcomes.Add(new(contact.Index, recordId, false, true, "that address was not among the ones approved for fetching"));
                     continue;
                 }
 

@@ -64,6 +64,18 @@ public sealed record VCardEnrichmentOffer(
     int ContactCount,
     int RemotePhotoCount);
 
+/// <summary>
+/// One address the server would contact if photo fetching were approved, named alongside the
+/// contact it belongs to. These exist so a person can read the actual addresses before any request
+/// is made: the addresses come out of the imported file, so consenting to a count rather than to a
+/// list would be consenting to contact hosts nobody has seen.
+/// </summary>
+public sealed record ContactRemotePhoto(int ContactIndex, string ContactName, string Url, string Host)
+{
+    /// <summary>False when the address cannot be parsed or is not http(s); it is never fetched.</summary>
+    public bool IsFetchable => Host.Length > 0;
+}
+
 public sealed record VCardImportPreview(
     Guid RecordTypeId,
     string RecordTypeName,
@@ -81,6 +93,12 @@ public sealed record VCardImportPreview(
     /// contacts it would affect and whether its field has to be created first.
     /// </summary>
     public IReadOnlyList<VCardEnrichmentOffer> EnrichmentOffers { get; init; } = [];
+
+    /// <summary>
+    /// Every address the server would contact to gather a photo, for review before anything is
+    /// fetched. Nothing here is contacted unless its address is explicitly approved.
+    /// </summary>
+    public IReadOnlyList<ContactRemotePhoto> RemotePhotos { get; init; } = [];
 }
 
 public sealed record VCardImportSelection(
@@ -226,6 +244,7 @@ public sealed class VCardService(
         {
             Rejected = parsed.Rejected,
             EnrichmentOffers = BuildOffers(contacts, fields),
+            RemotePhotos = BuildRemotePhotos(contacts),
         };
     }
 
@@ -297,6 +316,30 @@ public sealed class VCardService(
         }
 
         return VCardSerializer.Serialize(sources.Select(BuildExportProperties).ToArray());
+    }
+
+    /// <summary>
+    /// The addresses a photo fetch would contact, in file order, so the list a person reads is the
+    /// list the server would use. An address that cannot be parsed is still listed, marked as not
+    /// fetchable, rather than quietly dropped.
+    /// </summary>
+    private static ContactRemotePhoto[] BuildRemotePhotos(IReadOnlyList<VCardContactPreview> contacts)
+    {
+        List<ContactRemotePhoto> photos = [];
+        foreach (VCardContactPreview contact in contacts)
+        {
+            foreach (ContactPhotoCandidate photo in contact.Photos)
+            {
+                if (photo.RemoteUrl is not string url) continue;
+                string host = Uri.TryCreate(url, UriKind.Absolute, out Uri? address) &&
+                              (address.Scheme == Uri.UriSchemeHttp || address.Scheme == Uri.UriSchemeHttps)
+                    ? address.Host
+                    : string.Empty;
+                photos.Add(new(contact.Index, contact.DisplayName, url, host));
+            }
+        }
+
+        return photos.ToArray();
     }
 
     /// <summary>
