@@ -5,7 +5,9 @@ public sealed record PresetField(
     string Name,
     string TypeId,
     bool IsRequired = false,
-    IReadOnlyList<string>? ChoiceOptions = null);
+    IReadOnlyList<string>? ChoiceOptions = null,
+    /// <summary>How the field's dates come round again. A birthday repeats; most dates do not.</summary>
+    FieldRecurrence? Recurrence = null);
 
 public sealed record RecordTypePreset(
     string Key,
@@ -126,7 +128,11 @@ public sealed class PresetService(IPresetStore store, TimeProvider timeProvider)
             preset.Fields.Select(field => new PresetFieldInstallation(
                 Guid.CreateVersion7(),
                 field,
-                FieldTypes.NormalizeConfiguration(field.TypeId, field.ChoiceOptions))).ToArray())).ToArray();
+                // A field that declares a recurrence carries it from the moment it is installed, so
+                // a newly created Birthday appears on the calendar without anybody configuring it.
+                field.Recurrence is FieldRecurrence recurrence
+                    ? FieldRecurrences.Configure(field.TypeId, null, recurrence)
+                    : FieldTypes.NormalizeConfiguration(field.TypeId, field.ChoiceOptions))).ToArray())).ToArray();
         RelationshipTypePresetInstallation[] relationships = PresetCatalog.RelationshipTypes
             .Where(preset => preset.RequiredPresetKeys.All(keys.Contains) &&
                 (preset.AnyPresetKeys.Count == 0 || preset.AnyPresetKeys.Any(keys.Contains)))
@@ -161,17 +167,17 @@ public static class PresetCatalog
     public static IReadOnlyList<RecordTypePreset> RecordTypes { get; } =
     [
         Type(Person, "Person", "People", "Family, friends, colleagues, and everyone worth remembering.", ["a sibling", "a close friend", "a former colleague"],
-            Text(Person, "pronouns", "Pronouns"), Temporal(Person, "birthday", "Birthday"), Text(Person, "email", "Email"),
+            Text(Person, "pronouns", "Pronouns"), Birthday(Person), Text(Person, "email", "Email"),
             Field(Person, "phone", "Phone", FieldTypes.PhoneNumber), Field(Person, "website", "Website", FieldTypes.WebLink),
             Tags(Person, "likes", "Likes"), Tags(Person, "dislikes", "Dislikes"), Notes(Person)),
         Type(Cat, "Cat", "Companions", "Cats and the details that make each one distinctive.", ["the family cat", "a foster cat"],
-            Text(Cat, "breed", "Breed"), Temporal(Cat, "birthday", "Birthday"), Text(Cat, "colour", "Colour"),
+            Text(Cat, "breed", "Breed"), Birthday(Cat), Text(Cat, "colour", "Colour"),
             Text(Cat, "microchip", "Microchip number"), Tags(Cat, "likes", "Likes"), Tags(Cat, "dislikes", "Dislikes"), Notes(Cat)),
         Type(Dog, "Dog", "Companions", "Dogs, their history, preferences, and care notes.", ["your dog", "a dog you regularly look after"],
-            Text(Dog, "breed", "Breed"), Temporal(Dog, "birthday", "Birthday"), Text(Dog, "colour", "Colour"),
+            Text(Dog, "breed", "Breed"), Birthday(Dog), Text(Dog, "colour", "Colour"),
             Text(Dog, "microchip", "Microchip number"), Tags(Dog, "likes", "Likes"), Tags(Dog, "dislikes", "Dislikes"), Notes(Dog)),
         Type(SmallPet, "Small Pet", "Companions", "Hamsters, rabbits, guinea pigs, and other small companions.", ["a hamster", "a rabbit", "a guinea pig"],
-            Text(SmallPet, "species", "Species", true), Text(SmallPet, "breed", "Breed"), Temporal(SmallPet, "birthday", "Birthday"),
+            Text(SmallPet, "species", "Species", true), Text(SmallPet, "breed", "Breed"), Birthday(SmallPet),
             Text(SmallPet, "colour", "Colour"), Tags(SmallPet, "likes", "Likes"), Tags(SmallPet, "dislikes", "Dislikes"), Notes(SmallPet)),
         Type(Vehicle, "Vehicle", "Possessions", "Cars, motorcycles, vans, campers, boats, and other vehicles.", ["the family car", "a project motorcycle", "a camper van"],
             Choice(Vehicle, "kind", "Vehicle type", ["Car", "Motorcycle", "Van", "Camper", "Boat", "Other"]),
@@ -266,6 +272,8 @@ public static class PresetCatalog
     private static PresetField Text(string preset, string key, string name, bool required = false) => Field(preset, key, name, FieldTypes.Text, required);
     private static PresetField Number(string preset, string key, string name) => Field(preset, key, name, FieldTypes.Number);
     private static PresetField Temporal(string preset, string key, string name) => Field(preset, key, name, FieldTypes.Temporal);
+    private static PresetField Birthday(string preset) =>
+        Field(preset, "birthday", "Birthday", FieldTypes.Temporal) with { Recurrence = FieldRecurrence.Annual };
     private static PresetField Tags(string preset, string key, string name) => Field(preset, key, name, FieldTypes.Tags);
     private static PresetField Choice(string preset, string key, string name, IReadOnlyList<string> options) => Field(preset, key, name, FieldTypes.Choice, options: options);
     private static PresetField Notes(string preset) => Field(preset, "notes", "Notes", FieldTypes.MultilineText);

@@ -99,21 +99,10 @@
         </div>
     }
 
-    <fieldset class="graph-type-picker">
-        <legend>Record types</legend>
-        <div class="graph-type-options">
-            @foreach (RecordType type in _recordTypes)
-            {
-                <label class="checkbox-label">
-                    <input type="checkbox"
-                           checked="@_selectedRecordTypeIds.Contains(type.Id)"
-                           @onchange="args => ToggleRecordTypeAsync(type.Id, args)" />
-                    <span aria-hidden="true">@type.Symbol</span>
-                    @DisplayTypeName(type)
-                </label>
-            }
-        </div>
-    </fieldset>
+    @* The same control the calendar uses. The graph builds its view from a chosen set and saves
+       it, so here choosing nothing means nothing rather than everything. *@
+    <RecordTypePicker Types="_recordTypes" Selected="_selectedRecordTypeIds" EmptyMeansAll="false"
+                      NameSelector="DisplayTypeName" SelectedChanged="RecordTypesChangedAsync" />
 </section>
 
 @if (_graph.NodesTruncated || _graph.EdgesTruncated)
@@ -535,6 +524,18 @@
         if (_selectedRecords.Count == 1)
         {
             await CentreRecordAsync(_selectedRecords[0].Id);
+        }
+    }
+
+    private async Task RecordTypesChangedAsync(IReadOnlySet<Guid> selected)
+    {
+        // The existing set is kept rather than replaced: saved views and the search candidates both
+        // read it, and swapping the instance would leave them pointing at the old one.
+        Guid[] added = selected.Except(_selectedRecordTypeIds).ToArray();
+        Guid[] removed = _selectedRecordTypeIds.Except(selected).ToArray();
+        foreach (Guid id in added.Concat(removed))
+        {
+            await ToggleRecordTypeAsync(id, new ChangeEventArgs { Value = selected.Contains(id) });
         }
     }
 

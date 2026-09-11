@@ -182,6 +182,20 @@ public sealed class MonkeysphereService(
             cancellationToken);
     }
 
+    public async Task SetFieldRecurrenceAsync(Guid id, FieldRecurrence recurrence, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recurrence);
+        FieldDefinition field = (await store.ListFieldDefinitionsAsync(cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(item => item.Id == id && item.Lifecycle == FieldLifecycle.Active)
+            ?? throw new DomainValidationException("Active field definition was not found.");
+
+        await store.SetFieldConfigurationAsync(
+            id,
+            FieldRecurrences.Configure(field.TypeId, field.ConfigurationJson, recurrence),
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public Task AttachFieldAsync(
         Guid recordTypeId,
         Guid fieldDefinitionId,

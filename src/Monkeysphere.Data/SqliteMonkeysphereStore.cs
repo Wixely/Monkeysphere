@@ -537,6 +537,16 @@ public sealed partial class SqliteMonkeysphereStore(
         RequireChanged(changed, "Field definition was not found.");
     }
 
+    public async Task SetFieldConfigurationAsync(Guid id, string configurationJson, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        int changed = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE FieldDefinitions SET ConfigurationJson = @ConfigurationJson, UpdatedAtUtc = @Now WHERE Id = @Id AND Lifecycle = 0;",
+            new { Id = Key(id), ConfigurationJson = configurationJson, Now = Timestamp(now) },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        RequireChanged(changed, "Active field definition was not found.");
+    }
+
     public async Task RetireFieldAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1054,7 +1064,10 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         RecordSummaryRow? row = await connection.QuerySingleOrDefaultAsync<RecordSummaryRow>(new CommandDefinition($"""
             SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc,
-                   r.BackstageState, r.Revision
+                   r.BackstageState, rt.Symbol AS RecordTypeSymbol,
+                   (SELECT image.Id FROM RecordImages image WHERE image.RecordId = r.Id
+                    ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS ImageId,
+                   r.Revision
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
             WHERE r.Id = @Id{visibilityFilter};
@@ -1390,7 +1403,10 @@ public sealed partial class SqliteMonkeysphereStore(
         parameters.Add("Offset", (search.Page - 1) * search.PageSize);
         string orderBy = BuildOrderBy(search.Sort, parameters);
         IEnumerable<RecordSummaryRow> rows = await connection.QueryAsync<RecordSummaryRow>(new CommandDefinition("""
-            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc, r.BackstageState
+            SELECT r.Id, r.RecordTypeId, rt.Name AS RecordTypeName, r.DisplayName, r.UpdatedAtUtc, r.BackstageState,
+                   rt.Symbol AS RecordTypeSymbol,
+                   (SELECT image.Id FROM RecordImages image WHERE image.RecordId = r.Id
+                    ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS ImageId
             FROM Records r
             JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
             """ + where + orderBy + " LIMIT @Limit OFFSET @Offset;",
@@ -1826,7 +1842,11 @@ public sealed partial class SqliteMonkeysphereStore(
 
     private static RecordSummary MapSummary(RecordSummaryRow row) =>
         new(ParseGuid(row.Id), ParseGuid(row.RecordTypeId), row.RecordTypeName, row.DisplayName,
-            ParseTimestamp(row.UpdatedAtUtc), row.BackstageState);
+            ParseTimestamp(row.UpdatedAtUtc), row.BackstageState)
+        {
+            ImageId = row.ImageId is null ? null : ParseGuid(row.ImageId),
+            RecordTypeSymbol = row.RecordTypeSymbol,
+        };
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
 
@@ -1901,6 +1921,8 @@ public sealed partial class SqliteMonkeysphereStore(
         public required string DisplayName { get; init; }
         public required string UpdatedAtUtc { get; init; }
         public string? BackstageState { get; init; }
+        public string? RecordTypeSymbol { get; init; }
+        public string? ImageId { get; init; }
         public string Revision { get; init; } = string.Empty;
     }
 

@@ -489,6 +489,20 @@ Status: Complete and merged to `main`.
 
 MCP disposition for saved views and graph queries: **Deferred** to MCP milestone M5.
 
+## Repeating dates and one way of naming a record
+
+Status: Complete. Owner: Agent. Review: 2026-10-09.
+
+Two defects were reported together and share a cause: the calendar matched the literal stored year, so a birthday recorded in 1990 appeared only when browsing to 1990 and every present-day month looked empty; and each page had invented its own way of naming a record, so the same person appeared as a bare link in one list and as a picture and a name in another.
+
+**What repeats is a property of the field.** Only a field marked as repeating comes round again, so a release date stays where it happened while a birthday returns. A repeat carries an interval in years, which makes "every four years" expressible, and a rule for 29 February, which a date that does not exist in a common year needs: it is observed on 28 February or on 1 March, and the field says which rather than the application deciding for everybody. The stored shape lives in the field's existing `ConfigurationJson` under `recurrence`, merged into whatever else that field holds. Migration 31 marks every preset `Birthday` as annual so the common case needs no configuration, and `Presets.Birthday` keeps new installations consistent with it.
+
+The day something actually happened is always shown on its real date, repeat or not, so browsing back through a calendar still shows the past as it was. Repeats are only produced after the original day, never before it, and a repeat is labelled with how many years have passed so a 36th birthday does not read like something that happened this year.
+
+**One record identity.** `RecordIdentity` draws a record's cover image beside its name, falling back to its record type's symbol, and every page that names a record now uses it: the records grid and list, the dashboard's categories and upcoming dates, relationships on a record, the calendar's grid and its upcoming table, and the map's list and selection. The relationship graph is deliberately not a caller — it draws nodes on a canvas rather than in markup. Every projection behind those pages carries `ImageId` and `RecordTypeSymbol` so no page needs a second query to show a record properly.
+
+**One filter control.** `RecordTypePicker` is the checkbox list the graph already had, now shared with the calendar. The two views mean different things by an empty selection, so the control takes `EmptyMeansAll`: the calendar shows every type until one is chosen, which is what the report asked for, while the graph continues to mean what it always did, because a graph is built from a chosen set and persists that choice in saved views.
+
 ## Deliberately excluded
 
 These are decisions, not backlog. Reopening one requires a new design and, where marked, a new threat review.

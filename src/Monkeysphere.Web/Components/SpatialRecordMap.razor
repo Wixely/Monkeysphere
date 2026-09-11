@@ -14,7 +14,7 @@
         @foreach (SpatialMapEntry entry in Entries)
         {
             <article>
-                <a href="/records/@entry.RecordId">@entry.RecordDisplayName</a>
+                <RecordIdentity RecordId="entry.RecordId" DisplayName="@entry.RecordDisplayName" ImageId="entry.ImageId" Symbol="@entry.RecordTypeSymbol" Compact="true" />
                 <span>@entry.RecordTypeName · @entry.FieldName</span>
                 @if (!string.IsNullOrWhiteSpace(entry.DisplayContext))
                 {
@@ -35,7 +35,7 @@
         @foreach (SpatialMapEntry entry in _selected)
         {
             <article>
-                <a href="/records/@entry.RecordId">@entry.RecordDisplayName</a>
+                <RecordIdentity RecordId="entry.RecordId" DisplayName="@entry.RecordDisplayName" ImageId="entry.ImageId" Symbol="@entry.RecordTypeSymbol" Compact="true" />
                 <span>@entry.RecordTypeName · @entry.FieldName</span>
                 @if (!string.IsNullOrWhiteSpace(entry.DisplayContext))
                 {

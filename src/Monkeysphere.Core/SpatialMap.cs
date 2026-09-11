@@ -23,7 +23,14 @@ public sealed record SpatialMapEntry(
     double Latitude,
     double Longitude,
     double? AccuracyMetres,
-    double? ApproximationRadiusKilometres);
+    double? ApproximationRadiusKilometres)
+{
+    /// <summary>The record's cover image, so a pin names its record the way every other list does.</summary>
+    public Guid? ImageId { get; init; }
+
+    /// <summary>The record type's symbol, shown when there is no image.</summary>
+    public string? RecordTypeSymbol { get; init; }
+}
 
 public interface ISpatialMapStore
 {

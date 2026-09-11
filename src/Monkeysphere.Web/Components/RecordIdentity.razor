@@ -1,0 +1,38 @@
+@*
+    How a record is shown wherever it is named: its picture and its name, together, linking to it.
+    One component so that every list agrees, rather than each page inventing its own arrangement.
+    The relationship graph is deliberately not a caller: it draws nodes on a canvas, not in markup.
+*@
+
+<span class="record-identity @(Compact ? "compact" : null)">
+    <a class="record-identity-avatar" href="/records/@RecordId" aria-hidden="true" tabindex="-1">
+        @if (ImageId is Guid imageId)
+        {
+            <img src="/records/@RecordId/images/@imageId/thumbnail" alt="" loading="lazy" />
+        }
+        else
+        {
+            <span class="record-identity-placeholder">@(string.IsNullOrWhiteSpace(Symbol) ? "•" : Symbol)</span>
+        }
+    </a>
+    <a class="record-identity-name" href="/records/@RecordId">@DisplayName</a>
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid RecordId { get; set; }
+
+    [Parameter, EditorRequired]
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>The record's cover image. Its type symbol stands in when there is none.</summary>
+    [Parameter]
+    public Guid? ImageId { get; set; }
+
+    [Parameter]
+    public string? Symbol { get; set; }
+
+    /// <summary>Smaller, for places that name a record inside a denser line of text.</summary>
+    [Parameter]
+    public bool Compact { get; set; }
+}

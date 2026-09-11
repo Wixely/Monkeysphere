@@ -70,7 +70,14 @@ public sealed record RecordSummary(
     string DisplayName,
     DateTimeOffset UpdatedAtUtc,
     // Only ever set for a caller standing backstage; every other caller cannot see the record at all.
-    string? BackstageState = null);
+    string? BackstageState = null)
+{
+    /// <summary>The record's cover image, so a list can show it the way the dashboard already does.</summary>
+    public Guid? ImageId { get; init; }
+
+    /// <summary>The record type's symbol, shown in place of an image the record does not have.</summary>
+    public string? RecordTypeSymbol { get; init; }
+}
 
 public sealed record RecordValue(
     Guid Id,

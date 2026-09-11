@@ -112,6 +112,9 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
                    r.RecordTypeId,
                    rt.Name AS RecordTypeName,
                    r.DisplayName AS RecordDisplayName,
+                   rt.Symbol AS RecordTypeSymbol,
+                   (SELECT image.Id FROM RecordImages image WHERE image.RecordId = r.Id
+                    ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS ImageId,
                    fv.FieldDefinitionId,
                    fd.Name AS FieldName,
                    CASE fd.TypeId WHEN 'exact-date' THEN fv.DateValue ELSE fv.TemporalValue END AS EventValue,
@@ -143,7 +146,11 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
             ParseGuid(row.FieldDefinitionId),
             row.FieldName,
             row.EventValue,
-            (TemporalPrecision)row.EventPrecision)).ToArray();
+            (TemporalPrecision)row.EventPrecision)
+        {
+            ImageId = row.ImageId is null ? null : ParseGuid(row.ImageId),
+            RecordTypeSymbol = row.RecordTypeSymbol,
+        }).ToArray();
     }
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
@@ -163,6 +170,8 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
         public required string RecordTypeId { get; init; }
         public required string RecordTypeName { get; init; }
         public required string RecordDisplayName { get; init; }
+        public string? RecordTypeSymbol { get; init; }
+        public string? ImageId { get; init; }
         public required string FieldDefinitionId { get; init; }
         public required string FieldName { get; init; }
         public required string EventValue { get; init; }

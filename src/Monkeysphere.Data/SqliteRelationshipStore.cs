@@ -237,12 +237,18 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                rt.Lifecycle AS TypeLifecycle, rt.CreatedAtUtc AS TypeCreatedAtUtc, rt.UpdatedAtUtc AS TypeUpdatedAtUtc,
                rt.PresetKey AS TypePresetKey, rt.PresetVersion AS TypePresetVersion, rt.Revision AS TypeRevision,
                r.SourceRecordId, source.DisplayName AS SourceDisplayName,
+               sourceType.Symbol AS SourceRecordTypeSymbol,
+               (SELECT image.Id FROM RecordImages image WHERE image.RecordId = source.Id ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS SourceImageId,
                r.TargetRecordId, target.DisplayName AS TargetDisplayName,
+               targetType.Symbol AS TargetRecordTypeSymbol,
+               (SELECT image.Id FROM RecordImages image WHERE image.RecordId = target.Id ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS TargetImageId,
                r.Note, r.CreatedAtUtc, r.UpdatedAtUtc, r.Revision
         FROM Relationships r
         JOIN RelationshipTypes rt ON rt.Id = r.RelationshipTypeId
         JOIN Records source ON source.Id = r.SourceRecordId{sourceVisible}
         JOIN Records target ON target.Id = r.TargetRecordId{targetVisible}
+        JOIN RecordTypes sourceType ON sourceType.Id = source.RecordTypeId
+        JOIN RecordTypes targetType ON targetType.Id = target.RecordTypeId
         """;
 
     private static RelationshipType MapType(RelationshipTypeRow row) => new(
@@ -257,7 +263,13 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
             row.TypePresetKey, row.TypePresetVersion, row.TypeRevision),
         Guid.Parse(row.SourceRecordId), row.SourceDisplayName,
         Guid.Parse(row.TargetRecordId), row.TargetDisplayName,
-        row.Note, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.Revision);
+        row.Note, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.Revision)
+    {
+        SourceImageId = row.SourceImageId is null ? null : Guid.Parse(row.SourceImageId),
+        SourceRecordTypeSymbol = row.SourceRecordTypeSymbol,
+        TargetImageId = row.TargetImageId is null ? null : Guid.Parse(row.TargetImageId),
+        TargetRecordTypeSymbol = row.TargetRecordTypeSymbol,
+    };
 
     private static string Key(Guid id) => id.ToString("D", CultureInfo.InvariantCulture);
     private static string Timestamp(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
@@ -304,6 +316,10 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         public required string SourceDisplayName { get; init; }
         public required string TargetRecordId { get; init; }
         public required string TargetDisplayName { get; init; }
+        public string? SourceRecordTypeSymbol { get; init; }
+        public string? SourceImageId { get; init; }
+        public string? TargetRecordTypeSymbol { get; init; }
+        public string? TargetImageId { get; init; }
         public string? Note { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }

@@ -69,6 +69,9 @@ public interface IMonkeysphereStore
 
     Task RenameFieldAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
 
+    /// <summary>Replaces a date field's configuration, which is where its recurrence is recorded.</summary>
+    Task SetFieldConfigurationAsync(Guid id, string configurationJson, DateTimeOffset now, CancellationToken cancellationToken = default);
+
     Task RetireFieldAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default);
 
     Task<FieldMergePreview?> PreviewFieldMergeAsync(
@@ -193,6 +196,12 @@ public interface IMonkeysphereService
     Task AttachFieldAsync(Guid recordTypeId, Guid fieldDefinitionId, bool isRequired, string? expectedRevision = null, string? expectedFieldRevision = null, CancellationToken cancellationToken = default);
 
     Task RenameFieldAsync(Guid id, string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Says whether a date field's values come round again, and how often. Only date-bearing fields
+    /// can repeat; anything else is refused rather than silently ignored.
+    /// </summary>
+    Task SetFieldRecurrenceAsync(Guid id, FieldRecurrence recurrence, CancellationToken cancellationToken = default);
 
     Task RetireFieldAsync(Guid id, CancellationToken cancellationToken = default);
 

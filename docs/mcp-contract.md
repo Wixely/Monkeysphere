@@ -1,10 +1,10 @@
 # MCP contract
 
-- Contract version: 1.19
+- Contract version: 1.20
 - Status: Local implementation; live deployment not verified
-- Reviewed: 2026-09-07
+- Reviewed: 2026-09-11
 - Owner: Agent
-- Next review: 2026-09-14
+- Next review: 2026-09-25
 
 ## Transport requirements for clients
 
@@ -410,3 +410,11 @@ Previously a single card the parser could not read failed the whole upload, so o
 What still fails the whole upload is structural damage: a missing `END` marker, a nested `BEGIN`, content outside a card, a continuation line with nothing to continue, invalid UTF-8, or exceeding the file, card-count or byte ceilings. In those cases card boundaries are unknowable, so salvaging part of the file would mean inventing contacts.
 
 The same rule applies to the browser import, which lists rejected cards above the reviewable ones and imports the rest. `preview_contact_import` does not re-report the rejections: the parse happens at `complete_upload`, which is where the caller already receives them, and the staged preview holds only importable contacts. Storing them a second time would need a staging schema change to repeat information the caller has.
+
+## Related records carry their picture in 1.20
+
+Contract 1.20 adds no tools and no grants. `query_record_relationships` gains two nullable fields on each result: `imageId`, the related record's cover image, and `recordTypeSymbol`, its type's symbol. Both describe the record at the far end of the relationship, seen from the record that was asked about, so reading a relationship list no longer needs a second call per related record just to show who it points at.
+
+`imageId` is null when the related record has no image, and names an image readable through the existing record-image surface under the same permission that returned the relationship. `recordTypeSymbol` is null only for a record type that has no symbol set. Neither field is a filter and neither can be written here.
+
+The addition is additive: a client written against 1.19 ignores both fields and behaves exactly as before. The change exists because the browser now shows a record the same way everywhere — its picture beside its name — and a caller assembling the same view deserves the same single call.

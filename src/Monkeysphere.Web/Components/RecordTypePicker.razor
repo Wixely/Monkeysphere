@@ -1,0 +1,68 @@
+@*
+    Choosing which record types a view shows. Shared so the calendar and the relationship graph
+    offer the same control rather than one using checkboxes and the other a dropdown.
+    An empty selection means every type, which is what a view showing everything needs.
+*@
+
+<fieldset class="record-type-picker">
+    <legend>@Legend</legend>
+    <div class="record-type-options">
+        @foreach (RecordType type in Types)
+        {
+            <label class="checkbox-label">
+                <input type="checkbox" checked="@Selected.Contains(type.Id)"
+                       @onchange="args => ToggleAsync(type.Id, args)" />
+                <span aria-hidden="true">@type.Symbol</span>
+                @(NameSelector is null ? type.Name : NameSelector(type))
+            </label>
+        }
+    </div>
+    @if (EmptyMeansAll && Selected.Count > 0)
+    {
+        <button class="text-button" type="button" @onclick="ClearAsync">Show every type</button>
+    }
+    else if (EmptyMeansAll)
+    {
+        <p class="muted">Every record type is shown.</p>
+    }
+    else if (Selected.Count == 0)
+    {
+        <p class="muted">Choose at least one type to show anything.</p>
+    }
+</fieldset>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<RecordType> Types { get; set; } = [];
+
+    /// <summary>The chosen types. Empty means all of them, not none of them.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlySet<Guid> Selected { get; set; } = new HashSet<Guid>();
+
+    [Parameter]
+    public string Legend { get; set; } = "Record types";
+
+    /// <summary>
+    /// Whether choosing nothing shows everything or nothing. The calendar means everything; the
+    /// graph means nothing, because it is built from a chosen set and persists that choice.
+    /// </summary>
+    [Parameter]
+    public bool EmptyMeansAll { get; set; } = true;
+
+    /// <summary>Lets a view name a type differently from its record type name.</summary>
+    [Parameter]
+    public Func<RecordType, string>? NameSelector { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlySet<Guid>> SelectedChanged { get; set; }
+
+    private Task ToggleAsync(Guid id, ChangeEventArgs args)
+    {
+        HashSet<Guid> next = [.. Selected];
+        if (args.Value is true) next.Add(id);
+        else next.Remove(id);
+        return SelectedChanged.InvokeAsync(next);
+    }
+
+    private Task ClearAsync() => SelectedChanged.InvokeAsync(new HashSet<Guid>());
+}

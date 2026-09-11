@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 30,
+        currentVersion: 31,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -790,6 +790,18 @@ public static class MonkeysphereSchema
                 DROP INDEX IX_VCardImports_Record;
                 DROP TABLE VCardProperties;
                 DROP TABLE VCardImports;
+                """),
+            DnaXMigration.Sql(31, "repeating-birthdays", "Make existing birthday fields repeat every year so they reach the calendar", """
+                -- A birthday recorded in 1990 only ever appeared on a calendar showing 1990, which
+                -- made the calendar look empty. Newly installed birthday fields now declare their
+                -- recurrence; the ones already installed are given the same declaration here.
+                -- Only fields that carry no configuration yet are touched, so a deliberate choice
+                -- already made is never overwritten.
+                UPDATE FieldDefinitions
+                SET ConfigurationJson = '{"recurrence":{"repeats":true,"intervalYears":1,"leapDayRoll":"backward"}}'
+                WHERE TypeId IN ('exact-date', 'temporal')
+                  AND CanonicalKey LIKE '%.birthday'
+                  AND (ConfigurationJson IS NULL OR trim(ConfigurationJson) IN ('', '{}'));
                 """),
         ]);
 }

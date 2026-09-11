@@ -34,7 +34,17 @@ public sealed record StoredRelationship(
     string? Note,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    string Revision = "");
+    string Revision = "")
+{
+    /// <summary>Each end's cover image and type symbol, so a related record can be shown the way it is everywhere else.</summary>
+    public Guid? SourceImageId { get; init; }
+
+    public string? SourceRecordTypeSymbol { get; init; }
+
+    public Guid? TargetImageId { get; init; }
+
+    public string? TargetRecordTypeSymbol { get; init; }
+}
 
 public sealed record RelationshipView(
     Guid Id,
@@ -45,7 +55,14 @@ public sealed record RelationshipView(
     bool IsOutgoing,
     string? Note,
     DateTimeOffset UpdatedAtUtc,
-    string Revision = "");
+    string Revision = "")
+{
+    /// <summary>The related record's cover image, so a relationship reads as a picture and a name.</summary>
+    public Guid? ImageId { get; init; }
+
+    /// <summary>The related record type's symbol, shown when there is no image.</summary>
+    public string? RecordTypeSymbol { get; init; }
+}
 
 public sealed record CreateRelationshipTypeRequest(
     string Name,
@@ -169,6 +186,11 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
             outgoing ? relationship.TargetDisplayName : relationship.SourceDisplayName,
             outgoing,
             relationship.Note,
-            relationship.UpdatedAtUtc, relationship.Revision);
+            relationship.UpdatedAtUtc, relationship.Revision)
+        {
+            // The view looks outward from the record being read, so it carries the other end's picture.
+            ImageId = outgoing ? relationship.TargetImageId : relationship.SourceImageId,
+            RecordTypeSymbol = outgoing ? relationship.TargetRecordTypeSymbol : relationship.SourceRecordTypeSymbol,
+        };
     }
 }

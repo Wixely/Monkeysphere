@@ -14,7 +14,14 @@ public sealed record DashboardDateSource(
     Guid FieldDefinitionId,
     string FieldName,
     string Value,
-    TemporalPrecision Precision);
+    TemporalPrecision Precision)
+{
+    /// <summary>The record's cover image, so an upcoming date names its record the way every list does.</summary>
+    public Guid? ImageId { get; init; }
+
+    /// <summary>The record type's symbol, shown when there is no image.</summary>
+    public string? RecordTypeSymbol { get; init; }
+}
 
 public sealed record DashboardUpcomingDate(
     DashboardDateSource Source,

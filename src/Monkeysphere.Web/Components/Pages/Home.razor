@@ -35,7 +35,7 @@ else
                 {
                     <article class="dashboard-date-item">
                         <div class="dashboard-date-marker" aria-hidden="true"><strong>@item.OccursAt.Day</strong><span>@item.OccursAt.ToString("MMM", CultureInfo.CurrentCulture)</span></div>
-                        <div class="dashboard-date-details"><a href="/records/@item.Source.RecordId">@item.Source.RecordDisplayName</a><span>@item.Source.FieldName · @OccurrenceLabel(item)</span></div>
+                        <div class="dashboard-date-details"><RecordIdentity RecordId="item.Source.RecordId" DisplayName="@item.Source.RecordDisplayName" ImageId="item.Source.ImageId" Symbol="@item.Source.RecordTypeSymbol" Compact="true" /><span>@item.Source.FieldName · @OccurrenceLabel(item)</span></div>
                         <strong class="dashboard-distance">@DistanceLabel(item)</strong>
                     </article>
                 }
@@ -67,19 +67,8 @@ else
                     @foreach (DashboardRecordRow row in category.Rows)
                     {
                         <li>
-                            <div class="dashboard-record-identity">
-                                <a class="dashboard-record-avatar" href="/records/@row.Record.Id" aria-label="Open @row.Record.DisplayName">
-                                    @if (row.ImageId is Guid imageId)
-                                    {
-                                        <img src="/records/@row.Record.Id/images/@imageId/thumbnail" alt="" loading="lazy" />
-                                    }
-                                    else
-                                    {
-                                        <span class="dashboard-record-placeholder" aria-hidden="true">@category.Symbol</span>
-                                    }
-                                </a>
-                                <a href="/records/@row.Record.Id">@row.Record.DisplayName</a>
-                            </div>
+                            <RecordIdentity RecordId="row.Record.Id" DisplayName="@row.Record.DisplayName"
+                                            ImageId="row.ImageId" Symbol="@category.Symbol" />
                             <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
                         </li>
                     }

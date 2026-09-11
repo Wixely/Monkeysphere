@@ -23,11 +23,8 @@
 }
 
 <section class="panel calendar-filters" aria-label="Calendar filters">
+    <RecordTypePicker Types="_types" Selected="_selectedRecordTypeIds" SelectedChanged="RecordTypesChangedAsync" />
     <div class="form-grid">
-        <label>
-            Record type
-            <SearchableSelect TValue="string" Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" OnSelected="RecordTypeChangedAsync" />
-        </label>
         <label>
             Date field
             <SearchableSelect TValue="string" Value="_fieldValue" Options="DateFieldOptions" AriaLabel="Date field" OnSelected="FieldChangedAsync" />
@@ -56,7 +53,7 @@
                 <article class="reminder-item @(isDue ? "due" : null)">
                     <div>
                         <span class="pill">@(isDue ? "Due" : $"Due {item.DueDate.ToString("d MMM", CultureInfo.CurrentCulture)}")</span>
-                        <a href="/records/@item.Entry.RecordId">@item.Entry.RecordDisplayName</a>
+                        <RecordIdentity RecordId="item.Entry.RecordId" DisplayName="@item.Entry.RecordDisplayName" ImageId="item.Entry.ImageId" Symbol="@item.Entry.RecordTypeSymbol" Compact="true" />
                         <small>@item.Entry.FieldName · @LeadLabel(item.Reminder.LeadDays)</small>
                     </div>
                     <button class="button subtle" type="button" @onclick="() => DismissAsync(item.Reminder.Id)">Dismiss</button>
@@ -84,9 +81,19 @@
                 <time datetime="@day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">@day.Date.Day</time>
                 @foreach (CalendarEntry entry in EntriesFor(day.Date))
                 {
-                    <a class="calendar-event" href="/records/@entry.RecordId" title="@($"{entry.RecordDisplayName} · {entry.FieldName}")">
-                        <span>@entry.RecordDisplayName</span>
-                        <small>@entry.FieldName</small>
+                    <a class="calendar-event" href="/records/@entry.RecordId" title="@EntryTitle(entry)">
+                        <span class="calendar-event-identity">
+                            @if (entry.ImageId is Guid imageId)
+                            {
+                                <img src="/records/@entry.RecordId/images/@imageId/thumbnail" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="calendar-event-symbol" aria-hidden="true">@(string.IsNullOrWhiteSpace(entry.RecordTypeSymbol) ? "•" : entry.RecordTypeSymbol)</span>
+                            }
+                            <span>@entry.RecordDisplayName</span>
+                        </span>
+                        <small>@EntryDetail(entry)</small>
                     </a>
                 }
             </div>
@@ -117,8 +124,8 @@
                     {
                         <tr>
                             <td><time datetime="@entry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">@entry.Date.ToString("d MMM yyyy", CultureInfo.CurrentCulture)</time></td>
-                            <td><a href="/records/@entry.RecordId">@entry.RecordDisplayName</a></td>
-                            <td>@entry.FieldName</td>
+                            <td><RecordIdentity RecordId="entry.RecordId" DisplayName="@entry.RecordDisplayName" ImageId="entry.ImageId" Symbol="@entry.RecordTypeSymbol" Compact="true" /></td>
+                            <td>@EntryDetail(entry)</td>
                             <td>@entry.RecordTypeName</td>
                             <td class="reminder-action">
                                 <SearchableSelect TValue="int" @bind-Value="_leadDays[entry.FieldValueId]" Options="ReminderLeadOptions" AriaLabel="Reminder lead time" />
@@ -142,13 +149,10 @@
     private readonly Dictionary<Guid, int> _leadDays = [];
     private DateOnly _today;
     private DateOnly _month;
-    private string _recordTypeValue = string.Empty;
+    private IReadOnlySet<Guid> _selectedRecordTypeIds = new HashSet<Guid>();
     private string _fieldValue = string.Empty;
     private string? _message;
     private bool _isError;
-
-    private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
-        [new ComboboxOption<string>(string.Empty, "All record types"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
 
     private IReadOnlyList<ComboboxOption<string>> DateFieldOptions =>
         [new ComboboxOption<string>(string.Empty, "All date fields"), .. _dateFields.Select(item => new ComboboxOption<string>(item.Id.ToString(), item.Name))];
@@ -165,13 +169,29 @@
         await ReloadAsync();
     }
 
-    private async Task RecordTypeChangedAsync(string value)
+    private async Task RecordTypesChangedAsync(IReadOnlySet<Guid> selected)
     {
-        _recordTypeValue = value;
+        _selectedRecordTypeIds = selected;
         _fieldValue = string.Empty;
         await LoadDateFieldsAsync();
         await ReloadAsync();
     }
+
+    /// <summary>
+    /// What a date says beside a name: the field it came from, and for a repeat how many years have
+    /// passed, so a 36th birthday does not read like something that happened this year.
+    /// </summary>
+    private static string EntryDetail(CalendarEntry entry)
+    {
+        if (!entry.IsRepeat) return entry.FieldName;
+        string years = entry.YearsSince == 1 ? "1 year" : $"{entry.YearsSince} years";
+        return entry.RolledFromLeapDay
+            ? $"{entry.FieldName} · {years} · moved from 29 Feb"
+            : $"{entry.FieldName} · {years}";
+    }
+
+    private static string EntryTitle(CalendarEntry entry) =>
+        $"{entry.RecordDisplayName} · {EntryDetail(entry)}";
 
     private async Task FieldChangedAsync(string value)
     {
@@ -200,11 +220,13 @@
 
     private async Task ReloadAsync()
     {
-        Guid? recordTypeId = SelectedRecordTypeId();
         Guid? fieldId = Guid.TryParse(_fieldValue, out Guid parsedFieldId) ? parsedFieldId : null;
+        Guid[] typeIds = [.. _selectedRecordTypeIds];
         DateOnly monthEnd = _month.AddMonths(1).AddDays(-1);
-        _monthEntries = await CalendarService.QueryAsync(new(_month, monthEnd, recordTypeId, fieldId));
-        _upcoming = await CalendarService.QueryAsync(new(_today, _today.AddDays(89), recordTypeId, fieldId));
+        _monthEntries = await CalendarService.QueryAsync(
+            new(_month, monthEnd, null, fieldId) { RecordTypeIds = typeIds });
+        _upcoming = await CalendarService.QueryAsync(
+            new(_today, _today.AddDays(89), null, fieldId) { RecordTypeIds = typeIds });
         foreach (CalendarEntry entry in _upcoming)
         {
             _leadDays.TryAdd(entry.FieldValueId, 7);
@@ -276,8 +298,12 @@
         await ReloadAsync();
     }
 
+    /// <summary>
+    /// The single chosen type, when exactly one is chosen. The date-field list and the download both
+    /// take one type or none, so several chosen types read as "no single type" rather than guessing.
+    /// </summary>
     private Guid? SelectedRecordTypeId() =>
-        Guid.TryParse(_recordTypeValue, out Guid recordTypeId) ? recordTypeId : null;
+        _selectedRecordTypeIds.Count == 1 ? _selectedRecordTypeIds.Single() : null;
 
     private IEnumerable<CalendarEntry> EntriesFor(DateOnly date) => _monthEntries.Where(entry => entry.Date == date);
 

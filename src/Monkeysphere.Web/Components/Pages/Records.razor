@@ -96,7 +96,7 @@
                         @foreach (GridRow row in group.Rows)
                         {
                             <tr>
-                                <td><a href="/records/@row.Record.Id">@row.Record.DisplayName</a></td>
+                                <td><RecordIdentity RecordId="row.Record.Id" DisplayName="@row.Record.DisplayName" ImageId="row.Record.ImageId" Symbol="@row.Record.RecordTypeSymbol" Compact="true" /></td>
                                 @foreach (RecordTypeField column in _columns)
                                 {
                                     <td>@row.Values.GetValueOrDefault(column.Definition.Id, "—")</td>
@@ -118,7 +118,7 @@
             @foreach (RecordSummary record in _results.Items)
             {
                 <li>
-                    <a href="/records/@record.Id">@record.DisplayName</a>
+                    <RecordIdentity RecordId="record.Id" DisplayName="@record.DisplayName" ImageId="record.ImageId" Symbol="@record.RecordTypeSymbol" />
                     <span class="pill">@record.RecordTypeName</span>
                     <span class="muted">Updated @record.UpdatedAtUtc.ToLocalTime().ToString("g")</span>
                     <BackstageRecordActions RecordId="record.Id" State="record.BackstageState" OnChanged="SearchAsync" />

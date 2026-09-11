@@ -258,7 +258,7 @@ else
                             <li>
                                 <div>
                                     <span>@relationship.Label</span>
-                                    <a href="/records/@relationship.RelatedRecordId">@relationship.RelatedDisplayName</a>
+                                    <RecordIdentity RecordId="relationship.RelatedRecordId" DisplayName="@relationship.RelatedDisplayName" ImageId="relationship.ImageId" Symbol="@relationship.RecordTypeSymbol" Compact="true" />
                                     @if (!string.IsNullOrWhiteSpace(relationship.Note))
                                     {
                                         <span class="muted">@relationship.Note</span>

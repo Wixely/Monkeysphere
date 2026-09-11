@@ -54,6 +54,8 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
                    r.RecordTypeId,
                    rt.Name AS RecordTypeName,
                    r.DisplayName AS RecordDisplayName,
+                   rt.Symbol AS RecordTypeSymbol,
+                   (SELECT image.Id FROM RecordImages image WHERE image.RecordId = r.Id ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS ImageId,
                    fv.FieldDefinitionId,
                    fd.Name AS FieldName,
                    fl.DisplayContext,
@@ -91,7 +93,11 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
             row.Latitude,
             row.Longitude,
             row.AccuracyMetres,
-            row.ApproximationRadiusKilometres)).ToArray();
+            row.ApproximationRadiusKilometres)
+        {
+            ImageId = row.ImageId is null ? null : Guid.ParseExact(row.ImageId, "D"),
+            RecordTypeSymbol = row.RecordTypeSymbol,
+        }).ToArray();
 
         return new(entries, query.Page, query.PageSize, totalCount);
     }
@@ -103,6 +109,8 @@ public sealed class SqliteSpatialMapStore(MonkeysphereConnectionFactory connecti
         public required string RecordTypeId { get; init; }
         public required string RecordTypeName { get; init; }
         public required string RecordDisplayName { get; init; }
+        public string? RecordTypeSymbol { get; init; }
+        public string? ImageId { get; init; }
         public required string FieldDefinitionId { get; init; }
         public required string FieldName { get; init; }
         public string? DisplayContext { get; init; }

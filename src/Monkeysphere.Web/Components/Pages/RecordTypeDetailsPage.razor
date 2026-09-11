@@ -193,7 +193,7 @@ else
             <div class="table-wrap">
                 <table>
                     <thead>
-                        <tr><th>Field</th><th>Type</th><th>Required</th><th>Status</th><th></th></tr>
+                        <tr><th>Field</th><th>Type</th><th>Required</th><th>Repeats</th><th>Status</th><th></th></tr>
                     </thead>
                     <tbody>
                         @foreach (RecordTypeField field in _details.Fields)
@@ -212,6 +212,50 @@ else
                                 </td>
                                 <td><code>@field.Definition.TypeId</code></td>
                                 <td>@(field.IsRequired ? "Yes" : "No")</td>
+                                <td>
+                                    @if (!FieldRecurrences.Supports(field.Definition.TypeId))
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                    else if (field.Definition.Lifecycle != FieldLifecycle.Active)
+                                    {
+                                        @(FieldRecurrences.Of(field.Definition).Repeats ? "Yes" : "No")
+                                    }
+                                    else
+                                    {
+                                        RecurrenceModel model = RecurrenceFor(field.Definition);
+                                        <div class="field-recurrence">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" checked="@model.Repeats"
+                                                       @onchange="args => model.Repeats = args.Value is true" />
+                                                Comes round again
+                                            </label>
+                                            @if (model.Repeats)
+                                            {
+                                                <label class="field-recurrence-interval">
+                                                    Every
+                                                    <input type="number" min="1" max="@FieldRecurrence.MaximumIntervalYears"
+                                                           value="@model.IntervalYears" aria-label="Years between repeats of @field.Definition.Name"
+                                                           @onchange="args => model.SetInterval(args.Value?.ToString())" />
+                                                    @(model.IntervalYears == 1 ? "year" : "years")
+                                                </label>
+                                                <label class="field-recurrence-leap">
+                                                    29 February falls on
+                                                    <select value="@model.LeapDayRoll" aria-label="29 February rule for @field.Definition.Name"
+                                                            @onchange="args => model.SetRoll(args.Value?.ToString())">
+                                                        <option value="@LeapDayRoll.Backward">28 February</option>
+                                                        <option value="@LeapDayRoll.Forward">1 March</option>
+                                                    </select>
+                                                </label>
+                                            }
+                                            @if (model.DiffersFrom(FieldRecurrences.Of(field.Definition)))
+                                            {
+                                                <button class="button subtle" type="button"
+                                                        @onclick="() => SaveRecurrenceAsync(field.Definition)">Save repeat</button>
+                                            }
+                                        </div>
+                                    }
+                                </td>
                                 <td>@field.Definition.Lifecycle</td>
                                 <td>
                                     @if (field.Definition.Lifecycle == FieldLifecycle.Active)
@@ -443,6 +487,63 @@ else
         _message = "Existing field attached with its stable identity preserved.";
         await ReloadAsync(preserveMessage: true);
     });
+
+    /// <summary>
+    /// Edits in progress, one per field. Held here rather than written straight through so that
+    /// ticking a box does not silently change what every record type sharing the field observes.
+    /// </summary>
+    private readonly Dictionary<Guid, RecurrenceModel> _recurrenceEdits = [];
+
+    private RecurrenceModel RecurrenceFor(FieldDefinition definition)
+    {
+        if (!_recurrenceEdits.TryGetValue(definition.Id, out RecurrenceModel? model))
+        {
+            model = RecurrenceModel.From(FieldRecurrences.Of(definition));
+            _recurrenceEdits[definition.Id] = model;
+        }
+
+        return model;
+    }
+
+    private async Task SaveRecurrenceAsync(FieldDefinition definition) => await RunAsync(async () =>
+    {
+        FieldRecurrence recurrence = RecurrenceFor(definition).ToRecurrence();
+        await Service.SetFieldRecurrenceAsync(definition.Id, recurrence);
+        _recurrenceEdits.Remove(definition.Id);
+        _message = recurrence.Repeats
+            ? $"{definition.Name} now comes round again every {(recurrence.IntervalYears == 1 ? "year" : recurrence.IntervalYears + " years")}, everywhere it is used."
+            : $"{definition.Name} no longer repeats.";
+        await ReloadAsync(preserveMessage: true);
+    });
+
+    private sealed class RecurrenceModel
+    {
+        public bool Repeats { get; set; }
+
+        public int IntervalYears { get; set; } = 1;
+
+        public LeapDayRoll LeapDayRoll { get; set; } = LeapDayRoll.Backward;
+
+        public static RecurrenceModel From(FieldRecurrence recurrence) =>
+            new() { Repeats = recurrence.Repeats, IntervalYears = recurrence.IntervalYears, LeapDayRoll = recurrence.LeapDayRoll };
+
+        public void SetInterval(string? value)
+        {
+            if (int.TryParse(value, CultureInfo.InvariantCulture, out int years))
+            {
+                IntervalYears = Math.Clamp(years, 1, FieldRecurrence.MaximumIntervalYears);
+            }
+        }
+
+        public void SetRoll(string? value)
+        {
+            if (Enum.TryParse(value, out LeapDayRoll roll) && Enum.IsDefined(roll)) LeapDayRoll = roll;
+        }
+
+        public FieldRecurrence ToRecurrence() => new(Repeats, IntervalYears, LeapDayRoll);
+
+        public bool DiffersFrom(FieldRecurrence stored) => ToRecurrence() != stored;
+    }
 
     private async Task RenameFieldAsync(FieldDefinition definition) => await RunAsync(async () =>
     {

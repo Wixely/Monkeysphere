@@ -353,8 +353,10 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         Assert.Contains("This settings section is not enabled.", debugHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("Reset database", debugHtml, StringComparison.Ordinal);
         Assert.Contains("Configure dashboard", dashboardHtml, StringComparison.Ordinal);
-        Assert.Contains("dashboard-record-avatar", dashboardHtml, StringComparison.Ordinal);
-        Assert.Contains("dashboard-record-placeholder", dashboardHtml, StringComparison.Ordinal);
+        // The dashboard now uses the same record identity every other list uses, so these assert the
+        // shared classes rather than the dashboard's own former ones.
+        Assert.Contains("record-identity-avatar", dashboardHtml, StringComparison.Ordinal);
+        Assert.Contains("record-identity-placeholder", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains($"/images/{dashboardImageId:D}/thumbnail", dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("View record " + suffix, dashboardHtml, StringComparison.Ordinal);
         Assert.Contains("Dashboard categories", dashboardSettingsHtml, StringComparison.Ordinal);
