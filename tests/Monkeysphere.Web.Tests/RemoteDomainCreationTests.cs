@@ -36,15 +36,15 @@ public sealed partial class RemoteDiscoveryTests
                 using (ZipArchive archive = ZipFile.OpenRead(packagePath))
                     Assert.DoesNotContain(archive.Entries, entry => entry.FullName.Contains(identity.DomainId.ToString("N"), StringComparison.Ordinal));
                 _ = await commands.CreateAsync(identity, "Pending at backup");
-                _ = await factory.Services.GetRequiredService<IDomainCatalog>().RenameAsync(identity.DomainId, "After backup");
+                _ = await factory.Services.GetRequiredService<IDomainRegistry>().RenameAsync(identity.DomainId, "After backup");
             }
             SqliteConnection.ClearAllPools();
             _ = await OfflineBackupRestore.RestoreAsync(packagePath, dataRoot);
             Assert.False(Directory.Exists(Path.Combine(dataRoot, "domains", identity.DomainId.ToString("N"))));
             await using (PersistentApplicationFactory factory = new(dataRoot))
             {
-                IDomainCatalog domains = factory.Services.GetRequiredService<IDomainCatalog>();
-                Assert.Equal(2, domains.Snapshot.Count);
+                IDomainRegistry domains = factory.Services.GetRequiredService<IDomainRegistry>();
+                Assert.Equal(2, domains.All.Count);
                 Assert.True(domains.TryGet(identity.DomainId, out MonkeysphereDomain? created));
                 Assert.Equal("Pending at backup", created!.Name);
                 RecordCommandReceipt receipt = await factory.Services.GetRequiredService<IDomainCommands>().CreateAsync(identity, "Pending at backup");
@@ -70,7 +70,7 @@ public sealed partial class RemoteDiscoveryTests
         Guid domainId = Guid.NewGuid();
         using JsonDocument result = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_domain",
             new { domainId, name = "Created through MCP", idempotencyKey = Guid.NewGuid() });
-        IDomainCatalog domains = factory.Services.GetRequiredService<IDomainCatalog>();
+        IDomainRegistry domains = factory.Services.GetRequiredService<IDomainRegistry>();
         if (allowed)
         {
             RecordCommandReceipt receipt = Structured(result).Deserialize<RecordCommandReceipt>(JsonOptions)!;
@@ -126,6 +126,6 @@ public sealed partial class RemoteDiscoveryTests
         AssertWriteError(duplicate, "validation_failed");
         using JsonDocument invalidDefault = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_domain", request with { domainId = MonkeysphereDomains.DefaultId, idempotencyKey = Guid.NewGuid() });
         AssertWriteError(invalidDefault, "validation_failed");
-        Assert.Equal(2, factory.Services.GetRequiredService<IDomainCatalog>().Snapshot.Count);
+        Assert.Equal(2, factory.Services.GetRequiredService<IDomainRegistry>().All.Count);
     }
 }

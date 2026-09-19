@@ -133,7 +133,7 @@ public sealed partial class RemoteDiscoveryTests
         var apply = new { domainId, id = record.Record.Id, expectedRevision = record.Revision, previewId = preview.PreviewId, idempotencyKey = Guid.CreateVersion7() };
         using JsonDocument missing = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "delete_record", apply with { previewId = Guid.CreateVersion7() });
         AssertWriteError(missing, "not_found");
-        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Other deletion fixture")).Id;
+        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Other deletion fixture")).Id;
         using JsonDocument wrongDomain = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "delete_record", apply with { domainId = otherDomain });
         AssertWriteError(wrongDomain, "not_found");
         await using var connection = await scope.ServiceProvider.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();

@@ -1,0 +1,279 @@
+@page "/structures/tags"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ITagCatalogue Catalogue
+@inject IDomainCatalog Domains
+@inject ICurrentDomain CurrentDomain
+
+<PageTitle>Tags · Monkeysphere</PageTitle>
+
+<StructureTabs Active="tags" />
+
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">One label, one tag</p>
+        <h1>Tags</h1>
+        <p>
+            Tags are shared across the whole deployment: the same label typed in two domains means
+            the same tag. Membership decides where a tag is offered, which is housekeeping rather
+            than a privacy boundary — a record's tags are withheld with the record, not with this list.
+        </p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="notice @(_error ? "error" : "success")" role="status">@_message</div>
+}
+
+<section class="panel">
+    <label class="inline-filter">
+        <span>Show tags in</span>
+        <select @onchange="DomainFilterChanged" aria-label="Filter tags by domain">
+            <option value="" selected="@(_filter is null)">All domains</option>
+            @foreach (MonkeysphereDomain domain in Domains.Snapshot)
+            {
+                <option value="@domain.Id" selected="@(_filter == domain.Id)">@domain.Name</option>
+            }
+        </select>
+    </label>
+</section>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else if (_tags.Count == 0)
+{
+    <section class="panel">
+        <p>No tags yet. Tags appear here as soon as one is typed on a record.</p>
+    </section>
+}
+else
+{
+    <section class="panel">
+        <table class="record-table">
+            <thead>
+                <tr>
+                    <th scope="col">Tag</th>
+                    <th scope="col">Domains</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (TagDefinition tag in _tags)
+                {
+                    <tr>
+                        <td>
+                            <span class="tag-pill" style="--tag-colour: @tag.Colour">
+                                <span class="tag-pill-icon" aria-hidden="true">@tag.Icon</span>
+                                <span class="tag-pill-name">@tag.Name</span>
+                            </span>
+                        </td>
+                        <td>@DomainNames(tag)</td>
+                        <td class="action-cell">
+                            <button class="button" type="button" @onclick="() => BeginEditAsync(tag)">Edit</button>
+                        </td>
+                    </tr>
+
+                    @if (_editing?.Id == tag.Id)
+                    {
+                        <tr>
+                            <td colspan="3">
+                                <div class="settings-form">
+                                    <div class="form-grid">
+                                        <label>
+                                            Name
+                                            <input maxlength="200" @bind="_name" />
+                                            <small>
+                                                Renaming reaches every domain that uses the tag. The catalogue
+                                                changes at once and the records follow; until they do, a domain
+                                                may still show the old label.
+                                            </small>
+                                        </label>
+                                        <label>
+                                            Colour
+                                            <input type="color" @bind="_colour" aria-label="Tag colour" />
+                                        </label>
+                                        <label>
+                                            Icon
+                                            <input maxlength="8" @bind="_icon" placeholder="#" />
+                                            <small>One or two characters. An emoji works.</small>
+                                        </label>
+                                    </div>
+
+                                    <fieldset class="domain-membership">
+                                        <legend>Offered in</legend>
+                                        @foreach (MonkeysphereDomain domain in Domains.Snapshot)
+                                        {
+                                            Guid id = domain.Id;
+                                            <span class="checkbox-label">
+                                                <input type="checkbox"
+                                                       checked="@_domains.Contains(id)"
+                                                       @onchange="args => ToggleDomain(id, args)" />
+                                                @domain.Name
+                                                @if (_usage.TryGetValue(id, out int count) && count > 0)
+                                                {
+                                                    <span class="muted">(@count record@(count == 1 ? "" : "s"))</span>
+                                                }
+                                            </span>
+                                        }
+                                    </fieldset>
+
+                                    @if (StrippedDomains().Count > 0)
+                                    {
+                                        <div class="notice error" role="alert">
+                                            Saving removes this tag from
+                                            @string.Join(", ", StrippedDomains().Select(entry => $"{DomainName(entry.Key)} ({entry.Value} record{(entry.Value == 1 ? "" : "s")})")).
+                                            That cannot be undone.
+                                        </div>
+                                    }
+
+                                    <div class="action-row">
+                                        <button class="button primary" type="button" @onclick="SaveAsync">Save tag</button>
+                                        <button class="button" type="button" @onclick="CancelEdit">Cancel</button>
+                                        <button class="button danger" type="button" @onclick="DeleteAsync">
+                                            Delete everywhere
+                                        </button>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<TagDefinition> _tags = [];
+    private IReadOnlyDictionary<Guid, int> _usage = new Dictionary<Guid, int>();
+    private TagDefinition? _editing;
+    private Guid? _filter;
+    private string _name = string.Empty;
+    private string _colour = "#808080";
+    private string _icon = TagAppearance.DefaultIcon;
+    private HashSet<Guid> _domains = [];
+    private string? _message;
+    private bool _error;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _tags = await Catalogue.ListAsync(_filter);
+        _loading = false;
+    }
+
+    private async Task DomainFilterChanged(ChangeEventArgs args)
+    {
+        _filter = Guid.TryParse(args.Value?.ToString(), out Guid id) ? id : null;
+        CancelEdit();
+        await ReloadAsync();
+    }
+
+    private async Task BeginEditAsync(TagDefinition tag)
+    {
+        _editing = tag;
+        _name = tag.Name;
+        _colour = tag.Colour;
+        _icon = tag.Icon;
+        _domains = [.. tag.DomainIds];
+        _message = null;
+        // Awaited rather than fired and forgotten. The counts are what the "saving removes this
+        // tag from N records" warning is built from, and a save can be pressed as soon as the
+        // panel appears, so the panel must not appear before they are known.
+        try
+        {
+            _usage = await Catalogue.CountUsageAsync(tag.Id);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or System.Data.Common.DbException)
+        {
+            _error = true;
+            _message = "Tag usage could not be counted, so changes that remove records are blocked.";
+            _usage = new Dictionary<Guid, int>();
+            _editing = null;
+        }
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _usage = new Dictionary<Guid, int>();
+    }
+
+    private void ToggleDomain(Guid domainId, ChangeEventArgs args)
+    {
+        if (args.Value is true) _domains.Add(domainId);
+        else _domains.Remove(domainId);
+    }
+
+    /// <summary>Domains being un-ticked that still hold records, so the page can say what is lost.</summary>
+    private IReadOnlyDictionary<Guid, int> StrippedDomains() =>
+        _editing is null
+            ? new Dictionary<Guid, int>()
+            : _usage
+                .Where(entry => _editing.DomainIds.Contains(entry.Key) && !_domains.Contains(entry.Key) && entry.Value > 0)
+                .ToDictionary(entry => entry.Key, entry => entry.Value);
+
+    private string DomainName(Guid id) =>
+        Domains.TryGet(id, out MonkeysphereDomain? domain) ? domain!.Name : "another domain";
+
+    private string DomainNames(TagDefinition tag) =>
+        tag.DomainIds.Count == 0 ? "—" : string.Join(", ", tag.DomainIds.Select(DomainName));
+
+    private async Task SaveAsync()
+    {
+        if (_editing is not TagDefinition tag) return;
+        try
+        {
+            string revision = tag.Revision;
+            if (!string.Equals(_name.Trim(), tag.Name, StringComparison.Ordinal))
+            {
+                revision = (await Catalogue.RenameAsync(tag.Id, _name, revision)).Revision;
+            }
+
+            if (!string.Equals(_colour, tag.Colour, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_icon, tag.Icon, StringComparison.Ordinal))
+            {
+                revision = (await Catalogue.SetAppearanceAsync(tag.Id, _colour, _icon, revision)).Revision;
+            }
+
+            if (!_domains.SetEquals(tag.DomainIds))
+            {
+                _ = await Catalogue.SetDomainsAsync(tag.Id, [.. _domains], revision);
+            }
+
+            _error = false;
+            _message = $"{_name.Trim()} saved.";
+            CancelEdit();
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
+        {
+            _error = true;
+            _message = exception.Message;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_editing is not TagDefinition tag) return;
+        try
+        {
+            await Catalogue.DeleteAsync(tag.Id, tag.Revision);
+            _error = false;
+            _message = $"{tag.Name} was removed from every domain.";
+            CancelEdit();
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
+        {
+            _error = true;
+            _message = exception.Message;
+        }
+    }
+}

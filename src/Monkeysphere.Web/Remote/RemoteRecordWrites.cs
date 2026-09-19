@@ -52,7 +52,8 @@ public sealed record RemoteRecordPatchChange(string Operation, Guid? FieldDefini
 }
 
 public sealed record RemoteWriteError(string Code, string Message, string CorrelationId);
-public sealed record RemoteRecordValidation(bool IsValid, Guid RecordTypeId, string DisplayName, IReadOnlyList<string> Aliases, int FieldCount, string SchemaRevision);
+public sealed record RemoteRecordValidation(bool IsValid, Guid RecordTypeId, string DisplayName, IReadOnlyList<string> Aliases,
+    int FieldCount, string SchemaRevision, IReadOnlyList<string>? Tags = null);
 
 public sealed partial class RemoteRecordWriter(RecordCommandService commands, RecordBatchService batches, RecordDeletionService deletions,
     RelationshipCommandService relationshipCommands, StructureCommandService structureCommands, PresetCommandService presetCommands, RemoteCommandIdentityProvider identities,
@@ -65,13 +66,18 @@ public sealed partial class RemoteRecordWriter(RecordCommandService commands, Re
             "Command audit could not be stored for action {Action}, outcome {Outcome}, correlation {CorrelationId}.");
 
     public Task<CallToolResult> CreateAsync(Guid domainId, Guid recordTypeId, string displayName, Guid idempotencyKey,
-        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases, CancellationToken cancellationToken) => RunAsync(domainId, "records.create", async () =>
+        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases, IReadOnlyList<string>? tags,
+        CancellationToken cancellationToken) => RunAsync(domainId, "records.create", async () =>
     {
-        string hash = CommandRequestHash.Compute(new { contract = 1, domainId, recordTypeId, displayName, values, aliases });
+        // Contract 2 of this hash shape adds tags. Two creates differing only by their tags must
+        // not look like the same command to idempotent replay. A retry issued against shape 1 and
+        // replayed after an upgrade reports retry_conflict rather than replaying, which is the
+        // safe direction: it refuses rather than writing something the caller did not send twice.
+        string hash = CommandRequestHash.Compute(new { contract = 2, domainId, recordTypeId, displayName, values, aliases, tags });
         RecordCommandIdentity identity = identities.Create(domainId, "records.write", "records.create", idempotencyKey, hash);
         using IDisposable domain = currentDomain.Use(domainId);
         ValidateValues(values);
-        return await commands.CreateAsync(identity, recordTypeId, displayName, values.Select(value => value.ToCore()).ToArray(), aliases, cancellationToken).ConfigureAwait(false);
+        return await commands.CreateAsync(identity, recordTypeId, displayName, values.Select(value => value.ToCore()).ToArray(), aliases, tags, cancellationToken).ConfigureAwait(false);
     });
 
     public Task<CallToolResult> PatchAsync(Guid domainId, Guid id, string expectedRevision, Guid idempotencyKey,
@@ -86,14 +92,20 @@ public sealed partial class RemoteRecordWriter(RecordCommandService commands, Re
     });
 
     public Task<CallToolResult> ValidateAsync(Guid domainId, Guid recordTypeId, string displayName,
-        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases, CancellationToken cancellationToken) => RunAsync(domainId, "records.validate", async () =>
+        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases, IReadOnlyList<string>? tags,
+        CancellationToken cancellationToken) => RunAsync(domainId, "records.validate", async () =>
     {
         _ = identities.Create(domainId, "records.write", "records.create", Guid.CreateVersion7(), new string('0', 64));
         using IDisposable domain = currentDomain.Use(domainId);
         ValidateValues(values);
+        // createMissingTags: false — validate_record is declared ReadOnly and must not leave a
+        // new tag behind in the deployment catalogue just for having been asked a question.
         PreparedRecord prepared = await commands.PrepareCreateAsync(recordTypeId, displayName,
-            values.Select(value => value.ToCore()).ToArray(), aliases, cancellationToken).ConfigureAwait(false);
-        return new RemoteRecordValidation(true, recordTypeId, prepared.DisplayName, prepared.Aliases, prepared.Values.Count, prepared.SchemaRevision);
+            values.Select(value => value.ToCore()).ToArray(), aliases, tags, createMissingTags: false,
+            cancellationToken).ConfigureAwait(false);
+        return new RemoteRecordValidation(true, recordTypeId, prepared.DisplayName, prepared.Aliases, prepared.Values.Count,
+            // The catalogue's spelling, which is what would actually be stored.
+            prepared.SchemaRevision, prepared.Tags?.Select(tag => tag.Name).ToArray());
     });
 
     private static void ValidateValues(IReadOnlyList<RemoteFieldInput> values)
@@ -160,20 +172,22 @@ public sealed partial class RemoteRecordWriter(RecordCommandService commands, Re
 public sealed class MonkeysphereRecordWriteTools
 {
     [McpServerTool(Name = "create_record", ReadOnly = false, Destructive = false)]
-    [Description("Creates one record in an explicit domain. Requires records.write and a unique idempotencyKey; identical retries replay for 24 hours. Field inputs use schema-discovered shapes. Returns a committed receipt.")]
+    [Description("Creates one record in an explicit domain. Requires records.write and a unique idempotencyKey; identical retries replay for 24 hours. Field inputs use schema-discovered shapes. Optional tags are the record's universal tags, which are separate from a tags-typed field: at most 100 entries of at most 200 characters, trimmed, with case-insensitive duplicates removed. Supplying tags for a record type whose tags an administrator removed is refused. Returns a committed receipt.")]
     public static Task<CallToolResult> CreateAsync(RemoteRecordWriter writer, Guid domainId, Guid recordTypeId, string displayName,
-        Guid idempotencyKey, IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases = null, CancellationToken cancellationToken = default) =>
-        writer.CreateAsync(domainId, recordTypeId, displayName, idempotencyKey, values, aliases, cancellationToken);
+        Guid idempotencyKey, IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
+        writer.CreateAsync(domainId, recordTypeId, displayName, idempotencyKey, values, aliases, tags, cancellationToken);
 
     [McpServerTool(Name = "patch_record", ReadOnly = false, Destructive = true)]
-    [Description("Patches one record using set_name, replace_aliases, set_field or clear_field. Unmentioned data is preserved. Requires records.write, explicit domainId, expectedRevision from get_record, and idempotencyKey. Identical retries replay for 24 hours.")]
+    [Description("Patches one record using set_name, replace_aliases, replace_tags, set_field or clear_field. Unmentioned data is preserved, so a patch that omits replace_tags leaves the record's universal tags untouched; replace_tags with an empty values list clears them. Requires records.write, explicit domainId, expectedRevision from get_record, and idempotencyKey. Identical retries replay for 24 hours.")]
     public static Task<CallToolResult> PatchAsync(RemoteRecordWriter writer, Guid domainId, Guid id, string expectedRevision,
         Guid idempotencyKey, IReadOnlyList<RemoteRecordPatchChange> changes, CancellationToken cancellationToken = default) =>
         writer.PatchAsync(domainId, id, expectedRevision, idempotencyKey, changes, cancellationToken);
 
     [McpServerTool(Name = "validate_record", ReadOnly = true, Destructive = false)]
-    [Description("Validates proposed record creation through the same Core rules without saving. Requires records.write and an explicit domain. Returns normalized name/aliases, field count and schema revision.")]
+    [Description("Validates proposed record creation through the same Core rules without saving. Requires records.write and an explicit domain. Returns normalized name/aliases/tags, field count and schema revision.")]
     public static Task<CallToolResult> ValidateAsync(RemoteRecordWriter writer, Guid domainId, Guid recordTypeId, string displayName,
-        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases = null, CancellationToken cancellationToken = default) =>
-        writer.ValidateAsync(domainId, recordTypeId, displayName, values, aliases, cancellationToken);
+        IReadOnlyList<RemoteFieldInput> values, IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
+        writer.ValidateAsync(domainId, recordTypeId, displayName, values, aliases, tags, cancellationToken);
 }

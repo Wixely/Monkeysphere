@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.20
+- Contract version: 1.22
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-11
 - Owner: Agent
@@ -40,8 +40,8 @@ Accept: application/json, text/event-stream
 
 | Tool | Required grant | Inputs / result |
 | --- | --- | --- |
-| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export` | No inputs. Application name, release version without build metadata, database schema version, contract version |
-| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Application name, release version without build metadata, database schema version, contract version |
+| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
 | `create_domain` | `domains.manage` | Required new non-Default `domainId` UUID, `name`, UUID `idempotencyKey`. Creates an isolated blank domain using a durable reservation |
 | `rename_domain` | `domains.manage` | Required `domainId`, `name`, `expectedRevision`, UUID `idempotencyKey`. Revision-checked rename with durable receipt |
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
@@ -95,13 +95,13 @@ Accept: application/json, text/event-stream
 | `install_preset` | `structure.write` | Required `domainId`, `presetKey`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`. Atomic single-preset installation with receipt |
 | `complete_setup` | `structure.write` | Required `domainId`, `starterPackKey`, `selectedPresetKeys`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`; `acknowledgeBlank` defaults false. Atomic selected installation and setup completion |
 
-Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is true for contact upload, preview, and import; contact export and image transfer remain planned. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
+Remote deployment/activation and credential checks apply before invocation. Tool-level authorization is enforced even if discovery lists a denied tool. `instance.read` exposes no record names, domain catalog, credentials, endpoint paths or host paths. Discovery reports implemented functionality: `supportsWrites` is true and `supportsFileTransfer` is true for contact upload, preview and import, for selected-contact export (1.15), and for record image transfer (1.16). Image lifecycle beyond attaching and reading — deletion, captions and ordering — remains browser-only. Per-tool `allowed` flags reflect the caller's grants; write support does not imply permission or complete instance-management coverage.
 
 Both list_domains and query_domains include an opaque domain `revision`. Domain registry migration 2 persists these tokens and changes them on renaming, including a rename back to an earlier name. Browser rename submits its captured revision; the registry update checks it transactionally and publishes the matching cached catalog only after commit. Contract 1.9 adds registry-owned rename receipts and the separate `domains.manage` grant. Contract 1.10 adds recoverable creation.
 
 Omitted domain selectors retain the Default domain for backwards compatibility. Explicit malformed or unknown domain selectors fail closed. Domain listing is still under the single-administrator trust boundary. New paged tools accept page 1-10000 and page size 1-100, rejecting invalid values. They preserve deterministic ordering and report total count; empty pages do not lose that count. Legacy tools keep their response shapes and caps. Metadata catalogs currently use the shared application list services before paging; relationship rows are paged directly in SQLite.
 
-Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage` and `contacts.import`; HTTP API offers `records.read`. Selections take effect only on rotation, which replaces the one credential for that surface. Write grants do not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records. Both new write grants permit instance/capability discovery; they do not permit unrelated record mutations.
+Remote access settings select permissions for the next credential rotation. Existing grants remain selected by default, including unfamiliar existing grants that can be retained or removed. Unsupported new grants cannot be introduced. MCP offers `instance.read`, `records.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export`, `media.write`, `media.read`, `tags.manage` and `backstage`; HTTP API offers `records.read`. `backstage` is not a scope in the ordinary sense: it authorizes no tool and permits no read on its own, and instead widens what the tools a credential already holds are allowed to see. See [Backstage records in 1.17](#backstage-records-in-117). Selections take effect only on rotation, which replaces the one credential for that surface. Write grants do not imply data reads; select `records.read` too when the client needs to discover schemas or retrieve records. Both new write grants permit instance/capability discovery; they do not permit unrelated record mutations.
 
 ## Additive typed information in 1.1
 
@@ -182,7 +182,7 @@ Illustrative subset of `get_capabilities` output for an `instance.read` credenti
 
 ```json
 {
-  "contractVersion": "1.19",
+  "contractVersion": "1.22",
   "grantedScopes": ["instance.read"],
   "tools": [
     { "name": "get_capabilities", "anyOfScopes": ["records.read", "instance.read", "records.write", "records.delete"], "allowed": true },
@@ -333,7 +333,7 @@ Begin with purpose `contact_import`, a UUID retry key, the exact byte length, wh
 
 Payload expires 60 minutes after begin, with no extension. Begin-key replay lasts 24 hours, followed by seven more days of metadata retention. At most 256 chunks per upload, 64 MiB reserved bytes, 64 active sessions globally, eight active sessions per domain, four per credential/domain and 1000 metadata rows are retained. Expiry and cancellation remove staged bytes; application startup and a five-minute worker clean expired payload/metadata. Respect transport rate limits and inspect status after a lost response before resuming.
 
-`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview and inspection are implemented in 1.13; apply is implemented in 1.14. Selected-contact export is implemented in 1.15 under a separate grant. Image lifecycle tools remain unfinished.
+`complete_upload` seals byte integrity, streams strict UTF-8 vCard 3.0/4.0 validation and returns the validated contact count. It does not reveal contact contents, create records or create an import preview. Internal `sealed` status means integrity only; malformed vCards can remain sealed and must not be interpreted as validated. Call completion again to verify content while the session is live. Contact preview and inspection are implemented in 1.13; apply is implemented in 1.14. Selected-contact export is implemented in 1.15 under a separate grant, and image transfer in 1.16 under `media.write` and `media.read`. Image lifecycle — deletion, captions and ordering — remains unfinished.
 
 Staging schema 2 adds redacted audit: domain/upload IDs, action, outcome, correlation ID and time. Begin/chunk/seal/cancel mutations commit with their audit; replay requests can add audit entries without repeating byte mutations. Completion records validation success; failures carry only bounded codes and metadata. Audit failure prevents successful mutation responses and rolls back the associated staging transaction. Staging audit is bounded to 50000 entries and seven days, excluded from backup archives and cleared with staging on successful offline restore. Names, uploaded bytes, bearer credentials, credential fingerprints and digests are absent from audit rows.
 
@@ -418,3 +418,96 @@ Contract 1.20 adds no tools and no grants. `query_record_relationships` gains tw
 `imageId` is null when the related record has no image, and names an image readable through the existing record-image surface under the same permission that returned the relationship. `recordTypeSymbol` is null only for a record type that has no symbol set. Neither field is a filter and neither can be written here.
 
 The addition is additive: a client written against 1.19 ignores both fields and behaves exactly as before. The change exists because the browser now shows a record the same way everywhere — its picture beside its name — and a caller assembling the same view deserves the same single call.
+
+## Universal tags in 1.21
+
+Contract 1.21 adds no tools and no grants. Every record carries universal tags unless an
+administrator has removed them from its record type, and they are ordinary record content, so they
+sit under the existing `records.read` and `records.write` authority and are withheld with the
+record by backstage policy. They are distinct from the `tags` field type, whose values stay on the
+field value where they already were.
+
+- `get_record` returns the record's `tags`.
+- `query_records` accepts `tags`: at most ten, AND-combined, matched case-insensitively. A record
+  must carry every tag listed, so adding one narrows the result.
+- `create_record` and `validate_record` accept an optional `tags` list, normalized by the same
+  rules the browser applies: trimmed, at most 100 entries of at most 200 characters, with
+  case-insensitive duplicates removed and the caller's order preserved. Supplying tags for a record
+  type whose tags an administrator removed is refused rather than stored where nothing would show
+  them.
+- `patch_record` gains `replace_tags`, alongside `replace_aliases` and with the same shape. A patch
+  that does not carry it leaves the record's tags untouched, which is what lets a client written
+  against 1.20 keep patching records without destroying data it does not know about.
+  `replace_tags` with an empty `values` clears them.
+- `preview_record_batch` accepts `tags` on a `create` operation. A batched `patch` carries them in
+  a `replace_tags` change, as a single patch does.
+
+**One compatibility note.** The canonical request hash for `create_record` and for batch previews
+now includes tags, and its shape marker moves from 1 to 2. Two creates differing only by their tags
+must not look like the same command to idempotent replay. A retry issued before an upgrade and
+replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
+hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
+within the 24-hour retry window that spans the upgrade.
+
+## Tag management in 1.22
+
+Contract 1.22 has 63 tools, adding seven, and one grant, `tags.manage`.
+
+Universal tags are catalogued for the whole deployment rather than per domain: the same label is
+the same tag everywhere, which is what lets an administrator curate them in one place and lets a
+label typed in a second domain join the existing tag instead of creating a duplicate.
+
+Reads take `records.read` or `tags.manage`:
+
+- `list_tags` returns every tag with `colour`, `icon`, `domainIds` and `revision`. An optional
+  `domainId` narrows it to the tags offered there.
+- `count_tag_usage` returns the record count per domain for one tag.
+
+Writes take `tags.manage` alone:
+
+- `create_tag` takes a `domainId` and a `name`. It is naturally idempotent: a name already in the
+  catalogue resolves to that tag and gains the domain, so the returned `id` may be one that
+  already existed, and the stored spelling replaces the one supplied.
+- `set_tag_appearance` sets `colour` (`#rrggbb`) and `icon` (one or two characters, an emoji
+  counting as one).
+- `rename_tag` renames the tag everywhere it is used.
+- `set_tag_domains` replaces the membership list. **Destructive**: a domain dropped from the list
+  loses the tag from every record in it.
+- `delete_tag` removes the tag from the deployment and from every record holding it.
+  **Destructive.**
+
+### Why its own grant
+
+`tags.manage` is separate from `structure.write` for the reason `domains.manage` is: it writes to
+the deployment registry rather than to one domain, and `set_tag_domains` and `delete_tag` delete
+record content — in every domain that holds the tag, including domains the credential never
+selected. `structure.write` authorizes no record deletion today, and folding these into it would
+widen that grant without saying so. Existing credentials never acquire `tags.manage`
+automatically; an administrator selects it when rotating one.
+
+### Revision checks rather than receipts
+
+Unlike the record and domain write tools, the tag tools take no `idempotencyKey` and issue no
+durable receipt. That is deliberate rather than an omission. Receipts exist because record
+creation is not naturally idempotent — issuing it twice makes two records. The tag operations do
+not have that shape: `create_tag` is idempotent by construction, and every mutation is guarded by
+`expectedRevision` from `list_tags`, so a retry after a successful call fails closed with
+`stale_revision` rather than applying twice. A repeated `delete_tag` reports `not_found`.
+
+The cost is that a client cannot distinguish "my retry already succeeded" from "someone else
+changed this"; both surface as a refusal. If that distinction is needed later, receipts can be
+added without changing the tool shapes.
+
+### One correction carried by this contract
+
+`ConcurrencyConflictException` previously escaped the shared read-tool error mapping and was
+reported as `temporarily_unavailable` with advice to retry. A stale revision is not transient and
+the retry would fail identically, so it now maps to `stale_revision`. Note that the deployment
+still uses two codes for this condition — `stale_revision` in record and tag writes,
+`concurrency_conflict` in the contact-preview and image tools — which predates this contract.
+
+### Record reads are unchanged
+
+`get_record` still returns `tags` as an array of names. Colour and icon are catalogue properties
+rather than record content, so a client that wants them calls `list_tags`; this keeps 1.21 clients
+working unchanged.

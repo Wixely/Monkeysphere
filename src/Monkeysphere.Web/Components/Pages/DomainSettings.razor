@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IDomainCatalog Domains
+@inject IDomainRegistry Registry
+@inject IBackstageVisibility Backstage
 @inject ICurrentDomain CurrentDomain
 @inject NavigationManager Navigation
 
@@ -39,6 +41,10 @@
                         {
                             <span class="pill">Original data</span>
                         }
+                        @if (domain.IsHidden)
+                        {
+                            <span class="pill">Hidden</span>
+                        }
                     </div>
                     @if (_editingId == domain.Id)
                     {
@@ -53,7 +59,15 @@
                     }
                     else
                     {
-                        <button class="button" type="button" @onclick="() => BeginRename(domain)">Rename</button>
+                        <div class="action-row">
+                            <button class="button" type="button" @onclick="() => BeginRename(domain)">Rename</button>
+                            @if (Backstage.IncludeBackstageRecords && !domain.IsDefault)
+                            {
+                                <button class="button" type="button" @onclick="() => SetHiddenAsync(domain, !domain.IsHidden)">
+                                    @(domain.IsHidden ? "Reveal" : "Hide")
+                                </button>
+                            }
+                        </div>
                     }
                 </div>
             }
@@ -89,7 +103,7 @@
     {
         try
         {
-            MonkeysphereDomain domain = await Domains.CreateAsync(_newName);
+            MonkeysphereDomain domain = await Registry.CreateAsync(_newName);
             Navigation.NavigateTo($"/settings/domains?created={domain.Id:D}", forceLoad: true);
         }
         catch (DomainValidationException exception)
@@ -128,8 +142,24 @@
 
         try
         {
-            MonkeysphereDomain domain = await Domains.RenameAsync(id, _renameName, expectedRevision: _renameRevision);
+            MonkeysphereDomain domain = await Registry.RenameAsync(id, _renameName, expectedRevision: _renameRevision);
             Navigation.NavigateTo($"/settings/domains?renamed={domain.Id:D}", forceLoad: true);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
+        {
+            _error = true;
+            _message = exception.Message;
+        }
+    }
+
+    private async Task SetHiddenAsync(MonkeysphereDomain domain, bool hidden)
+    {
+        try
+        {
+            await Domains.SetHiddenAsync(domain.Id, hidden, expectedRevision: domain.Revision);
+            // A full load, because hiding the selected domain has to re-resolve the selection:
+            // the cookie now names a domain an ordinary read cannot see.
+            Navigation.NavigateTo("/settings/domains", forceLoad: true);
         }
         catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException)
         {

@@ -1,0 +1,163 @@
+@* Tags as pills rather than a text box full of commas. Typing filters the domain's catalogue,
+   Enter or comma commits what is typed, and Backspace on an empty box removes the last pill.
+
+   Suggestions use the same listbox contract as SearchableSelect rather than a native <datalist>,
+   whose screen-reader support is uneven and which cannot render a colour or an icon. *@
+
+<div class="tag-input @(Disabled ? "disabled" : null)">
+    <ul class="tag-pills" aria-label="Selected tags">
+        @foreach (TagPill pill in Pills)
+        {
+            <li class="tag-pill" style="--tag-colour: @pill.Colour">
+                <span class="tag-pill-icon" aria-hidden="true">@pill.Icon</span>
+                <span class="tag-pill-name">@pill.Name</span>
+                @if (!Disabled)
+                {
+                    <button type="button" class="tag-pill-remove"
+                            aria-label="@($"Remove tag {pill.Name}")"
+                            @onclick="() => RemoveAsync(pill.Name)">×</button>
+                }
+            </li>
+        }
+    </ul>
+
+    @if (!Disabled)
+    {
+        <input type="text"
+               class="tag-input-field"
+               role="combobox"
+               aria-expanded="@(Matches.Count > 0 ? "true" : "false")"
+               aria-controls="@ListboxId"
+               aria-autocomplete="list"
+               aria-activedescendant="@(_active >= 0 && _active < Matches.Count ? OptionId(_active) : null)"
+               aria-label="@AriaLabel"
+               placeholder="@Placeholder"
+               value="@_query"
+               @oninput="QueryChanged"
+               @onkeydown="KeyDownAsync" />
+
+        @if (Matches.Count > 0)
+        {
+            <ul class="tag-suggestions" role="listbox" id="@ListboxId">
+                @for (int index = 0; index < Matches.Count; index++)
+                {
+                    int captured = index;
+                    TagPill match = Matches[index];
+                    <li role="option"
+                        id="@OptionId(index)"
+                        class="@(index == _active ? "active" : null)"
+                        aria-selected="@(index == _active ? "true" : "false")"
+                        style="--tag-colour: @match.Colour"
+                        @onclick="() => CommitAsync(match.Name)">
+                        <span class="tag-pill-icon" aria-hidden="true">@match.Icon</span>
+                        <span>@match.Name</span>
+                    </li>
+                }
+            </ul>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>One suggestion or selected tag, with the appearance the catalogue gave it.</summary>
+    public sealed record TagPill(string Name, string Colour, string Icon);
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> Value { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> ValueChanged { get; set; }
+
+    /// <summary>The domain's catalogue, for suggestions and for colouring the pills.</summary>
+    [Parameter]
+    public IReadOnlyList<TagPill> Available { get; set; } = [];
+
+    [Parameter]
+    public string AriaLabel { get; set; } = "Tags";
+
+    [Parameter]
+    public string Placeholder { get; set; } = "Add a tag and press Enter";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    private readonly string _listboxId = "tag-suggestions-" + Guid.NewGuid().ToString("N");
+    private string _query = string.Empty;
+    private int _active = -1;
+
+    private string ListboxId => _listboxId;
+
+    private string OptionId(int index) => $"{_listboxId}-{index}";
+
+    private IReadOnlyList<TagPill> Pills =>
+        [.. Value.Select(name => Available.FirstOrDefault(tag =>
+            string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase))
+            // A tag the catalogue has not caught up with still renders, in the default appearance,
+            // rather than vanishing from the editor.
+            ?? new TagPill(name, "#8a8f98", "#"))];
+
+    private IReadOnlyList<TagPill> Matches
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_query)) return [];
+            string query = _query.Trim();
+            return
+            [
+                .. Available
+                    .Where(tag => tag.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    .Where(tag => !Value.Contains(tag.Name, StringComparer.OrdinalIgnoreCase))
+                    .Take(8),
+            ];
+        }
+    }
+
+    private void QueryChanged(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        _active = -1;
+    }
+
+    private async Task KeyDownAsync(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "Enter":
+            case ",":
+                // The highlighted suggestion wins when there is one, so arrowing down and pressing
+                // Enter picks the catalogue's spelling rather than the half-typed text.
+                await CommitAsync(_active >= 0 && _active < Matches.Count ? Matches[_active].Name : _query);
+                break;
+            case "Backspace" when _query.Length == 0 && Value.Count > 0:
+                await RemoveAsync(Value[^1]);
+                break;
+            case "ArrowDown" when Matches.Count > 0:
+                _active = _active + 1 >= Matches.Count ? 0 : _active + 1;
+                break;
+            case "ArrowUp" when Matches.Count > 0:
+                _active = _active <= 0 ? Matches.Count - 1 : _active - 1;
+                break;
+            case "Escape":
+                _query = string.Empty;
+                _active = -1;
+                break;
+        }
+    }
+
+    private async Task CommitAsync(string name)
+    {
+        string trimmed = (name ?? string.Empty).Trim();
+        _query = string.Empty;
+        _active = -1;
+        if (trimmed.Length == 0) return;
+
+        // Case-insensitive, because the catalogue treats one label as one tag whatever was typed.
+        if (Value.Contains(trimmed, StringComparer.OrdinalIgnoreCase)) return;
+
+        await ValueChanged.InvokeAsync([.. Value, trimmed]);
+    }
+
+    private async Task RemoveAsync(string name) =>
+        await ValueChanged.InvokeAsync(
+            [.. Value.Where(tag => !string.Equals(tag, name, StringComparison.OrdinalIgnoreCase))]);
+}

@@ -41,7 +41,9 @@ public sealed record RemoteRecord(
     IReadOnlyList<RemoteRecordImage> Images,
     IReadOnlyList<RemoteRecordValue> Values,
     IReadOnlyList<RemoteRelationship> Relationships,
-    string Revision = "");
+    string Revision = "",
+    // Universal tags, distinct from the tags of a tags-typed field, which stay on the value.
+    IReadOnlyList<string>? Tags = null);
 
 public sealed record RemoteRecordImage(
     Guid Id,
@@ -271,7 +273,8 @@ public sealed partial class MonkeysphereRemoteQueries(
                     ? new RemoteTemporalValue(value.TemporalValue, precision.ToString().ToLowerInvariant(), value.IsApproximate, value.ApproximationNote)
                     : null)).ToArray(),
             relationships,
-            details.Revision);
+            details.Revision,
+            details.Tags);
 
     private async Task<IReadOnlyList<RemoteRelationship>> GetRecordRelationshipsCoreAsync(
         Guid id,

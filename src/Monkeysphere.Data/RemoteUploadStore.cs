@@ -6,7 +6,7 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDomainCatalog domains, TimeProvider timeProvider) : IRemoteUploadStore
+internal sealed class RemoteUploadStore(RemoteUploadConnections connections, IDomainRegistry domains, TimeProvider timeProvider) : IRemoteUploadStore
 {
     public async Task<UploadStatus> BeginAsync(UploadOwner owner, Guid idempotencyKey, UploadRequest request, CancellationToken cancellationToken = default)
     {

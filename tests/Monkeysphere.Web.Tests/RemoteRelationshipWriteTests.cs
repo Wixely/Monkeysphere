@@ -134,7 +134,7 @@ public sealed partial class RemoteDiscoveryTests
         RecordDetails first = await records.CreateRecordAsync(recordType.Id, "First", []);
         RecordDetails second = await records.CreateRecordAsync(recordType.Id, "Second", []);
         RelationshipType type = await relationships.CreateTypeAsync(new("parent of", RelationshipDirectionality.Directional, "child of"));
-        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Other links")).Id;
+        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Other links")).Id;
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["relationships.write", "structure.write"]);
         var create = RelationshipCreateInput(MonkeysphereDomains.DefaultId, type, first, second);
         using JsonDocument foreign = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_relationship", create with { domainId = otherDomain });

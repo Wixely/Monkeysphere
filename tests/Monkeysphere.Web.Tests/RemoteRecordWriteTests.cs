@@ -197,7 +197,7 @@ public sealed partial class RemoteDiscoveryTests
         IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
         RecordType type = await records.CreateRecordTypeAsync("Isolation fixture");
         FieldDefinition field = await records.CreateAndAttachFieldAsync(type.Id, new("Text", FieldTypes.Text, false));
-        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Other fixture")).Id;
+        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Other fixture")).Id;
         var (_, credential, surface) = await EnableWritesAsync(factory);
         using JsonDocument wrong = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_record",
             new { domainId = otherDomain, recordTypeId = type.Id, displayName = "Wrong domain", idempotencyKey = Guid.CreateVersion7(), values = Array.Empty<RemoteFieldInput>() });

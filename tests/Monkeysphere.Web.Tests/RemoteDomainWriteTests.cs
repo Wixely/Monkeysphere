@@ -21,7 +21,7 @@ public sealed partial class RemoteDiscoveryTests
         await using RemoteEnabledApplicationFactory factory = new();
         using HttpClient client = factory.CreateClient();
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, [grant]);
-        IDomainCatalog domains = factory.Services.GetRequiredService<IDomainCatalog>();
+        IDomainRegistry domains = factory.Services.GetRequiredService<IDomainRegistry>();
         MonkeysphereDomain original = domains.DefaultDomain;
         using JsonDocument capabilitiesResult = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_capabilities");
         RemoteCapabilities capabilities = Structured(capabilitiesResult).Deserialize<RemoteCapabilities>(JsonOptions)!;
@@ -30,7 +30,7 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(1000, capabilities.DomainWriteLimits.MaximumRetainedCommands);
         Assert.Equal(24, capabilities.DomainWriteLimits.RetryWindowHours);
         using JsonDocument info = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_instance_info");
-        Assert.Equal(5, Structured(info).GetProperty("domainRegistrySchemaVersion").GetInt32());
+        Assert.Equal(7, Structured(info).GetProperty("domainRegistrySchemaVersion").GetInt32());
         using JsonDocument renamed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "rename_domain",
             new { domainId = original.Id, name = "Scoped rename", expectedRevision = original.Revision, idempotencyKey = Guid.CreateVersion7() });
         if (allowed)
@@ -53,7 +53,7 @@ public sealed partial class RemoteDiscoveryTests
         await using RemoteEnabledApplicationFactory factory = new();
         using HttpClient client = factory.CreateClient();
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["domains.manage", "records.read"]);
-        IDomainCatalog domains = factory.Services.GetRequiredService<IDomainCatalog>();
+        IDomainRegistry domains = factory.Services.GetRequiredService<IDomainRegistry>();
         MonkeysphereDomain original = domains.DefaultDomain;
         MonkeysphereDomain other = await domains.CreateAsync("Other domain");
         var request = new { domainId = original.Id, name = "Remote private name", expectedRevision = original.Revision, idempotencyKey = Guid.CreateVersion7() };

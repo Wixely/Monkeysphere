@@ -27,7 +27,7 @@ public sealed partial class DomainIsolationTests
         try
         {
             await provider.InitializeMonkeysphereDomainsAsync();
-            IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+            IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
             Assert.Equal("Default", domains.DefaultDomain.Name);
 
             Guid defaultRecordId;
@@ -95,7 +95,7 @@ public sealed partial class DomainIsolationTests
         try
         {
             await provider.InitializeMonkeysphereDomainsAsync();
-            IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+            IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
             _ = await domains.CreateAsync("Fictional characters");
             await Assert.ThrowsAsync<DomainValidationException>(() => domains.CreateAsync(" fictional CHARACTERS "));
             await Assert.ThrowsAsync<DomainValidationException>(() => domains.RenameAsync(Guid.CreateVersion7(), "Missing"));
@@ -126,6 +126,10 @@ public sealed partial class DomainIsolationTests
             _current.Value = domainId;
             return new Scope(_current, previous);
         }
+
+        // This fixture selects domains directly rather than through a catalogue, so the two are
+        // the same here; the distinction that matters is tested against the real implementation.
+        public IDisposable UseForMaintenance(Guid domainId) => Use(domainId);
 
         private sealed class Scope(AsyncLocal<Guid?> current, Guid? previous) : IDisposable
         {

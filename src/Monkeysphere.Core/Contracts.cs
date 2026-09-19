@@ -12,7 +12,8 @@ public interface IMonkeysphereStore
 
     Task RenameRecordTypeAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default);
 
-    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, DateTimeOffset now, CancellationToken cancellationToken = default);
+    /// <summary>Null <paramref name="tagsEnabled"/> leaves the type's universal-tag setting unchanged.</summary>
+    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, DateTimeOffset now, bool? tagsEnabled = null, CancellationToken cancellationToken = default);
 
     Task<RecordTypeRetirementPreview?> PreviewRecordTypeRetirementAsync(
         Guid id,
@@ -108,10 +109,16 @@ public interface IMonkeysphereStore
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         string? expectedSchemaRevision = null,
+        IReadOnlyList<ResolvedTag>? tags = null,
         CancellationToken cancellationToken = default);
 
     Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Replaces a record. Null <paramref name="tags"/> leaves the record's universal tags exactly
+    /// as they are, so a caller that knows nothing about tags — a remote patch, a contact import —
+    /// cannot silently erase them.
+    /// </summary>
     Task<RecordDetails> UpdateRecordAsync(
         Guid id,
         string displayName,
@@ -119,6 +126,7 @@ public interface IMonkeysphereStore
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         string? expectedRevision = null,
+        IReadOnlyList<ResolvedTag>? tags = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
@@ -154,7 +162,8 @@ public interface IMonkeysphereStore
 public interface IMonkeysphereService
 {
     Task<PreparedRecordMutation> PrepareRecordUpdateAsync(Guid id, string displayName, IReadOnlyList<FieldValueInput> values,
-        IReadOnlyList<string>? aliases = null, string? expectedRevision = null, CancellationToken cancellationToken = default);
+        IReadOnlyList<string>? aliases = null, string? expectedRevision = null, IReadOnlyList<string>? tags = null,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RecordType>> ListRecordTypesAsync(CancellationToken cancellationToken = default);
 
     Task<RecordTypeDetails?> GetRecordTypeAsync(Guid id, CancellationToken cancellationToken = default);
@@ -165,7 +174,8 @@ public interface IMonkeysphereService
 
     Task RenameRecordTypeAsync(Guid id, string name, CancellationToken cancellationToken = default);
 
-    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, CancellationToken cancellationToken = default);
+    /// <summary>Null <paramref name="tagsEnabled"/> leaves the type's universal-tag setting unchanged.</summary>
+    Task UpdateRecordTypeAsync(Guid id, string name, string? symbol, bool? tagsEnabled = null, CancellationToken cancellationToken = default);
 
     Task<RecordTypeRetirementPreview> PreviewRecordTypeRetirementAsync(
         Guid id,
@@ -233,6 +243,7 @@ public interface IMonkeysphereService
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null,
         CancellationToken cancellationToken = default);
 
     Task<PreparedRecord> PrepareRecordAsync(
@@ -240,16 +251,23 @@ public interface IMonkeysphereService
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null,
+        bool createMissingTags = true,
         CancellationToken cancellationToken = default);
 
     Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Null <paramref name="tags"/> leaves the record's universal tags unchanged; an empty list
+    /// clears them.
+    /// </summary>
     Task<RecordDetails> UpdateRecordAsync(
         Guid id,
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
         string? expectedRevision = null,
+        IReadOnlyList<string>? tags = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);

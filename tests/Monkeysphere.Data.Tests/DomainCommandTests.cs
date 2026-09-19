@@ -31,7 +31,7 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
                 originalRevision = domains.DefaultDomain.Revision;
                 receipt = await commands.RenameAsync(identity, "First remote name", originalRevision);
@@ -41,7 +41,7 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
                 RecordCommandReceipt replay = await commands.RenameAsync(identity, "First remote name", originalRevision);
                 Assert.Equal(receipt.Items.ToArray(), replay.Items.ToArray());
@@ -71,7 +71,7 @@ public sealed partial class DomainIsolationTests
         {
             await using ServiceProvider provider = RegistryProvider(dataRoot);
             await provider.InitializeMonkeysphereDomainsAsync();
-            IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+            IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
             IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
             MonkeysphereDomain original = domains.DefaultDomain;
             RecordCommandIdentity identity = new(original.Id, "mcp", new string('A', 64), "domains.rename", Guid.NewGuid(), new string('B', 64));

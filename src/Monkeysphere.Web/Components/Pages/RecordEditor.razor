@@ -5,6 +5,9 @@
 @inject IMonkeysphereService Service
 @inject IRecordImageService ImageService
 @inject IRelationshipService RelationshipService
+@inject IRecordTagStore Tags
+@inject ITagCatalogue Catalogue
+@inject ICurrentDomain CurrentDomain
 @inject NavigationManager Navigation
 
 <PageTitle>@(RecordId.HasValue ? "Edit record" : "New record") · Monkeysphere</PageTitle>
@@ -65,6 +68,18 @@ else
                     <textarea @bind="_model.Aliases" rows="3" placeholder="One alternate name per line"></textarea>
                     <span class="muted">Short names, nicknames, former names, local names, or anything else you may search for.</span>
                 </label>
+                @if (_selectedType?.RecordType.TagsEnabled != false)
+                {
+                    <label class="form-wide">
+                        Tags
+                        <TagInput Value="_tags" ValueChanged="TagsChanged" Available="_tagSuggestions"
+                                  AriaLabel="Tags" />
+                        <span class="muted">
+                            Freeform labels that cut across record types. Searchable like names and field values.
+                            A label already used in another domain becomes that same tag rather than a new one.
+                        </span>
+                    </label>
+                }
             </div>
 
             @if (_selectedType is not null)
@@ -353,6 +368,8 @@ else
     private string _relatedQuery = string.Empty;
     private string _relationshipNote = string.Empty;
     private IReadOnlyList<RecordImage> _images = [];
+    private IReadOnlyList<TagInput.TagPill> _tagSuggestions = [];
+    private IReadOnlyList<string> _tags = [];
     private List<ImageEditor> _imageEditors = [];
     private bool _uploading;
 
@@ -379,6 +396,16 @@ else
             _types = _types.Where(type => type.Lifecycle == RecordTypeLifecycle.Active).ToArray();
         }
 
+        // The catalogue for this domain only, already filtered so that a tag carried solely by a
+        // hidden record is not offered, and a tag belonging to another domain is not offered here.
+        _tagSuggestions =
+        [
+            .. (await Catalogue.ListAsync(CurrentDomain.Id))
+                .Select(tag => new TagInput.TagPill(tag.Name, tag.Colour, tag.Icon)),
+        ];
+        IReadOnlyList<string> offered = await Tags.ListVocabularyAsync();
+        _tagSuggestions = [.. _tagSuggestions.Where(tag => offered.Contains(tag.Name, StringComparer.OrdinalIgnoreCase))];
+
         if (RecordId is Guid id)
         {
             _record = await Service.GetRecordAsync(id);
@@ -387,6 +414,7 @@ else
                 _editRevision = _record.Revision;
                 _model.DisplayName = _record.Record.DisplayName;
                 _model.Aliases = string.Join(Environment.NewLine, _record.Aliases);
+                _tags = [.. _record.Tags];
                 SyncImages(_record.Images);
                 _selectedTypeValue = _record.Record.RecordTypeId.ToString();
                 _selectedType = await Service.GetRecordTypeAsync(_record.Record.RecordTypeId);
@@ -448,9 +476,14 @@ else
                                     editor.LocationRadiusKilometres))
                         : new FieldValueInput(editor.Field.Definition.Id, editor.Scalar)).ToArray();
 
+            // Null rather than the retained list when the type has no tags: the editor does not
+            // show them, so it has nothing to say about them, and null preserves whatever the
+            // record still holds. Sending them back would be refused and the record could never
+            // be saved again after an administrator turned tags off.
+            IReadOnlyList<string>? submitted = _selectedType.RecordType.TagsEnabled ? _tags : null;
             RecordDetails saved = RecordId is Guid id
-                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values, ParseAliases(), expectedRevision: _editRevision)
-                : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values, ParseAliases());
+                ? await Service.UpdateRecordAsync(id, _model.DisplayName, values, ParseAliases(), expectedRevision: _editRevision, tags: submitted)
+                : await Service.CreateRecordAsync(_selectedType.RecordType.Id, _model.DisplayName, values, ParseAliases(), submitted);
             Navigation.NavigateTo($"/records/{saved.Record.Id}");
         }
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
@@ -714,10 +747,17 @@ else
         public string DisplayName { get; set; } = string.Empty;
 
         public string Aliases { get; set; } = string.Empty;
+
     }
 
     private string[] ParseAliases() => _model.Aliases
         .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private async Task TagsChanged(IReadOnlyList<string> tags)
+    {
+        _tags = tags;
+        await Task.CompletedTask;
+    }
 
     private static void SetScalar(EditorField editor, ChangeEventArgs args) =>
         editor.Scalar = args.Value?.ToString() ?? string.Empty;

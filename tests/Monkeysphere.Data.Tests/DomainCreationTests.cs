@@ -62,14 +62,14 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
                 _ = await domains.RenameAsync(domains.DefaultDomain.Id, "Renamed default");
                 await using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(dataRoot, "domains.db") }.ConnectionString);
                 await connection.OpenAsync();
                 await connection.ExecuteAsync("CREATE TRIGGER TestRejectCreationAudit BEFORE INSERT ON DomainCommandAudit BEGIN SELECT RAISE(ABORT, 'Test failure'); END;");
                 await Assert.ThrowsAsync<SqliteException>(() => commands.CreateAsync(identity, "Default"));
-                Assert.Single(domains.Snapshot);
+                Assert.Single(domains.All);
                 Assert.False(domains.TryGet(identity.DomainId, out _));
                 Assert.Equal(1, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM DomainCreations;"));
                 Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM DomainCommandReceipts;"));
@@ -86,9 +86,9 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
-                Assert.Equal(2, domains.Snapshot.Count);
+                Assert.Equal(2, domains.All.Count);
                 Assert.True(domains.TryGet(identity.DomainId, out MonkeysphereDomain? created));
                 Assert.False(created!.IsDefault);
                 Assert.Equal("Default", created.Name);
@@ -98,7 +98,7 @@ public sealed partial class DomainIsolationTests
                 RecordCommandReceipt laterReplay = await commands.CreateAsync(identity, "Default");
                 Assert.Equal(replay.Items.ToArray(), laterReplay.Items.ToArray());
                 Assert.Equal(replay.CompletedAtUtc, laterReplay.CompletedAtUtc);
-                Assert.Equal("Later name", domains.Snapshot.Single(domain => domain.Id == identity.DomainId).Name);
+                Assert.Equal("Later name", domains.All.Single(domain => domain.Id == identity.DomainId).Name);
                 await using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(dataRoot, "domains.db") }.ConnectionString);
                 await connection.OpenAsync();
                 Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM DomainCreations;"));
@@ -125,7 +125,7 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 IDomainCommands commands = provider.GetRequiredService<IDomainCommands>();
                 await using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(dataRoot, "domains.db") }.ConnectionString);
                 await connection.OpenAsync();
@@ -136,7 +136,7 @@ public sealed partial class DomainIsolationTests
                 Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM DomainCreations;"));
                 await connection.ExecuteAsync("CREATE TRIGGER TestRejectPublication BEFORE INSERT ON Domains BEGIN SELECT RAISE(ABORT, 'Test failure'); END;");
                 await Assert.ThrowsAsync<SqliteException>(() => domains.CreateAsync("Browser pending"));
-                Assert.Single(domains.Snapshot);
+                Assert.Single(domains.All);
                 Assert.Equal(1, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM DomainCreations WHERE Surface = 'browser';"));
                 await connection.ExecuteAsync("DROP TRIGGER TestRejectPublication;");
                 if (retryBeforeRestart)
@@ -150,9 +150,9 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = RegistryProvider(dataRoot))
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
-                Assert.Equal(2, domains.Snapshot.Count);
-                Assert.Contains(domains.Snapshot, domain => domain.Name == "Browser pending");
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
+                Assert.Equal(2, domains.All.Count);
+                Assert.Contains(domains.All, domain => domain.Name == "Browser pending");
             }
         }
         finally { SqliteConnection.ClearAllPools(); Directory.Delete(dataRoot, recursive: true); }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.IO.Compression;
@@ -18,6 +19,12 @@ namespace Monkeysphere.Web.Tests;
 
 public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplicationFactory>
 {
+    /// <summary>A date safely inside the calendar's upcoming window on any day the suite runs.</summary>
+    private static DateOnly UpcomingOccasion => DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(3);
+
+    private static DateOnly ExportFrom => UpcomingOccasion.AddDays(-7);
+
+    private static DateOnly ExportTo => UpcomingOccasion.AddDays(7);
     private const string AdministratorPassword = "test-only-LongPassword-2048!";
     private readonly MonkeysphereApplicationFactory _factory;
 
@@ -267,11 +274,14 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
             FieldDefinition occasion = await records.CreateAndAttachFieldAsync(
                 type.Id,
                 new CreateFieldRequest("Occasion " + suffix, FieldTypes.ExactDate, false));
+            // Relative to the run, not a fixed date. The calendar's upcoming table only lists dates
+            // ahead of today, so a hardcoded one silently stops exercising the reminder control and
+            // the export range once it passes.
             recordId = (await records.CreateRecordAsync(
                 type.Id,
                 "View record " + suffix,
                 [
-                    new(occasion.Id, "2026-09-15"),
+                    new(occasion.Id, UpcomingOccasion.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
                     new(location.Id, Location: new LocationValueInput("Test location", "51.5", "-0.1")),
                 ])).Record.Id;
             RecordDetails related = await records.CreateRecordAsync(type.Id, "Related record " + suffix, []);
@@ -320,7 +330,8 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         string calendarHtml = await client.GetStringAsync("/calendar");
         string mapHtml = await client.GetStringAsync("/map");
         string graphHtml = await client.GetStringAsync("/graph");
-        HttpResponseMessage calendarExport = await client.GetAsync("/calendar/export.ics?from=2026-09-01&to=2026-09-30");
+        HttpResponseMessage calendarExport = await client.GetAsync(
+            $"/calendar/export.ics?from={ExportFrom:yyyy-MM-dd}&to={ExportTo:yyyy-MM-dd}");
         string typeHtml = await client.GetStringAsync($"/structures/record-types/{typeId}");
         string editorHtml = await client.GetStringAsync($"/records/new?typeId={typeId}");
         string recordHtml = await client.GetStringAsync($"/records/{recordId}");
@@ -431,7 +442,7 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
             _ = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
 
-            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Backup second domain");
+            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Backup second domain");
             secondDomainId = second.Id;
             ICurrentDomainScope currentDomain = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>();
             using (currentDomain.Use(second.Id))
@@ -485,7 +496,7 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
                 byte[] png = Convert.FromBase64String(
                     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
                 RecordImage image = await images.AddAsync(record.Record.Id, new MemoryStream(png), "portrait.png");
-                MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Restore second domain");
+                MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Restore second domain");
                 secondDomainId = second.Id;
                 ICurrentDomainScope currentDomain = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>();
                 using (currentDomain.Use(second.Id))
@@ -519,7 +530,7 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
                 RecordImageFile preview = Assert.IsType<RecordImageFile>(
                     await images.OpenAsync(recordId, imageId, RecordImageVariant.Preview));
                 await preview.Content.DisposeAsync();
-                IDomainCatalog domains = scope.ServiceProvider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = scope.ServiceProvider.GetRequiredService<IDomainRegistry>();
                 Assert.True(domains.TryGet(secondDomainId, out MonkeysphereDomain? restoredDomain));
                 Assert.Equal("Restore second domain", restoredDomain?.Name);
                 using (scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(secondDomainId))
@@ -581,7 +592,7 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
             IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
             RecordType type = await records.CreateRecordTypeAsync("Default-only type");
             _ = await records.CreateRecordAsync(type.Id, "Default-only record", []);
-            second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Online friends");
+            second = await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Online friends");
         }
 
         using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -1116,7 +1127,7 @@ public sealed class RemoteAccessApplicationTests
                 RelationshipDirectionality.Symmetric));
             await relationships.CreateAsync(collaborator.Id, ada.Record.Id, charles.Record.Id);
             adaId = ada.Record.Id;
-            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Remote test domain");
+            MonkeysphereDomain second = await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Remote test domain");
             secondDomainId = second.Id;
             using (scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(second.Id))
             {
@@ -1266,6 +1277,7 @@ public sealed class RemoteAccessApplicationTests
         IReadOnlyList<DnaXRemoteAuditRecord> audit = await administration.GetRecentActivityAsync(20);
         Assert.Contains(audit, item => item.Event.Action == "records.search" && item.Event.Result == DnaXRemoteAuditResult.Allowed);
     }
+
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, string path, string secret, Guid? domainId = null)
     {

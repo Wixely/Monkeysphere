@@ -22,7 +22,8 @@ public static class RemoteReadResults
             return Success(await read().ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or DomainValidationException or
-            RecordCommandNotFoundException or DbException or IOException or OperationCanceledException)
+            RecordCommandNotFoundException or ConcurrencyConflictException or DbException or IOException or
+            OperationCanceledException)
         {
             return Failure(accessor, exception);
         }
@@ -61,6 +62,9 @@ public static class RemoteReadResults
             UnauthorizedAccessException => "permission_denied",
             RecordCommandNotFoundException => "not_found",
             DomainValidationException => "validation_failed",
+            // Not transient, so it must not fall through to the retry advice below: the same
+            // request will fail identically until the caller re-reads the revision.
+            ConcurrencyConflictException => "stale_revision",
             _ => "temporarily_unavailable",
         };
         string message = code == "temporarily_unavailable"

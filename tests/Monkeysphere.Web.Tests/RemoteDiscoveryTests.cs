@@ -31,7 +31,14 @@ public sealed partial class RemoteDiscoveryTests
         using JsonDocument discovery = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/list");
         string[] registered = discovery.RootElement.GetProperty("result").GetProperty("tools")
             .EnumerateArray().Select(tool => tool.GetProperty("name").GetString()!).Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(56, registered.Length);
+        Assert.Equal(63, registered.Length);
+        Assert.Contains("list_tags", registered);
+        Assert.Contains("count_tag_usage", registered);
+        Assert.Contains("create_tag", registered);
+        Assert.Contains("rename_tag", registered);
+        Assert.Contains("set_tag_appearance", registered);
+        Assert.Contains("set_tag_domains", registered);
+        Assert.Contains("delete_tag", registered);
         Assert.Contains("apply_contact_import", registered);
         Assert.Contains("get_contact_import_result", registered);
         Assert.Contains("export_contacts", registered);
@@ -169,7 +176,7 @@ public sealed partial class RemoteDiscoveryTests
             {
                 await service.CreateRecordTypeAsync($"Type {index:D3}");
             }
-            secondDomainId = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Isolated schema")).Id;
+            secondDomainId = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Isolated schema")).Id;
             using (scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(secondDomainId))
             {
                 RecordType type = await service.CreateRecordTypeAsync("Other domain type");
@@ -224,7 +231,7 @@ public sealed partial class RemoteDiscoveryTests
                 Guid peerId = (await service.CreateRecordAsync(type.Id, $"Peer {index:D3}", [])).Record.Id;
                 await relationships.CreateAsync(relationship.Id, peerId, focusId);
             }
-            otherDomainId = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Other links")).Id;
+            otherDomainId = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Other links")).Id;
         }
 
         IDnaXRemoteAccessAdministration administration = factory.Services.GetRequiredService<IDnaXRemoteAccessAdministration>();

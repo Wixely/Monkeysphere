@@ -21,4 +21,16 @@ The accessible graph and map alternatives deliberately follow the same server-si
 - Authenticated rendering tests assert that the accessible graph selector, map list, and skip link are present.
 - The searchable combobox exposes `aria-expanded`, `aria-controls`, `aria-activedescendant`, listbox/option roles, selected and disabled states, visible focus, text filtering, and Arrow/Enter/Escape keyboard operation. Desktop and 390 by 844 mobile browser checks covered filtering, selection, outside-click closing, popup bounds, and the open custom field-type value path on 2026-08-30.
 
+## Not yet reviewed
+
+Controls added after 2026-08-30 have not been through the review above, and are listed here rather than left to look covered by a date that predates them:
+
+- The backstage record action, and the hide/reveal control on Settings / Domains.
+- The **Imported source data** panel and its bounded value downloads.
+- The per-host photo-address approval list in contact import.
+- The **Repeats** column and leap-day choice in the record-type field editor.
+- The universal-tag input on the record editor, and the tags toggle on the record type page.
+
+The tag input is the one that needs a decision rather than just a pass: it offers suggestions through a native `<datalist>`, whereas every other searchable choice in the application uses the shared combobox/listbox component described above. `<datalist>` support is uneven across screen readers, so either it is verified as adequate here or the input adopts the shared pattern. Owner: Agent. Review: 2026-10-01.
+
 This is a focused accessibility review, not a WCAG conformance claim. Testing with dedicated screen readers, Windows high-contrast mode, browser zoom, and automated accessibility scanners remains to be completed in suitable environments.

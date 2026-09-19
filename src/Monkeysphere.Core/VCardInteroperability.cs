@@ -295,7 +295,9 @@ public sealed class VCardService(
                 contact.DisplayName,
                 contact.FieldMappings.Select(mapping => mapping.Input).ToArray(),
                 contact.Aliases,
-                cancellationToken).ConfigureAwait(false);
+                // A vCard carries no universal tags, and null leaves any the record already has.
+                null,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             prepared.Add(new(contact, selection.Action, selection.ExistingRecordId, normalized));
         }
 

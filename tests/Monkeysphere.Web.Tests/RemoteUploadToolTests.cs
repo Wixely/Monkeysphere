@@ -140,7 +140,7 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(1, Structured(completed).GetProperty("contactCount").GetInt32());
         using JsonDocument replayComplete = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "complete_upload", new { domainId, uploadId = upload.UploadId });
         Assert.Equal(Structured(completed).GetRawText(), Structured(replayComplete).GetRawText());
-        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainCatalog>().CreateAsync("Other file domain");
+        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainRegistry>().CreateAsync("Other file domain");
         using JsonDocument foreign = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_upload_status", new { domainId = other.Id, uploadId = upload.UploadId });
         AssertWriteError(foreign, "not_found");
         IDnaXPaths paths = factory.Services.GetRequiredService<IDnaXPaths>();

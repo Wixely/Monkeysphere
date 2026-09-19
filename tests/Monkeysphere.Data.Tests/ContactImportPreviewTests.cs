@@ -86,7 +86,7 @@ public sealed partial class DomainIsolationTests
                 Assert.Empty(await previews.ReadContactsAsync(owner, handle.PreviewId, 3, 1));
                 await Assert.ThrowsAsync<DomainValidationException>(() => previews.ReadContactsAsync(owner, handle.PreviewId, 1, 101));
                 await Assert.ThrowsAsync<UploadException>(() => previews.GetAsync(owner with { CredentialFingerprint = new string('B', 64) }, handle.PreviewId));
-                MonkeysphereDomain other = await provider.GetRequiredService<IDomainCatalog>().CreateAsync("Other preview domain");
+                MonkeysphereDomain other = await provider.GetRequiredService<IDomainRegistry>().CreateAsync("Other preview domain");
                 await Assert.ThrowsAsync<UploadException>(() => previews.GetAsync(owner with { DomainId = other.Id }, handle.PreviewId));
                 await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateAsync(owner with { DomainId = other.Id }, uploadId, Guid.NewGuid()));
                 Assert.Equal("retry_conflict", (await Assert.ThrowsAsync<UploadException>(() => previews.FindAsync(owner, Guid.NewGuid(), key))).Code);

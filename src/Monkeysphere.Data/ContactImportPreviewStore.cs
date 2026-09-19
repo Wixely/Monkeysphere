@@ -7,7 +7,7 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-internal sealed class ContactImportPreviewStore(RemoteUploadConnections connections, IDomainCatalog domains, TimeProvider timeProvider)
+internal sealed class ContactImportPreviewStore(RemoteUploadConnections connections, IDomainRegistry domains, TimeProvider timeProvider)
     : IContactImportPreviewStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

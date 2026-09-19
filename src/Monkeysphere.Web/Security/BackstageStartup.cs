@@ -13,7 +13,7 @@ public sealed partial class BackstageStartupWorker(
     IServiceScopeFactory scopes,
     CachedBackstageSessions sessions,
     BackstageAvailability availability,
-    IDomainCatalog domains,
+    IDomainRegistry domains,
     ILogger<BackstageStartupWorker> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -26,10 +26,10 @@ public sealed partial class BackstageStartupWorker(
 
         int total = 0;
         List<string> affected = [];
-        foreach (MonkeysphereDomain domain in domains.Snapshot)
+        foreach (MonkeysphereDomain domain in domains.All)
         {
             await using AsyncServiceScope scope = scopes.CreateAsyncScope();
-            using IDisposable _ = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(domain.Id);
+            using IDisposable _ = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().UseForMaintenance(domain.Id);
             int count = await scope.ServiceProvider.GetRequiredService<IBackstageRecordStore>()
                 .CountAsync(cancellationToken).ConfigureAwait(false);
             if (count > 0)
@@ -43,6 +43,14 @@ public sealed partial class BackstageStartupWorker(
         {
             BackstageRecordsStranded(logger, total, string.Join(", ", affected));
         }
+
+        // A hidden domain with the gate off is unreachable in its entirety, which looks from the
+        // outside like the domain having been deleted. Say so for the same reason.
+        string[] hidden = [.. domains.All.Where(domain => domain.IsHidden).Select(domain => domain.Name)];
+        if (hidden.Length > 0)
+        {
+            HiddenDomainsStranded(logger, hidden.Length, string.Join(", ", hidden));
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -52,4 +60,10 @@ public sealed partial class BackstageStartupWorker(
         + "edited by anyone: {Domains}. Set Monkeysphere__Backstage__Available to true "
         + "(MONKEYSPHERE_BACKSTAGE_AVAILABLE in the supplied compose file) and restart to reach them again.")]
     private static partial void BackstageRecordsStranded(ILogger logger, int count, string domains);
+
+    [LoggerMessage(2, LogLevel.Warning,
+        "Backstage is disabled but {Count} domain(s) are hidden and cannot be selected by anyone: {Domains}. "
+        + "Their records are intact. Set Monkeysphere__Backstage__Available to true "
+        + "(MONKEYSPHERE_BACKSTAGE_AVAILABLE in the supplied compose file) and restart to reach them again.")]
+    private static partial void HiddenDomainsStranded(ILogger logger, int count, string domains);
 }

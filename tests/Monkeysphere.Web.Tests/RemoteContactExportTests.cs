@@ -151,7 +151,7 @@ public sealed partial class RemoteDiscoveryTests
         IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
         RecordType person = (await records.ListRecordTypesAsync()).Single(type => type.PresetKey == "monkeysphere.person");
         RecordDetails contact = await records.CreateRecordAsync(person.Id, "Default domain contact", []);
-        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainCatalog>().CreateAsync("Other export domain");
+        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainRegistry>().CreateAsync("Other export domain");
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["contacts.export"]);
         Guid[] recordIds = [contact.Record.Id];
 
@@ -197,7 +197,7 @@ public sealed partial class RemoteDiscoveryTests
 
         using JsonDocument capabilities = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_capabilities");
         RemoteCapabilities permissions = Structured(capabilities).Deserialize<RemoteCapabilities>(JsonOptions)!;
-        Assert.Equal("1.20", permissions.ContractVersion);
+        Assert.Equal("1.22", permissions.ContractVersion);
         Assert.True(permissions.Tools.Single(tool => tool.Name == "export_contacts").Allowed);
         Assert.Equal(new RemoteContactExportLimits(), permissions.ContactExportLimits);
         // Exporting must not imply importing, reading or writing anything else.

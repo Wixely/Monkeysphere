@@ -18,6 +18,15 @@
       "group": "test"
     },
     {
+      "label": "seed tag demo",
+      "detail": "Adds tagged example records to the F5 data root (.local/vscode-data). Safe to re-run.",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "eng/SeedTagDemo.cs"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "verify",
       "type": "shell",
       "command": ".\\eng\\Build.ps1",

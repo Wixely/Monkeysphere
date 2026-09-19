@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
+@inject IRecordTagStore Tags
 
 <PageTitle>@(_details?.RecordType.Name ?? "Record type") · Monkeysphere</PageTitle>
 
@@ -119,6 +120,15 @@ else
                     <InputText @bind-Value="_rename.Symbol" maxlength="32" placeholder="For example, 🧭 or RPG" />
                     <small>Shown as a type badge on the relationship graph.</small>
                     <ValidationMessage For="() => _rename.Symbol" />
+                </label>
+                <label class="checkbox-label form-wide">
+                    <input type="checkbox" @bind="_rename.TagsEnabled" />
+                    Tags
+                    <small>
+                        Every record has tags unless you remove them here. Turning tags off keeps
+                        the values @_taggedRecordCount @(_taggedRecordCount == 1 ? "record" : "records")
+                        already carry and hides them; turning tags back on restores them.
+                    </small>
                 </label>
             </div>
             <button class="button" type="submit">Save type details</button>
@@ -395,6 +405,7 @@ else
 
     private bool _loading = true;
     private RecordTypeDetails? _details;
+    private int _taggedRecordCount;
     private readonly RenameModel _rename = new();
     private readonly NewFieldModel _newField = new();
     private readonly ExistingFieldModel _existingField = new();
@@ -442,7 +453,7 @@ else
 
     private async Task RenameAsync() => await RunAsync(async () =>
     {
-        await Service.UpdateRecordTypeAsync(Id, _rename.Name, _rename.Symbol);
+        await Service.UpdateRecordTypeAsync(Id, _rename.Name, _rename.Symbol, _rename.TagsEnabled);
         _message = "Record type details updated.";
         await ReloadAsync(preserveMessage: true);
     });
@@ -672,6 +683,8 @@ else
         {
             _rename.Name = _details.RecordType.Name;
             _rename.Symbol = _details.RecordType.Symbol ?? string.Empty;
+            _rename.TagsEnabled = _details.RecordType.TagsEnabled;
+            _taggedRecordCount = await Tags.CountTaggedRecordsAsync(Id);
             foreach (RecordTypeField field in _details.Fields)
             {
                 _fieldNames[field.Definition.Id] = field.Definition.Name;
@@ -750,6 +763,8 @@ else
 
         [StringLength(32)]
         public string Symbol { get; set; } = string.Empty;
+
+        public bool TagsEnabled { get; set; } = true;
     }
 
     private sealed class NewFieldModel

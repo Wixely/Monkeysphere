@@ -30,6 +30,11 @@ public static class MonkeysphereDataExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IBackstageSessionStore>(provider => provider.GetRequiredService<CachedBackstageSessions>());
         services.AddScoped<IBackstageRecordStore, SqliteBackstageRecordStore>();
+        services.AddScoped<IRecordTagStore, SqliteRecordTagStore>();
+        services.AddScoped<ITagCatalogue, SqliteTagCatalogue>();
+        services.AddSingleton<TagCatalogueSync>();
+        services.AddSingleton<TagRenameDrainer>();
+        services.AddSingleton<ITagMaintenance, TagMaintenance>();
         services.AddScoped<IBackstageService, BackstageService>();
         services.TryAddScoped<ICurrentDomainScope, DefaultCurrentDomain>();
         services.TryAddScoped<ICurrentDomain>(provider => provider.GetRequiredService<ICurrentDomainScope>());
@@ -38,7 +43,12 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<MonkeysphereMigrationConnectionFactory>();
         services.AddSingleton<IDomainDatabaseMigrator, DomainDatabaseMigrator>();
         services.AddSingleton<DomainCatalog>();
-        services.AddSingleton<IDomainCatalog>(provider => provider.GetRequiredService<DomainCatalog>());
+        // The registry is the deployment's complete truth and stays a singleton; the catalogue is
+        // the caller's filtered view and must be scoped, because backstage authority is per-caller.
+        services.AddSingleton<IDomainRegistry>(provider => provider.GetRequiredService<DomainCatalog>());
+        services.AddScoped<IDomainCatalog>(provider => new VisibleDomainCatalog(
+            provider.GetRequiredService<DomainCatalog>(),
+            provider.GetRequiredService<IBackstageVisibility>()));
         services.AddSingleton<IDomainCommands>(provider => provider.GetRequiredService<DomainCatalog>());
         services.AddSingleton<RemoteUploadConnections>();
         services.AddSingleton<IRemoteUploadStore, RemoteUploadStore>();
@@ -147,13 +157,22 @@ public static class MonkeysphereDataExtensions
         await services.MigrateDnaXDatabaseAsync(DomainRegistrySchema.DatabaseName, cancellationToken).ConfigureAwait(false);
         await services.MigrateDnaXDatabaseAsync(RemoteUploadSchema.DatabaseName, cancellationToken).ConfigureAwait(false);
         await services.GetRequiredService<IRemoteUploadStore>().CleanupAsync(cancellationToken).ConfigureAwait(false);
-        IDomainCatalog catalog = services.GetRequiredService<IDomainCatalog>();
-        await catalog.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        // The registry, not the filtered catalogue: every domain's database must be migrated,
+        // and a hidden domain left unmigrated would fail the moment someone entered backstage.
+        IDomainRegistry registry = services.GetRequiredService<IDomainRegistry>();
+        await registry.InitializeAsync(cancellationToken).ConfigureAwait(false);
         IDomainDatabaseMigrator databases = services.GetRequiredService<IDomainDatabaseMigrator>();
-        foreach (MonkeysphereDomain domain in catalog.Snapshot)
+        foreach (MonkeysphereDomain domain in registry.All)
         {
             await databases.MigrateAsync(domain.Id, cancellationToken).ConfigureAwait(false);
         }
+
+        // After every domain is migrated, because this reconciles across databases and a migration
+        // can only see one. Tags stored before the catalogue existed are adopted here.
+        await services.GetRequiredService<TagCatalogueSync>().RunAsync(cancellationToken).ConfigureAwait(false);
+
+        // A rename interrupted by a restart finishes here rather than staying half-applied.
+        await services.GetRequiredService<TagRenameDrainer>().DrainAsync(cancellationToken).ConfigureAwait(false);
     }
 }
 
@@ -202,6 +221,7 @@ internal sealed class DebugDatabaseResetService(
             DELETE FROM Reminders;
             DELETE FROM RecordImages;
             DELETE FROM RecordAliases;
+            DELETE FROM RecordTags;
             DELETE FROM FieldValueLocations;
             DELETE FROM FieldValueTags;
             DELETE FROM FieldValues;

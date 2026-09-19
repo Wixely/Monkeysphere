@@ -9,6 +9,7 @@ namespace Monkeysphere.Web.Remote;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RemoteRecordBatchInput(string Operation, Guid? RecordTypeId = null, string? DisplayName = null,
     IReadOnlyList<RemoteFieldInput>? Values = null, IReadOnlyList<string>? Aliases = null,
+    IReadOnlyList<string>? Tags = null,
     Guid? Id = null, string? ExpectedRevision = null, IReadOnlyList<RemoteRecordPatchChange>? Changes = null)
 {
     public RecordBatchInput ToCore()
@@ -17,7 +18,7 @@ public sealed record RemoteRecordBatchInput(string Operation, Guid? RecordTypeId
             Changes is not null && (Changes.Count is < 1 or > RecordCommandLimits.MaximumPatchChanges || Changes.Any(change => change is null)))
             throw new DomainValidationException("Batch field and patch inputs must be bounded and non-null.");
         return new(Operation, RecordTypeId, DisplayName, Values?.Select(value => value.ToCore()).ToArray(), Aliases,
-            Id, ExpectedRevision, Changes?.Select(change => change.ToCore()).ToArray());
+            Id, ExpectedRevision, Changes?.Select(change => change.ToCore()).ToArray(), Tags);
     }
 }
 
@@ -26,7 +27,8 @@ public sealed partial class RemoteRecordWriter
     public Task<CallToolResult> PreviewBatchAsync(Guid domainId, Guid idempotencyKey, IReadOnlyList<RemoteRecordBatchInput> operations,
         CancellationToken cancellationToken) => RunAsync(domainId, "records.batch.preview", async () =>
     {
-        string hash = CommandRequestHash.Compute(new { contract = 1, domainId, operations });
+        // Shape 2 adds per-operation tags, for the same reason create's hash did.
+        string hash = CommandRequestHash.Compute(new { contract = 2, domainId, operations });
         RecordCommandIdentity identity = identities.Create(domainId, "records.write", "records.batch", idempotencyKey, hash);
         using IDisposable domain = currentDomain.Use(domainId);
         if (operations is null || operations.Count is < 1 or > RecordCommandLimits.MaximumBatchRecords || operations.Any(operation => operation is null))

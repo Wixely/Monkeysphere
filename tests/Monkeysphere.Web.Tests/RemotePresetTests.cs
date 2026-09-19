@@ -63,7 +63,7 @@ public sealed partial class RemoteDiscoveryTests
         await using RemoteEnabledApplicationFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using IServiceScope scope = factory.Services.CreateScope();
-        Guid domainId = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Setup fixture")).Id;
+        Guid domainId = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Setup fixture")).Id;
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["records.read", "structure.write"]);
         using JsonDocument stateResult = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_setup_state", new { domainId });
         RemoteSetupState state = Structured(stateResult).Deserialize<RemoteSetupState>(JsonOptions)!;

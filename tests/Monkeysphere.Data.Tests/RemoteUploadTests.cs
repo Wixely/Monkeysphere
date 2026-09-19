@@ -128,7 +128,7 @@ public sealed partial class DomainIsolationTests
                 await Assert.ThrowsAsync<UploadException>(() => store.WriteAsync(owner, uploadId, 1, [1], Convert.ToHexString(SHA256.HashData(new byte[] { 1 }))));
                 await Assert.ThrowsAsync<DomainValidationException>(() => store.SealAsync(owner, uploadId));
                 Assert.Equal(1, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM UploadChunks;"));
-                MonkeysphereDomain other = await provider.GetRequiredService<IDomainCatalog>().CreateAsync("Other upload domain");
+                MonkeysphereDomain other = await provider.GetRequiredService<IDomainRegistry>().CreateAsync("Other upload domain");
                 foreach (UploadOwner foreign in new[] { owner with { CredentialFingerprint = new string('B', 64) }, owner with { DomainId = other.Id } })
                 {
                     Assert.Equal("not_found", (await Assert.ThrowsAsync<UploadException>(() => store.GetAsync(foreign, uploadId))).Code);

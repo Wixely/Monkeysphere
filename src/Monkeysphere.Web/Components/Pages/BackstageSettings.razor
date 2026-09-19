@@ -3,6 +3,9 @@
 @rendermode InteractiveServer
 @inject BackstageAvailability Availability
 @inject IBackstageService Backstage
+@inject IDomainCatalog Domains
+@inject ICurrentDomain CurrentDomain
+@inject NavigationManager Navigation
 
 <PageTitle>Backstage · Monkeysphere</PageTitle>
 
@@ -104,7 +107,18 @@ else
 
     private Task EnterAsync() => RunAsync(Backstage.ActivateAsync);
 
-    private Task LeaveAsync() => RunAsync(Backstage.DeactivateAsync);
+    private async Task LeaveAsync()
+    {
+        // A hidden domain may be selected. Leaving backstage must not leave this circuit reading
+        // one, so reload: the protected cookie then resolves the way any obsolete selection does,
+        // back to Default, rather than erroring.
+        bool wasOnHiddenDomain = Domains.Snapshot.Any(domain => domain.Id == CurrentDomain.Id && domain.IsHidden);
+        await RunAsync(Backstage.DeactivateAsync);
+        if (wasOnHiddenDomain && _error is null)
+        {
+            Navigation.NavigateTo("/settings/backstage", forceLoad: true);
+        }
+    }
 
     private async Task RunAsync(Func<CancellationToken, Task<BackstageStatus>> action)
     {

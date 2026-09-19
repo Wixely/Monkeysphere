@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 31,
+        currentVersion: 33,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -802,6 +802,49 @@ public static class MonkeysphereSchema
                 WHERE TypeId IN ('exact-date', 'temporal')
                   AND CanonicalKey LIKE '%.birthday'
                   AND (ConfigurationJson IS NULL OR trim(ConfigurationJson) IN ('', '{}'));
+                """),
+            DnaXMigration.Sql(32, "universal-tags", "Give every record tags, unless an administrator removes them from its type", """
+                -- Tags belong to the record, not to its type. A tags-typed field still means one
+                -- specific thing ("Genres", "Likes"); these are the cross-cutting labels that
+                -- deserve no field. The table deliberately mirrors FieldValueTags so that one set
+                -- of normalization rules covers both.
+                CREATE TABLE RecordTags (
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    Value TEXT NOT NULL COLLATE NOCASE,
+                    PRIMARY KEY (RecordId, Ordinal),
+                    UNIQUE (RecordId, Value),
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+                CREATE INDEX IX_RecordTags_Value ON RecordTags(Value, RecordId);
+
+                -- Defaulting to 1 is what makes tags universal: every record type that already
+                -- exists, and every one installed later from a preset, is tagged unless someone
+                -- deliberately says otherwise. Turning it off retains the values it hides.
+                ALTER TABLE RecordTypes ADD COLUMN TagsEnabled INTEGER NOT NULL DEFAULT 1
+                    CHECK (TagsEnabled IN (0, 1));
+
+                -- Without these a tag edit would be invisible to stale-edit detection, to contact
+                -- import preview invalidation, and to twin synchronization, all of which decide
+                -- whether they hold current data by comparing this revision.
+                CREATE TRIGGER RecordTags_Revision_INSERT AFTER INSERT ON RecordTags BEGIN
+                    UPDATE Records SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.RecordId;
+                END;
+                CREATE TRIGGER RecordTags_Revision_UPDATE AFTER UPDATE ON RecordTags BEGIN
+                    UPDATE Records SET Revision = lower(hex(randomblob(16)))
+                    WHERE Id IN (OLD.RecordId, NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordTags_Revision_DELETE AFTER DELETE ON RecordTags BEGIN
+                    UPDATE Records SET Revision = lower(hex(randomblob(16))) WHERE Id = OLD.RecordId;
+                END;
+                """),
+            DnaXMigration.Sql(33, "record-tag-identity", "Correlate a stored tag with its catalogue entry so a rename can find it", """
+                -- The text stays authoritative for display, so a domain database still reads on
+                -- its own if the registry is lost. This only says which catalogue entry the text
+                -- came from, which is what lets a rename rewrite the rows without having to know
+                -- what the tag used to be called. Null until the catalogue sync backfills it.
+                ALTER TABLE RecordTags ADD COLUMN TagId TEXT NULL;
+                CREATE INDEX IX_RecordTags_TagId ON RecordTags(TagId) WHERE TagId IS NOT NULL;
                 """),
         ]);
 }

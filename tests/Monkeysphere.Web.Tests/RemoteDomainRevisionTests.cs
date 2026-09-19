@@ -13,7 +13,7 @@ public sealed partial class RemoteDiscoveryTests
         await using RemoteEnabledApplicationFactory factory = new();
         using HttpClient client = factory.CreateClient();
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["records.read"]);
-        IDomainCatalog domains = factory.Services.GetRequiredService<IDomainCatalog>();
+        IDomainRegistry domains = factory.Services.GetRequiredService<IDomainRegistry>();
         MonkeysphereDomain original = domains.DefaultDomain;
         using JsonDocument listed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "list_domains");
         using JsonDocument items = JsonDocument.Parse(listed.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);

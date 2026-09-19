@@ -63,7 +63,7 @@ public sealed partial class RemoteDiscoveryTests
         IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
         RecordType type = await records.CreateRecordTypeAsync("Default type");
         FieldDefinition number = await records.CreateAndAttachFieldAsync(type.Id, new("Score", FieldTypes.Number, false));
-        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainCatalog>().CreateAsync("Other search domain");
+        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainRegistry>().CreateAsync("Other search domain");
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["records.read"]);
         object[] invalid = [new { page = 0 }, new { page = 10001 }, new { pageSize = 101 }, new { query = new string('q', 501) },
             new { filters = new RemoteRecordFilter?[] { null } },

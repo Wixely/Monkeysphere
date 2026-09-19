@@ -5,7 +5,9 @@ namespace Monkeysphere.Core;
 public sealed class MonkeysphereService(
     IMonkeysphereStore store,
     TimeProvider timeProvider,
-    IBackstageVisibility visibility) : IMonkeysphereService
+    IBackstageVisibility visibility,
+    ITagCatalogue tags,
+    ICurrentDomain currentDomain) : IMonkeysphereService
 {
     public const int MaximumSearchLength = 500;
     public const int MaximumFilterLength = 2_000;
@@ -42,12 +44,14 @@ public sealed class MonkeysphereService(
         Guid id,
         string name,
         string? symbol,
+        bool? tagsEnabled = null,
         CancellationToken cancellationToken = default) =>
         store.UpdateRecordTypeAsync(
             id,
             FieldTypes.Required(name, "Record type name", 200),
             NormalizeRecordTypeSymbol(symbol),
             timeProvider.GetUtcNow(),
+            tagsEnabled,
             cancellationToken);
 
     internal static string? NormalizeRecordTypeSymbol(string? symbol)
@@ -318,6 +322,7 @@ public sealed class MonkeysphereService(
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null,
         CancellationToken cancellationToken = default)
     {
         PreparedRecord prepared = await PrepareRecordAsync(
@@ -325,7 +330,8 @@ public sealed class MonkeysphereService(
             displayName,
             values,
             aliases,
-            cancellationToken).ConfigureAwait(false);
+            tags,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return await store.CreateRecordAsync(
             Guid.CreateVersion7(),
             prepared.RecordTypeId,
@@ -334,7 +340,25 @@ public sealed class MonkeysphereService(
             prepared.Values,
             timeProvider.GetUtcNow(),
             prepared.SchemaRevision,
+            prepared.Tags,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Validates universal tags against the record type. Null passes straight through, so a caller
+    /// that is not speaking about tags neither sets nor clears them. Tags removed from a type are
+    /// refused rather than silently accepted, so nothing is stored that can never be displayed.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedTag>?> NormalizeRecordTagsAsync(
+        Guid recordTypeId, IReadOnlyList<string>? tags, CancellationToken cancellationToken)
+    {
+        if (tags is null)
+        {
+            return null;
+        }
+
+        RecordTypeDetails? type = await store.GetRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false);
+        return type is null ? [] : await ResolveTagsForAsync(type.RecordType, tags, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PreparedRecord> PrepareRecordAsync(
@@ -342,6 +366,8 @@ public sealed class MonkeysphereService(
         string displayName,
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? tags = null,
+        bool createMissingTags = true,
         CancellationToken cancellationToken = default)
     {
         RecordTypeDetails type = await RequireRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false);
@@ -356,7 +382,55 @@ public sealed class MonkeysphereService(
             primaryName,
             NormalizeAliases(primaryName, aliases),
             NormalizeValues(type, values),
-            type.RecordType.Revision);
+            type.RecordType.Revision,
+            await ResolveTagsForAsync(type.RecordType, tags, cancellationToken, createMissingTags).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Validates tags against a record type already in hand, so a prepare path does not re-read it.
+    /// Null passes through untouched; tags removed from the type are refused rather than stored
+    /// where nothing would ever show them.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedTag>?> ResolveTagsForAsync(
+        RecordType type, IReadOnlyList<string>? names, CancellationToken cancellationToken,
+        bool createMissing = true)
+    {
+        if (names is null)
+        {
+            return null;
+        }
+
+        IReadOnlyList<string> normalized = RecordTagRules.Normalize(names);
+        if (normalized.Count == 0)
+        {
+            return [];
+        }
+
+        if (!type.TagsEnabled)
+        {
+            throw new DomainValidationException($"{type.Name} records do not have tags.");
+        }
+
+        // Every typed name goes through the catalogue. A name already known elsewhere resolves to
+        // that tag and gains this domain, rather than becoming a second tag with the same label,
+        // and the catalogue's spelling replaces whatever was typed.
+        List<ResolvedTag> resolved = [];
+        foreach (string name in normalized)
+        {
+            // A validation-only caller must not write to the catalogue: it looks the name up and
+            // reports an unknown one with an empty identity, which is never stored because the
+            // caller is not storing anything. Only a path that actually saves creates the tag.
+            TagDefinition? definition = createMissing
+                ? await tags.EnsureAsync(name, currentDomain.Id, cancellationToken).ConfigureAwait(false)
+                : await tags.FindAsync(name, cancellationToken).ConfigureAwait(false);
+            ResolvedTag entry = definition is null ? new(Guid.Empty, name) : new(definition.Id, definition.Name);
+            if (!resolved.Any(existing => string.Equals(existing.Name, entry.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                resolved.Add(entry);
+            }
+        }
+
+        return resolved;
     }
 
     public Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default) =>
@@ -368,16 +442,18 @@ public sealed class MonkeysphereService(
         IReadOnlyList<FieldValueInput> values,
         IReadOnlyList<string>? aliases = null,
         string? expectedRevision = null,
+        IReadOnlyList<string>? tags = null,
         CancellationToken cancellationToken = default)
     {
-        PreparedRecordMutation mutation = await PrepareRecordUpdateAsync(id, displayName, values, aliases, expectedRevision, cancellationToken).ConfigureAwait(false);
+        PreparedRecordMutation mutation = await PrepareRecordUpdateAsync(
+            id, displayName, values, aliases, expectedRevision, tags, cancellationToken).ConfigureAwait(false);
         return await store.UpdateRecordAsync(id, mutation.Record.DisplayName, mutation.Record.Aliases, mutation.Record.Values,
-            timeProvider.GetUtcNow(), mutation.ExpectedRevision, cancellationToken).ConfigureAwait(false);
+            timeProvider.GetUtcNow(), mutation.ExpectedRevision, mutation.Record.Tags, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PreparedRecordMutation> PrepareRecordUpdateAsync(
         Guid id, string displayName, IReadOnlyList<FieldValueInput> values, IReadOnlyList<string>? aliases = null,
-        string? expectedRevision = null, CancellationToken cancellationToken = default)
+        string? expectedRevision = null, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default)
     {
         RecordDetails current = await store.GetRecordAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new DomainValidationException("Record was not found.");
@@ -396,8 +472,14 @@ public sealed class MonkeysphereService(
             .ToHashSet();
         IReadOnlyList<NormalizedFieldValue> normalized = NormalizeValues(type, values, editableRetiredFields);
         string primaryName = FieldTypes.Required(displayName, "Display name", 300);
+        // The synthetic type above carries defaults rather than the stored record type, so the
+        // tags-enabled check needs the real one. It is read only when tags are actually supplied,
+        // which keeps the ordinary edit path at the same number of queries it had before.
+        IReadOnlyList<ResolvedTag>? preparedTags = await NormalizeRecordTagsAsync(
+            current.Record.RecordTypeId, tags, cancellationToken).ConfigureAwait(false);
         return new(RecordMutationKind.Replace, id,
-            new PreparedRecord(current.Record.RecordTypeId, primaryName, NormalizeAliases(primaryName, aliases), normalized), current.Revision);
+            new PreparedRecord(current.Record.RecordTypeId, primaryName, NormalizeAliases(primaryName, aliases), normalized,
+                Tags: preparedTags), current.Revision);
     }
 
     public Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default) =>
@@ -679,9 +761,9 @@ public sealed class MonkeysphereService(
         if (string.Equals(definition.TypeId, FieldTypes.Tags, StringComparison.Ordinal))
         {
             string[] tags = (input.Tags ?? []).Select(item => item.Trim()).ToArray();
-            if (tags.Length > 100)
+            if (tags.Length > RecordTagRules.MaximumCount)
             {
-                throw new DomainValidationException($"{definition.Name} cannot contain more than 100 tags.");
+                throw new DomainValidationException($"{definition.Name} cannot contain more than {RecordTagRules.MaximumCount} tags.");
             }
 
             if (tags.Any(item => item.Length == 0))
@@ -689,9 +771,9 @@ public sealed class MonkeysphereService(
                 throw new DomainValidationException($"{definition.Name} cannot contain an empty tag.");
             }
 
-            if (tags.Any(item => item.Length > 200))
+            if (tags.Any(item => item.Length > RecordTagRules.MaximumLength))
             {
-                throw new DomainValidationException($"{definition.Name} contains a tag longer than 200 characters.");
+                throw new DomainValidationException($"{definition.Name} contains a tag longer than {RecordTagRules.MaximumLength} characters.");
             }
 
             tags = tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

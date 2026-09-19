@@ -21,7 +21,10 @@ public sealed record RecordType(
     int? PresetVersion = null,
     RecordTypeLifecycle Lifecycle = RecordTypeLifecycle.Active,
     string? Symbol = null,
-    string Revision = "");
+    string Revision = "",
+    // Tags are universal: this is true unless an administrator has deliberately removed tags from
+    // the type. Removing them retains the values it hides, so re-enabling restores them intact.
+    bool TagsEnabled = true);
 
 public sealed record RecordTypeRetirementPreview(
     RecordType RecordType,
@@ -103,7 +106,14 @@ public sealed record RecordDetails(
     IReadOnlyList<RecordTypeField> AvailableFields,
     IReadOnlyList<string> Aliases,
     IReadOnlyList<RecordImage> Images,
-    string Revision = "");
+    string Revision = "")
+{
+    /// <summary>
+    /// The record's universal tags. Read whether or not the type has tags enabled: removing tags
+    /// from a type retains the values it hides, so re-enabling restores them intact.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; init; } = [];
+}
 
 public sealed record RecordImage(
     Guid Id,
@@ -159,7 +169,10 @@ public sealed record PreparedRecord(
     string DisplayName,
     IReadOnlyList<string> Aliases,
     IReadOnlyList<NormalizedFieldValue> Values,
-    string SchemaRevision = "");
+    string SchemaRevision = "",
+    // Null means the command said nothing about tags, so an existing record keeps the ones it has.
+    // An empty list clears them. Same convention as the store, so it survives the whole path.
+    IReadOnlyList<ResolvedTag>? Tags = null);
 
 public sealed record CreateFieldRequest(
     string Name,
@@ -246,7 +259,10 @@ public sealed record RecordSearch(
     int Page = 1,
     int PageSize = 25,
     IReadOnlyList<RecordFilter>? Filters = null,
-    RecordSort? Sort = null);
+    RecordSort? Sort = null,
+    // Universal tags a record must carry. Every listed tag must be present, so adding one narrows
+    // the result; matching is case-insensitive, as tag storage is.
+    IReadOnlyList<string>? Tags = null);
 
 public sealed record RecordFilter(
     Guid FieldDefinitionId,

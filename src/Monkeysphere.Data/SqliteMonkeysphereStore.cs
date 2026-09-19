@@ -25,7 +25,7 @@ public sealed partial class SqliteMonkeysphereStore(
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<RecordTypeRow> rows = await connection.QueryAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision, TagsEnabled FROM RecordTypes ORDER BY Lifecycle, Name COLLATE NOCASE, Id;",
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(MapRecordType).ToArray();
     }
@@ -35,7 +35,7 @@ public sealed partial class SqliteMonkeysphereStore(
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         RecordTypeRow? type = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(
             new CommandDefinition(
-                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision FROM RecordTypes WHERE Id = @Id;",
+                "SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision, TagsEnabled FROM RecordTypes WHERE Id = @Id;",
                 new { Id = Key(id) },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         if (type is null)
@@ -121,15 +121,31 @@ public sealed partial class SqliteMonkeysphereStore(
         string name,
         string? symbol,
         DateTimeOffset now,
+        bool? tagsEnabled = null,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         int changed;
         try
         {
-            changed = await connection.ExecuteAsync(new CommandDefinition(
-                "UPDATE RecordTypes SET Name = @Name, Symbol = @Symbol, UpdatedAtUtc = @Now WHERE Id = @Id;",
-                new { Id = Key(id), Name = name, Symbol = symbol, Now = Timestamp(now) },
+            // Turning tags off writes only the flag. The RecordTags rows are deliberately left
+            // in place, so re-enabling restores exactly what the type had.
+            changed = await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE RecordTypes
+                SET Name = @Name,
+                    Symbol = @Symbol,
+                    TagsEnabled = COALESCE(@TagsEnabled, TagsEnabled),
+                    UpdatedAtUtc = @Now
+                WHERE Id = @Id;
+                """,
+                new
+                {
+                    Id = Key(id),
+                    Name = name,
+                    Symbol = symbol,
+                    TagsEnabled = tagsEnabled is bool enabled ? enabled ? 1 : 0 : (int?)null,
+                    Now = Timestamp(now),
+                },
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsUniqueConstraint(exception))
@@ -999,6 +1015,7 @@ public sealed partial class SqliteMonkeysphereStore(
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         string? expectedSchemaRevision = null,
+        IReadOnlyList<ResolvedTag>? tags = null,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1008,14 +1025,14 @@ public sealed partial class SqliteMonkeysphereStore(
             await RequireRevisionAsync(connection, transaction, recordTypeId, expectedSchemaRevision, schema: true, cancellationToken).ConfigureAwait(false);
         }
 
-        RecordDetails result = await InsertRecordCoreAsync(connection, transaction, id, recordTypeId, displayName, aliases, values, now, cancellationToken).ConfigureAwait(false);
+        RecordDetails result = await InsertRecordCoreAsync(connection, transaction, id, recordTypeId, displayName, aliases, values, now, tags, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return result;
     }
 
     private static async Task<RecordDetails> InsertRecordCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
         Guid id, Guid recordTypeId, string displayName, IReadOnlyList<string> aliases, IReadOnlyList<NormalizedFieldValue> values,
-        DateTimeOffset now, CancellationToken cancellationToken)
+        DateTimeOffset now, IReadOnlyList<ResolvedTag>? tags, CancellationToken cancellationToken)
     {
         string timestamp = Timestamp(now);
         await connection.ExecuteAsync(new CommandDefinition("""
@@ -1026,6 +1043,10 @@ public sealed partial class SqliteMonkeysphereStore(
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
+        if (tags is { Count: > 0 })
+        {
+            await InsertTagsAsync(connection, transaction, id, tags, cancellationToken).ConfigureAwait(false);
+        }
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition("""
             DELETE FROM Reminders
@@ -1087,7 +1108,10 @@ public sealed partial class SqliteMonkeysphereStore(
             "SELECT Value FROM RecordAliases WHERE RecordId = @RecordId ORDER BY Ordinal;",
             new { RecordId = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
         IReadOnlyList<RecordImage> images = await ListRecordImagesAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false);
-        return new RecordDetails(MapSummary(row), values, fields, aliases, images, row.Revision);
+        string[] tags = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT Value FROM RecordTags WHERE RecordId = @RecordId ORDER BY Ordinal;",
+            new { RecordId = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+        return new RecordDetails(MapSummary(row), values, fields, aliases, images, row.Revision) { Tags = tags };
     }
 
     public async Task<RecordDetails> UpdateRecordAsync(
@@ -1097,6 +1121,7 @@ public sealed partial class SqliteMonkeysphereStore(
         IReadOnlyList<NormalizedFieldValue> values,
         DateTimeOffset now,
         string? expectedRevision = null,
+        IReadOnlyList<ResolvedTag>? tags = null,
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1105,14 +1130,14 @@ public sealed partial class SqliteMonkeysphereStore(
         {
             await RequireRevisionAsync(connection, transaction, id, expectedRevision, schema: false, cancellationToken).ConfigureAwait(false);
         }
-        RecordDetails result = await ReplaceRecordCoreAsync(connection, transaction, id, displayName, aliases, values, now, cancellationToken).ConfigureAwait(false);
+        RecordDetails result = await ReplaceRecordCoreAsync(connection, transaction, id, displayName, aliases, values, now, tags, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return result;
     }
 
     private static async Task<RecordDetails> ReplaceRecordCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
         Guid id, string displayName, IReadOnlyList<string> aliases, IReadOnlyList<NormalizedFieldValue> values,
-        DateTimeOffset now, CancellationToken cancellationToken)
+        DateTimeOffset now, IReadOnlyList<ResolvedTag>? tags, CancellationToken cancellationToken)
     {
         string timestamp = Timestamp(now);
         int changed = await connection.ExecuteAsync(new CommandDefinition(
@@ -1130,6 +1155,18 @@ public sealed partial class SqliteMonkeysphereStore(
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         await InsertAliasesAsync(connection, transaction, id, aliases, cancellationToken).ConfigureAwait(false);
         await InsertValuesAsync(connection, transaction, id, values, timestamp, cancellationToken).ConfigureAwait(false);
+        // Null means the caller is not speaking about tags, so the record keeps the ones it has.
+        // Only an explicit list — including an empty one — replaces them.
+        if (tags is not null)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM RecordTags WHERE RecordId = @RecordId;",
+                new { RecordId = Key(id) },
+                transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+            await InsertTagsAsync(connection, transaction, id, tags, cancellationToken).ConfigureAwait(false);
+        }
+
         RecordDetails result = await QueryRecordAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Updated record could not be read back.");
         return result;
@@ -1352,6 +1389,11 @@ public sealed partial class SqliteMonkeysphereStore(
                           AND qa.Value LIKE @Query ESCAPE '\' COLLATE NOCASE
                     )
                     OR EXISTS (
+                        SELECT 1 FROM RecordTags qut
+                        WHERE qut.RecordId = r.Id
+                          AND qut.Value LIKE @Query ESCAPE '\' COLLATE NOCASE
+                    )
+                    OR EXISTS (
                         SELECT 1 FROM FieldValues qv
                         WHERE qv.RecordId = r.Id
                           AND (qv.TextValue LIKE @Query ESCAPE '\' COLLATE NOCASE
@@ -1389,6 +1431,16 @@ public sealed partial class SqliteMonkeysphereStore(
         for (int index = 0; index < (search.Filters?.Count ?? 0); index++)
         {
             AppendTypedFilter(where, parameters, search.Filters![index], $"Saved{index}");
+        }
+
+        // One EXISTS per tag rather than an IN over all of them, because the record must carry
+        // every listed tag; an IN would match a record holding only one of them.
+        for (int index = 0; index < (search.Tags?.Count ?? 0); index++)
+        {
+            string parameter = $"Tag{index}";
+            where.Append(CultureInfo.InvariantCulture,
+                $" AND EXISTS (SELECT 1 FROM RecordTags rt WHERE rt.RecordId = r.Id AND rt.Value = @{parameter} COLLATE NOCASE)");
+            parameters.Add(parameter, search.Tags![index]);
         }
 
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1584,6 +1636,29 @@ public sealed partial class SqliteMonkeysphereStore(
         }
     }
 
+    private static async Task InsertTagsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid recordId,
+        IReadOnlyList<ResolvedTag> tags,
+        CancellationToken cancellationToken)
+    {
+        for (int ordinal = 0; ordinal < tags.Count; ordinal++)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO RecordTags (RecordId, Ordinal, Value, TagId) VALUES (@RecordId, @Ordinal, @Value, @TagId);",
+                new
+                {
+                    RecordId = Key(recordId),
+                    Ordinal = ordinal,
+                    Value = tags[ordinal].Name,
+                    TagId = Key(tags[ordinal].Id),
+                },
+                transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+    }
+
     private static async Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(
         SqliteConnection connection,
         Guid recordId,
@@ -1644,7 +1719,7 @@ public sealed partial class SqliteMonkeysphereStore(
         CancellationToken cancellationToken)
     {
         RecordTypeRow? row = await connection.QuerySingleOrDefaultAsync<RecordTypeRow>(new CommandDefinition("""
-            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision
+            SELECT Id, Name, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Lifecycle, Symbol, Revision, TagsEnabled
             FROM RecordTypes
             WHERE Id = @Id;
             """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -1825,7 +1900,8 @@ public sealed partial class SqliteMonkeysphereStore(
             row.PresetVersion,
             (RecordTypeLifecycle)row.Lifecycle,
             row.Symbol,
-            row.Revision);
+            row.Revision,
+            row.TagsEnabled != 0);
 
     private static FieldDefinition MapField(FieldRow row) =>
         new(
@@ -1894,6 +1970,7 @@ public sealed partial class SqliteMonkeysphereStore(
         public int Lifecycle { get; init; }
         public string? Symbol { get; init; }
         public string Revision { get; init; } = string.Empty;
+        public int TagsEnabled { get; init; } = 1;
     }
 
     private sealed class FieldRow

@@ -2623,3 +2623,119 @@ dd {
         flex-wrap: wrap;
     }
 }
+
+/* Universal tags. The catalogue gives each tag a colour; it arrives as --tag-colour and is used
+   for the border and the icon rather than as a background, so one palette stays legible against
+   both the light and the dark ground without needing a second colour per theme. */
+.tag-input {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    align-items: center;
+    border: 1px solid var(--line-strong);
+    border-radius: .5rem;
+    padding: .35rem;
+    background: var(--surface);
+}
+
+.tag-input.disabled { opacity: .6; }
+
+.tag-pills {
+    display: contents;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    border: 1px solid var(--tag-colour, var(--line-strong));
+    border-left-width: .28rem;
+    border-radius: 999px;
+    padding: .16rem .5rem;
+    background: var(--surface-raised);
+    font-size: .78rem;
+    font-weight: 650;
+}
+
+.tag-pill-icon {
+    color: var(--tag-colour, var(--ink-muted));
+    font-weight: 800;
+}
+
+.tag-pill-name { white-space: nowrap; }
+
+.tag-pill-remove {
+    border: 0;
+    background: none;
+    cursor: pointer;
+    padding: 0 .1rem;
+    font-size: .95rem;
+    line-height: 1;
+    color: var(--ink-muted);
+}
+
+.tag-pill-remove:hover, .tag-pill-remove:focus-visible { color: var(--danger); }
+
+.tag-input-field {
+    flex: 1 1 10rem;
+    min-width: 8rem;
+    border: 0;
+    background: none;
+    padding: .25rem;
+    color: inherit;
+    font: inherit;
+}
+
+.tag-input-field:focus { outline: none; }
+
+.tag-input:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.tag-suggestions {
+    position: absolute;
+    top: calc(100% + .2rem);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    list-style: none;
+    margin: 0;
+    padding: .2rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .5rem;
+    background: var(--surface-raised);
+    box-shadow: 0 .5rem 1.2rem rgb(0 0 0 / 18%);
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.tag-suggestions li {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .3rem .45rem;
+    border-radius: .35rem;
+    cursor: pointer;
+}
+
+.tag-suggestions li.active,
+.tag-suggestions li:hover { background: var(--accent-soft); }
+
+.domain-membership {
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .6rem .75rem;
+    margin: .6rem 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .9rem;
+}
+
+.domain-membership legend { padding: 0 .3rem; font-weight: 700; }
+
+.inline-filter { display: inline-flex; align-items: center; gap: .5rem; }

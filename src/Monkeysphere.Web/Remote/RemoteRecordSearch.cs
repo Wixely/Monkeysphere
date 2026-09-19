@@ -30,12 +30,16 @@ public sealed partial class MonkeysphereRemoteQueries
 {
     public async Task<RemotePage<RemoteRecordSummary>> QueryRecordsAsync(string? query, Guid? recordTypeId,
         IReadOnlyList<RemoteRecordFilter>? filters, RemoteRecordSort? sort, int page, int pageSize, Guid? domainId,
-        CancellationToken cancellationToken)
+        IReadOnlyList<string>? tags, CancellationToken cancellationToken)
     {
         DemandReadScope();
         DiscoveryPagination.Validate(page, pageSize);
         if (filters is not null && (filters.Count > 10 || filters.Any(filter => filter is null)))
             throw new DomainValidationException("Supply at most 10 non-null filters.");
+        // Bounded like the field filters, and normalized through the same rules the writer uses so
+        // a tag that could never have been stored cannot be asked for.
+        IReadOnlyList<string> coreTags = tags is null ? [] : RecordTagRules.Normalize(tags);
+        if (coreTags.Count > 10) throw new DomainValidationException("Supply at most 10 tags.");
         using IDisposable? domain = UseDomain(domainId);
         if (recordTypeId is Guid typeId && await service.GetRecordTypeAsync(typeId, cancellationToken).ConfigureAwait(false) is null)
             throw new RecordCommandNotFoundException("Record type was not found in this domain.");
@@ -50,7 +54,8 @@ public sealed partial class MonkeysphereRemoteQueries
         }
         PagedResult<RecordSummary> result = await service.SearchRecordsAsync(new RecordSearch(query, recordTypeId,
             Page: page, PageSize: pageSize, Filters: coreFilters,
-            Sort: sort is null ? null : new(sort.FieldDefinitionId, sort.Descending)), cancellationToken).ConfigureAwait(false);
+            Sort: sort is null ? null : new(sort.FieldDefinitionId, sort.Descending),
+            Tags: coreTags.Count == 0 ? null : coreTags), cancellationToken).ConfigureAwait(false);
         return new(result.Items.Select(MapSummary).ToArray(), result.Page, result.PageSize, result.TotalCount);
     }
 }
@@ -62,15 +67,16 @@ public sealed class MonkeysphereRecordQueryTools
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [McpServerTool(Name = "query_records", ReadOnly = true)]
-    [Description("Searches names, aliases and stored values with up to 10 AND-combined field filters and optional sorting. Requires records.read. Operators: equals, contains, greater_than, less_than, before, after. Numeric comparisons take finite invariant numbers; temporal comparisons take application temporal values. Omit sort for recently updated first; sort {} orders by display name, or supply fieldDefinitionId to sort the first stored field value. Descending defaults false. Pages are 1-10000, pageSize 1-100, query at most 500 characters, filter values at most 2000. Omitted domainId selects Default. Unknown or foreign type/filter/sort IDs fail. Results and totalCount share a database snapshot; pages across separate calls are live, not pinned.")]
+    [Description("Searches names, aliases, universal tags and stored values with up to 10 AND-combined field filters, up to 10 AND-combined universal tags, and optional sorting. Requires records.read. Tags match the record's universal tags rather than a tags-typed field, case-insensitively, and a record must carry every tag listed. Operators: equals, contains, greater_than, less_than, before, after. Numeric comparisons take finite invariant numbers; temporal comparisons take application temporal values. Omit sort for recently updated first; sort {} orders by display name, or supply fieldDefinitionId to sort the first stored field value. Descending defaults false. Pages are 1-10000, pageSize 1-100, query at most 500 characters, filter values at most 2000. Omitted domainId selects Default. Unknown or foreign type/filter/sort IDs fail. Results and totalCount share a database snapshot; pages across separate calls are live, not pinned.")]
     public static async Task<CallToolResult> QueryAsync(MonkeysphereRemoteQueries queries, IHttpContextAccessor accessor, string? query = null,
         Guid? recordTypeId = null, IReadOnlyList<RemoteRecordFilter>? filters = null, RemoteRecordSort? sort = null,
-        int page = 1, int pageSize = 25, Guid? domainId = null, CancellationToken cancellationToken = default)
+        int page = 1, int pageSize = 25, Guid? domainId = null, IReadOnlyList<string>? tags = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             RemotePage<RemoteRecordSummary> pageResult = await queries.QueryRecordsAsync(query, recordTypeId, filters, sort,
-                page, pageSize, domainId, cancellationToken).ConfigureAwait(false);
+                page, pageSize, domainId, tags, cancellationToken).ConfigureAwait(false);
             JsonElement json = JsonSerializer.SerializeToElement(pageResult, JsonOptions);
             return new() { StructuredContent = json, Content = [new TextContentBlock { Text = json.GetRawText() }] };
         }

@@ -25,6 +25,8 @@ public sealed class BackstageLeakTests
         "SearchRecordsAsync by name",
         "SearchRecordsAsync by alias",
         "SearchRecordsAsync by field value",
+        "SearchRecordsAsync by tag",
+        "universal tag vocabulary",
         "IRelationshipService.ListForRecordAsync",
         "IRelationshipService.QueryForRecordAsync",
         "relationship graph nodes",
@@ -60,7 +62,7 @@ public sealed class BackstageLeakTests
             new(text.Id, "a secret note"),
             new(date.Id, anniversary.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             new(place.Id, Location: new LocationValueInput("Secret place", "51.5", "-0.12")),
-        ], ["Cornelius alias"]);
+        ], ["Cornelius alias"], ["concealed-affair"]);
 
         RecordDetails visible = await records.CreateRecordAsync(type.Id, "Plainly Visible", []);
 
@@ -112,6 +114,12 @@ public sealed class BackstageLeakTests
         if ((await records.SearchRecordsAsync(new("Concealed"))).Items.Count != 0) Seen("SearchRecordsAsync by name");
         if ((await records.SearchRecordsAsync(new("Cornelius alias"))).Items.Count != 0) Seen("SearchRecordsAsync by alias");
         if ((await records.SearchRecordsAsync(new("a secret note"))).Items.Count != 0) Seen("SearchRecordsAsync by field value");
+        if ((await records.SearchRecordsAsync(new("concealed-affair"))).Items.Count != 0) Seen("SearchRecordsAsync by tag");
+
+        // The vocabulary is the subtle one: an ordinary reader offered this tag as a suggestion
+        // learns that a record it cannot see exists, and something of what that record is about.
+        if ((await services.GetRequiredService<IRecordTagStore>().ListVocabularyAsync())
+            .Contains("concealed-affair", StringComparer.OrdinalIgnoreCase)) Seen("universal tag vocabulary");
 
         // Read from the visible record's perspective: the link itself is relational metadata.
         IRelationshipService relationships = services.GetRequiredService<IRelationshipService>();

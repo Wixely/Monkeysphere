@@ -2,7 +2,8 @@ namespace Monkeysphere.Core;
 
 public sealed record RecordBatchInput(string Operation, Guid? RecordTypeId = null, string? DisplayName = null,
     IReadOnlyList<FieldValueInput>? Values = null, IReadOnlyList<string>? Aliases = null,
-    Guid? Id = null, string? ExpectedRevision = null, IReadOnlyList<RecordPatchChange>? Changes = null);
+    Guid? Id = null, string? ExpectedRevision = null, IReadOnlyList<RecordPatchChange>? Changes = null,
+    IReadOnlyList<string>? Tags = null);
 
 public sealed record RecordBatchPreviewItem(int Index, string Operation, Guid Id, Guid? RecordTypeId,
     string? DisplayName, int SuppliedFieldCount, int PatchChangeCount);
@@ -46,12 +47,13 @@ public sealed class RecordBatchService(RecordCommandService records, IRecordBatc
                 case "create" when operation.RecordTypeId is Guid typeId && operation.DisplayName is not null && operation.Values is not null &&
                     operation.Id is null && operation.ExpectedRevision is null && operation.Changes is null:
                     PreparedRecord record = await records.PrepareCreateAsync(typeId, operation.DisplayName, operation.Values,
-                        operation.Aliases, cancellationToken).ConfigureAwait(false);
+                        operation.Aliases, operation.Tags, cancellationToken: cancellationToken).ConfigureAwait(false);
                     mutation = new(RecordMutationKind.Create, Guid.CreateVersion7(), record);
                     items.Add(new(items.Count, "create", mutation.Id, typeId, record.DisplayName, operation.Values.Count, 0));
                     break;
                 case "patch" when operation.Id is Guid id && operation.ExpectedRevision is not null && operation.Changes is not null &&
-                    operation.RecordTypeId is null && operation.DisplayName is null && operation.Values is null && operation.Aliases is null:
+                    operation.RecordTypeId is null && operation.DisplayName is null && operation.Values is null && operation.Aliases is null &&
+                    operation.Tags is null:
                     mutation = await records.PreparePatchAsync(id, operation.ExpectedRevision, operation.Changes, cancellationToken).ConfigureAwait(false);
                     // Do not disclose unmentioned record contents to a write-only credential.
                     items.Add(new(items.Count, "patch", id, null, null, 0, operation.Changes.Count));

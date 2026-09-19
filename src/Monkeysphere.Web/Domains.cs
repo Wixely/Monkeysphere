@@ -17,15 +17,18 @@ internal static class DomainSelection
 internal sealed class HttpCurrentDomain : ICurrentDomainScope
 {
     private readonly IDomainCatalog _domains;
+    private readonly IDomainRegistry _registry;
     private readonly AsyncLocal<Guid?> _override = new();
     private readonly Guid _baseDomainId;
 
     public HttpCurrentDomain(
         IHttpContextAccessor httpContextAccessor,
         IDataProtectionProvider protectionProvider,
-        IDomainCatalog domains)
+        IDomainCatalog domains,
+        IDomainRegistry registry)
     {
         _domains = domains;
+        _registry = registry;
         HttpContext? context = httpContextAccessor.HttpContext;
         _baseDomainId = Resolve(context, DomainSelection.Protector(protectionProvider), domains);
     }
@@ -34,11 +37,28 @@ internal sealed class HttpCurrentDomain : ICurrentDomainScope
 
     public IDisposable Use(Guid domainId)
     {
+        // The filtered catalogue, so a hidden domain refuses here exactly as an unknown one does.
+        // Remote surfaces depend on this being the place an unusable selector fails closed.
         if (!_domains.TryGet(domainId, out _))
         {
             throw new DomainValidationException("Domain was not found.");
         }
 
+        return Select(domainId);
+    }
+
+    public IDisposable UseForMaintenance(Guid domainId)
+    {
+        if (!_registry.TryGet(domainId, out _))
+        {
+            throw new DomainValidationException("Domain was not found.");
+        }
+
+        return Select(domainId);
+    }
+
+    private SelectionScope Select(Guid domainId)
+    {
         Guid? previous = _override.Value;
         _override.Value = domainId;
         return new SelectionScope(_override, previous);

@@ -14,7 +14,7 @@ public static class DomainRegistrySchema
     public const string DatabaseName = "MonkeysphereDomains";
 
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 5,
+        currentVersion: 7,
         migrations:
         [
             DnaXMigration.Sql(1, "domain-registry", "Create the Monkeysphere domain registry", """
@@ -92,6 +92,82 @@ public static class DomainRegistrySchema
                     ExpiresAtUtc TEXT NOT NULL
                 );
                 CREATE INDEX IX_BackstageSessions_Expiry ON BackstageSessions (ExpiresAtUtc);
+                """),
+            DnaXMigration.Sql(6, "hidden-domains", "Let a domain be observable only from backstage", """
+                ALTER TABLE Domains ADD COLUMN IsHidden INTEGER NOT NULL DEFAULT 0
+                    CHECK (IsHidden IN (0, 1));
+
+                -- The Default domain is what an invalid or obsolete selection resolves to. Hiding
+                -- it would leave an ordinary caller with no domain at all, so storage refuses it
+                -- rather than relying on every caller to remember.
+                CREATE TRIGGER Domains_Default_NeverHidden_Insert BEFORE INSERT ON Domains
+                WHEN NEW.IsDefault = 1 AND NEW.IsHidden = 1
+                BEGIN SELECT RAISE(ABORT, 'The Default domain cannot be hidden'); END;
+                CREATE TRIGGER Domains_Default_NeverHidden_Update BEFORE UPDATE OF IsHidden ON Domains
+                WHEN NEW.IsDefault = 1 AND NEW.IsHidden = 1
+                BEGIN SELECT RAISE(ABORT, 'The Default domain cannot be hidden'); END;
+
+                -- Migration 2 bumped the revision on a name change only. Concealment is as much a
+                -- change as a rename, and a stale revision would let a concurrent caller reveal a
+                -- domain it had never seen hidden.
+                DROP TRIGGER Domains_Revision_Update;
+                CREATE TRIGGER Domains_Revision_Update AFTER UPDATE OF Name, IsHidden ON Domains BEGIN
+                    UPDATE Domains SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                """),
+            DnaXMigration.Sql(7, "tag-catalogue", "Hold the tag catalogue for the whole deployment rather than per domain", """
+                -- Tags are the first thing that deliberately spans domains. A tag has to be
+                -- recognisable from another domain for typing an existing name to enable it there
+                -- rather than mint a second tag, and the registry is the only deployment-wide
+                -- store. Records still keep the tag's text in their own domain database, so a
+                -- domain remains readable on its own and no cross-database key exists.
+                CREATE TABLE Tags (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    Colour TEXT NOT NULL,
+                    Icon TEXT NOT NULL DEFAULT '#',
+                    CreatedAtUtc TEXT NOT NULL,
+                    UpdatedAtUtc TEXT NOT NULL,
+                    Revision TEXT NOT NULL DEFAULT ''
+                );
+
+                -- Which domains offer the tag. Membership is curation, not access control.
+                CREATE TABLE TagDomains (
+                    TagId TEXT NOT NULL,
+                    DomainId TEXT NOT NULL,
+                    PRIMARY KEY (TagId, DomainId),
+                    FOREIGN KEY (TagId) REFERENCES Tags(Id) ON DELETE CASCADE
+                );
+                CREATE INDEX IX_TagDomains_Domain ON TagDomains(DomainId, TagId);
+
+                -- Every catalogue edit that has to reach a domain database is queued here,
+                -- because no transaction spans those files. 'rename' rewrites the stored text;
+                -- 'strip' removes the tag from that domain's records after it loses membership or
+                -- the tag is deleted. Without the queue an interrupted strip would leave records
+                -- carrying a tag the catalogue has forgotten, with nothing to retry it.
+                -- The primary key collapses repeated edits onto the newest intent.
+                CREATE TABLE TagOutbox (
+                    TagId TEXT NOT NULL,
+                    DomainId TEXT NOT NULL,
+                    Operation TEXT NOT NULL CHECK (Operation IN ('rename', 'strip')),
+                    TargetName TEXT NOT NULL,
+                    EnqueuedAtUtc TEXT NOT NULL,
+                    LastAttemptAtUtc TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (TagId, DomainId)
+                );
+
+                CREATE TRIGGER Tags_Revision_Insert AFTER INSERT ON Tags BEGIN
+                    UPDATE Tags SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER Tags_Revision_Update AFTER UPDATE OF Name, Colour, Icon ON Tags BEGIN
+                    UPDATE Tags SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
+                CREATE TRIGGER TagDomains_Revision_Insert AFTER INSERT ON TagDomains BEGIN
+                    UPDATE Tags SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.TagId;
+                END;
+                CREATE TRIGGER TagDomains_Revision_Delete AFTER DELETE ON TagDomains BEGIN
+                    UPDATE Tags SET Revision = lower(hex(randomblob(16))) WHERE Id = OLD.TagId;
+                END;
                 """),
         ]);
 }
@@ -202,6 +278,9 @@ internal sealed class DefaultCurrentDomain : ICurrentDomainScope
         return EmptyScope.Instance;
     }
 
+    // Only the Default domain exists in this context, so maintenance selection is the same check.
+    public IDisposable UseForMaintenance(Guid domainId) => Use(domainId);
+
     private sealed class EmptyScope : IDisposable
     {
         internal static EmptyScope Instance { get; } = new();
@@ -216,12 +295,15 @@ internal sealed partial class DomainCatalog(
     DomainRegistryConnectionFactory connections,
     IDomainDatabaseMigrator domainDatabases,
     IDnaXPaths paths,
-    TimeProvider timeProvider) : IDomainCatalog, IDisposable
+    TimeProvider timeProvider) : IDomainCatalog, IDomainRegistry, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ImmutableArray<MonkeysphereDomain> _domains = [];
 
     public IReadOnlyList<MonkeysphereDomain> Snapshot => _domains;
+
+    /// <summary>Unfiltered. See <see cref="IDomainRegistry"/> for why infrastructure needs it.</summary>
+    public IReadOnlyList<MonkeysphereDomain> All => _domains;
 
     public MonkeysphereDomain DefaultDomain => _domains.FirstOrDefault(domain => domain.IsDefault)
         ?? throw new InvalidOperationException("The default domain has not been initialized.");
@@ -283,6 +365,55 @@ internal sealed partial class DomainCatalog(
         }
     }
 
+    public async Task<MonkeysphereDomain> SetHiddenAsync(Guid id, bool hidden, string? expectedRevision = null, CancellationToken cancellationToken = default)
+    {
+        // Storage refuses to hide the Default domain, but saying so here gives the caller the real
+        // reason rather than a raw constraint failure.
+        if (hidden && id == MonkeysphereDomains.DefaultId)
+        {
+            throw new DomainValidationException("The Default domain cannot be hidden.");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            using SqliteTransaction transaction = connection.BeginTransaction();
+            int changed = await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE Domains SET IsHidden = @Hidden, UpdatedAtUtc = @Now
+                WHERE Id = @Id AND IsDefault = 0
+                  AND (@ExpectedRevision IS NULL OR Revision = @ExpectedRevision);
+                """,
+                new
+                {
+                    Id = Key(id),
+                    Hidden = hidden ? 1 : 0,
+                    Now = Timestamp(timeProvider.GetUtcNow()),
+                    ExpectedRevision = expectedRevision,
+                },
+                transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (changed != 1)
+            {
+                if (expectedRevision is not null)
+                {
+                    throw new ConcurrencyConflictException("The domain changed or was removed. Reload it before hiding or revealing it.");
+                }
+
+                throw new DomainValidationException("Domain was not found.");
+            }
+
+            ImmutableArray<MonkeysphereDomain> snapshot = await ReadSnapshotAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+            _domains = snapshot;
+            return snapshot.Single(domain => domain.Id == id);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static async Task RenameCoreAsync(SqliteConnection connection, SqliteTransaction transaction,
         Guid id, string normalized, string? expectedRevision, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -313,7 +444,7 @@ internal sealed partial class DomainCatalog(
         CancellationToken cancellationToken)
     {
         IEnumerable<DomainRow> rows = await connection.QueryAsync<DomainRow>(new CommandDefinition("""
-            SELECT Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc, Revision
+            SELECT Id, Name, IsDefault, CreatedAtUtc, UpdatedAtUtc, Revision, IsHidden
             FROM Domains
             ORDER BY IsDefault DESC, Name COLLATE NOCASE, Id;
             """, transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -322,7 +453,7 @@ internal sealed partial class DomainCatalog(
             row.Name,
             row.IsDefault != 0,
             ParseTimestamp(row.CreatedAtUtc),
-            ParseTimestamp(row.UpdatedAtUtc), row.Revision)).ToImmutableArray();
+            ParseTimestamp(row.UpdatedAtUtc), row.Revision, row.IsHidden != 0)).ToImmutableArray();
     }
 
     private static string Key(Guid id) => id.ToString("D", CultureInfo.InvariantCulture);
@@ -337,6 +468,7 @@ internal sealed partial class DomainCatalog(
         public int IsDefault { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
+        public int IsHidden { get; init; }
     }
 
     public void Dispose() => _gate.Dispose();

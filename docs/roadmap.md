@@ -48,7 +48,10 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Interaction timeline | [Interaction timeline](#interaction-timeline) | Later; design required | TBD | 2026-11-01 |
 | Android contact importer | [Android contact importer](#android-contact-importer) | Later; blocked on M3 | TBD | 2026-10-01 |
 | Configurable map tile provider | [Map tile provider configuration](#map-tile-provider-configuration) | Later | TBD | 2026-11-01 |
-| Domain deletion/archive and record transfer | [Domain-separated spheres](#domain-separated-spheres) | Later; design required | TBD | 2026-10-01 |
+| Universal tags on every record | [Universal tags](universal-tags.md) | Complete, including the deployment-wide catalogue with colours, icons and domain membership; saved-view columns and filters outstanding | Agent | 2026-10-01 |
+| Hidden domains gated by backstage | [Record mobility](record-mobility.md) | Complete; registry migration 6, TM-16/TM-17 updated | Agent | 2026-10-01 |
+| Record transfer and linked twins between domains | [Record mobility](record-mobility.md) | Designed; conditions stated in TM-20, not built | Agent | 2026-10-01 |
+| Domain deletion/archive | [Domain-separated spheres](#domain-separated-spheres) | Later; design required | TBD | 2026-10-01 |
 | Upgrade-path verification across versions | [Upgrade path verification](#upgrade-path-verification) | Later | TBD | 2026-12-01 |
 
 ## MCP coverage for new features
@@ -136,7 +139,7 @@ Domains let one deployment hold independent spheres such as Personal friends, On
 - New domains start with their own first-run setup wizard. Duplicate structure and record names are valid in different domains.
 - API callers select a non-default domain with `X-Monkeysphere-Domain`; MCP tools accept an optional `domainId`. Omission retains backwards-compatible Default behavior.
 - Backups are deliberately deployment-wide: the domain registry, every domain database and original-media tree, and remote-access state are validated and restored as one unit.
-- Cross-domain links are not supported. A future transfer/copy workflow must use an explicit preview and create independent destination records rather than weakening isolation.
+- Cross-domain links are not supported. A future transfer/copy workflow must use an explicit preview and create independent destination records rather than weakening isolation. [Record mobility](record-mobility.md) keeps this invariant: a record present in two domains is two real rows joined by a shared link identity and a durable one-way propagation, never one row reachable from two databases.
 
 ### Delivery plan
 
@@ -149,7 +152,10 @@ Domains let one deployment hold independent spheres such as Personal friends, On
 | Deployment-wide backup format 2 with format 1 compatibility and atomic restore | Complete | Agent | 2026-09-03 |
 | Isolation, cookie, remote-surface, backup/restore, and browser regression tests | Complete | Agent | 2026-09-03 |
 | Review and merge `feature/domains` into `main` | Complete | Wixely | 2026-09-14 |
-| Domain deletion/archive and previewed record transfer/copy | Later; design required | TBD | 2026-10-01 |
+| Domain deletion/archive | Later; design required | TBD | 2026-10-01 |
+| Hidden domains gated by backstage ([design](record-mobility.md)) | Complete; registry migration 6, TM-16/TM-17 updated | Agent | 2026-10-01 |
+| Previewed record transfer/copy and linked twins | Designed in [record mobility](record-mobility.md); conditions stated in TM-20 | Agent | 2026-10-01 |
+| Universal tags on every record ([design](universal-tags.md)) | Migrations 32-33, registry 7 and contract 1.21 complete; saved-view columns and filters outstanding | Agent | 2026-10-01 |
 | Per-domain visual identity and optional structure-template duplication | Later; user research | TBD | 2026-10-01 |
 
 Domain deletion and record transfer both weaken assumptions the current isolation tests rely on and require a new threat review under TM-16 before implementation. Deletion must state what happens to media, backups already taken, and MCP credentials scoped to that domain. Transfer must create independent destination records behind an explicit preview rather than introducing a cross-domain reference.
@@ -419,12 +425,14 @@ Backstage is a per-account mode that reveals records held back by backstage poli
 What is built:
 
 - **Storage.** Application migration 29 adds a nullable `BackstageState` to `Records`, constrained to the known states and partially indexed. The set is deliberately extensible; `hidden` is the first member, not the only conceivable one.
-- **One rule, applied everywhere.** Every read of `Records` carries a single predicate. The safety net is `BackstageLeakTests`, which enumerates sixteen read surfaces — direct retrieval, listing and its total count, name/alias/field-value search, relationships from a visible record in both list and paged form, graph nodes and edges, the spatial map, the calendar, dashboard upcoming dates, active reminders, the field-conversion preview, contact duplicate discovery and contact export — and asserts that an ordinary reader reaches none of them and a backstage reader reaches all sixteen. The second direction is what stops a surface from passing merely because the fixture never reached it.
+- **One rule, applied everywhere.** Every read of `Records` carries a single predicate. The safety net is `BackstageLeakTests`, which enumerates nineteen read surfaces — direct retrieval, listing and its total count, name/alias/field-value search, relationships from a visible record in both list and paged form, graph nodes and edges, the spatial map, the calendar, dashboard upcoming dates, active reminders, the field-conversion preview, contact duplicate discovery and contact export, plus tag search and the universal-tag vocabulary — and asserts that an ordinary reader reaches none of them and a backstage reader reaches all nineteen. The second direction is what stops a surface from passing merely because the fixture never reached it.
 - **Traversal, not just projection.** The relationship graph refuses to enter a hidden node during recursion, so a path that exists only through a hidden record is never disclosed either.
 - **Expiry.** Entering backstage lasts 24 hours and then ends on its own, so forgetting to leave cannot leave records exposed indefinitely. Activations live in the domain registry, keyed by account, because standing backstage is a property of the person rather than of one domain.
 - **Per-account by design.** There is one administrator account today, and the account identifier is carried as a string end to end. Per-account backstage needs no storage or contract change when accounts arrive.
 - **Deployment gate.** Off unless `Monkeysphere:Backstage:Available` is set (`MONKEYSPHERE_BACKSTAGE_AVAILABLE` in the supplied Compose file). It is a kill switch, not merely a way to hide the settings section: with it off nothing observes a hidden record, including a credential holding the MCP grant. Existing hidden records stay hidden, and startup logs a warning naming the count and the domains so an operator is never left with records that are silently absent.
 - **MCP.** A `backstage` permission lets a remote credential see these records through the tools it already holds. It authorizes no read on its own and is MCP-only. Unlike the browser mode it does not expire: the grant applies until it is removed. That is a deliberate choice, recorded in the [security boundary](security.md) and the [MCP contract](mcp-contract.md) rather than left implicit.
+
+- **Domains, not only records.** A domain can be marked hidden and is then observable only from backstage. Registry migration 6 adds the flag, refuses it for the Default domain by trigger, and changes the domain revision on concealment. The rule is applied once, in the per-caller domain catalogue, rather than at each surface: see [record mobility](record-mobility.md).
 
 What is deliberately not hidden, because hiding it would destroy data rather than conceal it:
 

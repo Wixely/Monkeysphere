@@ -132,7 +132,7 @@ public sealed partial class RemoteDiscoveryTests
         FieldDefinition field = await records.CreateAndAttachFieldAsync(source.Id, new("Shared", "text", false));
         RecordType target = await records.CreateRecordTypeAsync("Target");
         _ = await records.CreateRecordAsync(target.Id, "Existing record", []);
-        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Foreign schema")).Id;
+        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Foreign schema")).Id;
         var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["structure.write"]);
         var attach = new
         {

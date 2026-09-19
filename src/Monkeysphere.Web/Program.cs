@@ -78,6 +78,7 @@ builder.Services.AddOptions<BackupScheduleOptions>()
 builder.Services.AddHostedService<BackupScheduleWorker>();
 
 builder.Services.AddSingleton(provider => AdministratorCredential.Load(provider.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton(SessionLifetime.Load(builder.Configuration));
 builder.Services.AddScoped<AbsoluteSessionCookieEvents>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -92,7 +93,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.IsEssential = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+        // Idle timeout; it slides, so ordinary use keeps a session alive. The absolute ceiling
+        // is enforced separately by AbsoluteSessionCookieEvents.
+        options.ExpireTimeSpan = SessionLifetime.Load(builder.Configuration).IdleTimeout;
         options.SlidingExpiration = true;
         options.EventsType = typeof(AbsoluteSessionCookieEvents);
     });
@@ -133,6 +136,7 @@ builder.Services.AddScoped<RemoteRecordSourceCommands>();
 builder.Services.AddScoped<RemoteImageCommands>();
 builder.Services.AddScoped<RecordImageUploadService>();
 builder.Services.AddHostedService<RecordPreviewCleanupWorker>();
+builder.Services.AddHostedService<TagRenameWorker>();
 builder.Services.AddHostedService<RemoteUploadCleanupWorker>();
 builder.Services.AddDnaXRemoteAccess(builder.Configuration.GetSection("DnaX:RemoteAccess"));
 builder.Services.AddDnaXRemoteAccessSqlite("RemoteAccess", provider =>
@@ -162,6 +166,8 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeyspherePresetReadTools>()
     .WithTools<MonkeyspherePresetWriteTools>()
     .WithTools<MonkeysphereDomainWriteTools>()
+    .WithTools<MonkeysphereTagReadTools>()
+    .WithTools<MonkeysphereTagWriteTools>()
     .WithTools<MonkeysphereRecordQueryTools>()
     .WithTools<MonkeysphereUploadTools>()
     .WithTools<MonkeysphereContactPreviewTools>()

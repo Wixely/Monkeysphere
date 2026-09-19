@@ -369,7 +369,10 @@ internal sealed class TestApplication : IAsyncDisposable
 
         services.AddMonkeysphereData();
         ServiceProvider provider = services.BuildServiceProvider(validateScopes: true);
-        await provider.MigrateDnaXDatabaseAsync(MonkeysphereDataExtensions.DatabaseName);
+        // The same initialization the application performs, rather than migrating the application
+        // database alone: the tag catalogue lives in the domain registry, so a fixture that skips
+        // the registry has no Tags table and no domain to attach a tag to.
+        await provider.InitializeMonkeysphereDomainsAsync();
         AsyncServiceScope scope = provider.CreateAsyncScope();
         return new TestApplication(dataRoot, provider, scope);
     }

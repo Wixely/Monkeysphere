@@ -3,7 +3,7 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Web.Remote;
 
-public sealed class RecordPreviewCleanupWorker(IServiceScopeFactory scopes, IDomainCatalog domains,
+public sealed class RecordPreviewCleanupWorker(IServiceScopeFactory scopes, IDomainRegistry domains,
     TimeProvider timeProvider, ILogger<RecordPreviewCleanupWorker> logger) : BackgroundService
 {
     private static readonly Action<ILogger, Exception?> LogCleanupFailure = LoggerMessage.Define(
@@ -27,13 +27,14 @@ public sealed class RecordPreviewCleanupWorker(IServiceScopeFactory scopes, IDom
 
     public async Task SweepAsync(CancellationToken cancellationToken = default)
     {
-        foreach (MonkeysphereDomain domain in domains.Snapshot)
+        // Every domain, hidden included: a domain nobody sweeps accumulates expired previews forever.
+        foreach (MonkeysphereDomain domain in domains.All)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 await using AsyncServiceScope scope = scopes.CreateAsyncScope();
-                using IDisposable selection = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(domain.Id);
+                using IDisposable selection = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().UseForMaintenance(domain.Id);
                 using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(TimeSpan.FromSeconds(10));
                 await scope.ServiceProvider.GetRequiredService<IRecordBatchStore>()

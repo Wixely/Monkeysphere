@@ -9,18 +9,24 @@ public sealed record RecordPatchChange(string Operation, Guid? FieldDefinitionId
 public sealed class RecordCommandService(IMonkeysphereService records, IRecordCommandStore commands, TimeProvider timeProvider)
 {
     public async Task<RecordCommandReceipt> CreateAsync(RecordCommandIdentity identity, Guid recordTypeId, string displayName,
-        IReadOnlyList<FieldValueInput> values, IReadOnlyList<string>? aliases = null, CancellationToken cancellationToken = default)
+        IReadOnlyList<FieldValueInput> values, IReadOnlyList<string>? aliases = null, IReadOnlyList<string>? tags = null,
+        CancellationToken cancellationToken = default)
     {
         RequireAction(identity, "records.create");
         RecordCommandReceipt? replay = await commands.GetReceiptAsync(identity, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         if (replay is not null) return replay;
-        PreparedRecord prepared = await PrepareCreateAsync(recordTypeId, displayName, values, aliases, cancellationToken).ConfigureAwait(false);
+        PreparedRecord prepared = await PrepareCreateAsync(recordTypeId, displayName, values, aliases, tags, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await commands.ExecuteAsync(identity, [new(RecordMutationKind.Create, Guid.CreateVersion7(), prepared)],
             timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// <paramref name="createMissingTags"/> is false for validation, which must not change the
+    /// deployment's tag catalogue as a side effect of checking whether a record would be valid.
+    /// </summary>
     public async Task<PreparedRecord> PrepareCreateAsync(Guid recordTypeId, string displayName, IReadOnlyList<FieldValueInput> values,
-        IReadOnlyList<string>? aliases = null, CancellationToken cancellationToken = default)
+        IReadOnlyList<string>? aliases = null, IReadOnlyList<string>? tags = null, bool createMissingTags = true,
+        CancellationToken cancellationToken = default)
     {
         if (values.Count > RecordCommandLimits.MaximumFields) throw new DomainValidationException("A record command can supply at most 1000 fields.");
         RecordTypeDetails type = await records.GetRecordTypeAsync(recordTypeId, cancellationToken).ConfigureAwait(false)
@@ -40,7 +46,7 @@ public sealed class RecordCommandService(IMonkeysphereService records, IRecordCo
             };
             if (shapes != 1 || !matches) throw new DomainValidationException("The supplied value shape does not match the field type.");
         }
-        PreparedRecord prepared = await records.PrepareRecordAsync(recordTypeId, displayName, values, aliases, cancellationToken).ConfigureAwait(false);
+        PreparedRecord prepared = await records.PrepareRecordAsync(recordTypeId, displayName, values, aliases, tags, createMissingTags, cancellationToken).ConfigureAwait(false);
         if (prepared.SchemaRevision != type.RecordType.Revision) throw new ConcurrencyConflictException("The record type changed during validation. Read it again.");
         return prepared;
     }
@@ -68,6 +74,7 @@ public sealed class RecordCommandService(IMonkeysphereService records, IRecordCo
         Dictionary<Guid, FieldValueInput> inputs = current.Values.ToDictionary(value => value.FieldDefinitionId, ToInput);
         string name = current.Record.DisplayName;
         IReadOnlyList<string> aliases = current.Aliases;
+        IReadOnlyList<string>? tags = null;
         HashSet<string> targets = new(StringComparer.Ordinal);
         HashSet<Guid> setFields = [];
         foreach (RecordPatchChange change in changes)
@@ -84,6 +91,12 @@ public sealed class RecordCommandService(IMonkeysphereService records, IRecordCo
                 case "replace_aliases" when change.Values is not null && change.Value is null && change.FieldDefinitionId is null && shapes == 0:
                     target = "aliases";
                     aliases = change.Values;
+                    break;
+                // Universal tags, not a tags-typed field. An empty list clears them; omitting the
+                // operation leaves them alone, which is what makes an unrelated patch non-destructive.
+                case "replace_tags" when change.Values is not null && change.Value is null && change.FieldDefinitionId is null && shapes == 0:
+                    target = "tags";
+                    tags = change.Values;
                     break;
                 case "set_field" when change.FieldDefinitionId is Guid fieldId && change.Value is null && change.Values is null && shapes == 1:
                     target = fieldId.ToString("D");
@@ -112,7 +125,7 @@ public sealed class RecordCommandService(IMonkeysphereService records, IRecordCo
             if (!targets.Add(target)) throw new DomainValidationException("A patch cannot change the same target more than once.");
         }
         PreparedRecordMutation prepared = await records.PrepareRecordUpdateAsync(id, name, inputs.Values.ToArray(), aliases,
-            expectedRevision, cancellationToken).ConfigureAwait(false);
+            expectedRevision, tags, cancellationToken).ConfigureAwait(false);
         if (setFields.Any(id => !prepared.Record.Values.Any(value => value.FieldDefinitionId == id)))
             throw new DomainValidationException("Use clear_field to remove a value; set_field requires a nonempty value.");
         return prepared;

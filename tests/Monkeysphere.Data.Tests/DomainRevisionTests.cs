@@ -27,7 +27,7 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider provider = BuildProvider())
             {
                 await provider.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = provider.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = provider.GetRequiredService<IDomainRegistry>();
                 MonkeysphereDomain original = domains.DefaultDomain;
                 Assert.Matches("^[0-9a-f]{32}$", original.Revision);
                 Task<bool> RenameAsync(string name) => Task.Run(async () =>
@@ -59,9 +59,9 @@ public sealed partial class DomainIsolationTests
             await using (ServiceProvider restarted = BuildProvider())
             {
                 await restarted.InitializeMonkeysphereDomainsAsync();
-                IDomainCatalog domains = restarted.GetRequiredService<IDomainCatalog>();
+                IDomainRegistry domains = restarted.GetRequiredService<IDomainRegistry>();
                 Assert.Equal(persisted, domains.DefaultDomain);
-                Assert.Equal(2, domains.Snapshot.Count);
+                Assert.Equal(2, domains.All.Count);
                 await Assert.ThrowsAsync<ConcurrencyConflictException>(() => domains.RenameAsync(persisted.Id, "Stale", expectedRevision: "old revision"));
                 Assert.Equal(persisted, domains.DefaultDomain);
             }

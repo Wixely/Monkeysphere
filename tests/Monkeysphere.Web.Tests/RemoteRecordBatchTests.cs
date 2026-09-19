@@ -17,9 +17,9 @@ public sealed partial class RemoteDiscoveryTests
         await using RemoteEnabledApplicationFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using IServiceScope scope = factory.Services.CreateScope();
-        IDomainCatalog domains = scope.ServiceProvider.GetRequiredService<IDomainCatalog>();
+        IDomainRegistry domains = scope.ServiceProvider.GetRequiredService<IDomainRegistry>();
         _ = await domains.CreateAsync("Cleanup fixture");
-        foreach (MonkeysphereDomain domain in domains.Snapshot)
+        foreach (MonkeysphereDomain domain in domains.All)
         {
             using IDisposable selection = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(domain.Id);
             RecordType type = await scope.ServiceProvider.GetRequiredService<IMonkeysphereService>().CreateRecordTypeAsync("Cleanup fixture");
@@ -35,7 +35,7 @@ public sealed partial class RemoteDiscoveryTests
         }
         RecordPreviewCleanupWorker worker = Assert.Single(factory.Services.GetServices<IHostedService>().OfType<RecordPreviewCleanupWorker>());
         await worker.SweepAsync();
-        foreach (MonkeysphereDomain domain in domains.Snapshot)
+        foreach (MonkeysphereDomain domain in domains.All)
         {
             using IDisposable selection = scope.ServiceProvider.GetRequiredService<ICurrentDomainScope>().Use(domain.Id);
             await using var connection = await scope.ServiceProvider.GetRequiredService<MonkeysphereConnectionFactory>().OpenConnectionAsync();
@@ -173,7 +173,7 @@ public sealed partial class RemoteDiscoveryTests
         AssertWriteError(unsupported, "validation_failed");
         using JsonDocument response = await SendAsync(client, surface.EndpointPath!, writer.Secret, "tools/call", "preview_record_batch", request);
         RecordBatchPreview preview = Structured(response).Deserialize<RecordBatchPreview>(JsonOptions)!;
-        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainCatalog>().CreateAsync("Other batch fixture")).Id;
+        Guid otherDomain = (await scope.ServiceProvider.GetRequiredService<IDomainRegistry>().CreateAsync("Other batch fixture")).Id;
         using JsonDocument wrongDomain = await SendAsync(client, surface.EndpointPath!, writer.Secret, "tools/call", "apply_record_batch",
             new { domainId = otherDomain, previewId = preview.PreviewId, idempotencyKey = Guid.CreateVersion7() });
         AssertWriteError(wrongDomain, "not_found");

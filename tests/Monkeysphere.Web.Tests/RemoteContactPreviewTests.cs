@@ -231,7 +231,7 @@ public sealed partial class RemoteDiscoveryTests
         using JsonDocument stale = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "preview_contact_import", request);
         Assert.False(Structured(stale).GetProperty("isCurrent").GetBoolean());
         Assert.Equal(previewId, Structured(stale).GetProperty("preview").GetProperty("previewId").GetGuid());
-        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainCatalog>().CreateAsync("Evidence other domain");
+        MonkeysphereDomain other = await factory.Services.GetRequiredService<IDomainRegistry>().CreateAsync("Evidence other domain");
         using JsonDocument foreign = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_contact_import_preview", new { domainId = other.Id, previewId });
         AssertWriteError(foreign, "not_found");
         DnaXGeneratedCredential rotated = await administration.RotateCredentialAsync(DnaXRemoteSurface.Mcp, surface.Version, ["contacts.import"]);

@@ -138,8 +138,10 @@ public sealed class ContactEnrichmentBackfill(
             // Existing values are resent unchanged: the update replaces the whole value set, so
             // omitting them would delete data this operation is not meant to touch.
             List<FieldValueInput> all = [.. record.Values.Select(Existing), .. additions];
+            // Tags are left null rather than resent: unlike values, null preserves them, so a
+            // backfill that knows nothing about tags cannot erase them.
             await records.UpdateRecordAsync(source.RecordId, record.Record.DisplayName, all, record.Aliases,
-                record.Revision, cancellationToken).ConfigureAwait(false);
+                record.Revision, cancellationToken: cancellationToken).ConfigureAwait(false);
             recordsUpdated++;
             valuesWritten += additions.Count;
         }

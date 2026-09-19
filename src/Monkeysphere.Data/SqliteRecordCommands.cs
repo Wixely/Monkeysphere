@@ -56,13 +56,15 @@ public sealed partial class SqliteMonkeysphereStore : IRecordCommandStore
             {
                 await RequireRevisionAsync(connection, transaction, record.RecordTypeId, record.SchemaRevision, schema: true, cancellationToken).ConfigureAwait(false);
                 result = await InsertRecordCoreAsync(connection, transaction, mutation.Id, record.RecordTypeId,
-                    record.DisplayName, record.Aliases, record.Values, now, cancellationToken).ConfigureAwait(false);
+                    record.DisplayName, record.Aliases, record.Values, now, record.Tags, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 await RequireRevisionAsync(connection, transaction, mutation.Id, mutation.ExpectedRevision!, schema: false, cancellationToken).ConfigureAwait(false);
+                // Null here still means "this command said nothing about tags", so a patch that
+                // does not carry replace_tags preserves them rather than clearing them.
                 result = await ReplaceRecordCoreAsync(connection, transaction, mutation.Id, record.DisplayName,
-                    record.Aliases, record.Values, now, cancellationToken).ConfigureAwait(false);
+                    record.Aliases, record.Values, now, record.Tags, cancellationToken).ConfigureAwait(false);
             }
             outcomes.Add(new(mutation.Id, result.Revision, mutation.Kind == RecordMutationKind.Create ? "created" : "updated"));
         }
