@@ -1,6 +1,6 @@
 # Graph editing surface implementation plan
 
-- Status: Proposed; no implementation started
+- Status: M1 delivered 2026-09-22; M0 and M2-M5 remain
 - Created and last reviewed: 2026-09-22
 - Plan owner: TBD
 - Next review: 2026-10-05
@@ -62,7 +62,7 @@ Each has a recommendation; none should be implemented before it is agreed, becau
 
 **D4 — Decide which record types are creatable from the canvas.** The captured open question. Recommend offering the record types currently selected in the view's type filter first, since that is the context the operator is already working in, with a search over all installed types behind a "more types" affordance. Where exactly one type is selected, default to it and ask only for the name.
 
-**D5 — Fullscreen must include the accessible alternative.** Fullscreening `.relationship-graph-shell` would drop the "Centre a displayed record" combobox out of view, because it is a sibling of the canvas component rather than a child. That is an accessibility regression against a documented, test-asserted requirement. Recommend introducing a wrapper element containing the canvas *and* the accessible controls, and requesting fullscreen on that.
+**D5 — Fullscreen must include the accessible alternative. Settled and implemented in M1.** Fullscreening `.relationship-graph-shell` would drop the "Centre a displayed record" combobox out of view, because it is a sibling of the canvas component rather than a child. That is an accessibility regression against a documented, test-asserted requirement. Recommend introducing a wrapper element containing the canvas *and* the accessible controls, and requesting fullscreen on that.
 
 **D6 — Decide what happens at the rendering boundary.** A record or relationship created while the view is already truncated at 500 nodes or 2,000 edges may not appear in the re-query. Recommend that creation from the canvas refuses with an explanation while the view is truncated, rather than appearing to succeed and vanishing. The alternative — create anyway and warn — is acceptable but must be an explicit choice.
 
@@ -91,6 +91,10 @@ Dependencies: D5.
 - Reflect state in the control (`aria-pressed` or an explicit label change), exit on `Escape`, and handle fullscreen being refused or exited by the browser rather than assuming the request succeeded.
 
 Exit criteria: the graph fills the viewport and returns cleanly; the record-centring combobox and the selection live region remain present and operable in fullscreen; node positions and viewport are unchanged by the transition; a rendering test asserts the accessible combobox is still present while the wrapper is the fullscreen element.
+
+**Delivered 2026-09-22.** A `.graph-stage` wrapper is now the fullscreen element and holds the canvas, the record-centring combobox, the graph description the canvas points at with `aria-describedby`, and the controls that act on the graph. "Reset viewport" moved into it from the panel heading, because a control that cannot be reached in fullscreen is one the operator has to leave fullscreen to use. The stage renders whether or not the view has nodes, so the element registered with the browser stays valid when a filter empties the graph. `graph-preferences.js` gained `initFullscreen`, `toggleFullscreen` and `disposeFullscreen`; state is only ever taken from the `fullscreenchange` event, never assumed from a request that appeared to succeed, so Escape and the browser's own chrome are seen the same way as the button, and a refused request says so instead of leaving the control stuck. Support is feature-detected unprefixed and the control is withheld where it is missing. Leaving the page exits fullscreen rather than stranding the browser there.
+
+Two limits are worth stating plainly. The button is rendered only once interop has reported support, so it is absent from the prerendered HTML and its presence and toggling cannot be asserted server-side; `GraphFullscreenTests` therefore pins the containment requirement, which is the accessibility criterion, and the control itself still needs a browser check. And the node/edge truncation notice sits above the panel rather than inside the stage, so it is not visible in fullscreen; moving it in is a small follow-up, and matters more once M4 can create records against that boundary.
 
 ### M2 — Tag editing from a record node
 
@@ -146,8 +150,10 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - D3: is a relationship update in scope for the first pass, or is create-and-delete acceptable to ship first?
 - D6: refuse creation while truncated, or create with a warning?
 - Should relationship *type* creation be reachable from the canvas when no suitable type exists, or should that remain a trip to Structures? Recommend the latter, to keep structure changes deliberate.
+- The truncation notice is outside the stage and so is hidden in fullscreen. Move it in before M4, which has to report that boundary.
 - Touch parity is unverified. The canvas `aria-label` tells the operator they can "long-press a record for actions", but the menu is wired only to cytoscape's `cxttap` and no `taphold` handler exists. Whether long-press reaches the menu on a real touch device needs checking before the menu carries destructive actions, and the label corrected if it does not.
 
 ## Next action
 
-- [ ] Settle D1-D7 and record the decisions here, then implement M0. Owner: TBD; review by 2026-10-05.
+- [x] D5 settled and delivered as M1.
+- [ ] Settle D1-D4, D6 and D7 and record the decisions here, then implement M0. Owner: TBD; review by 2026-10-05.

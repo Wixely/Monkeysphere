@@ -55,6 +55,71 @@ function submitForm(event) {
     }
 }
 
+// Fullscreen is requested on the page's graph stage rather than on the canvas alone. The record
+// centring combobox is the graph's only non-visual alternative and is a sibling of the canvas, so
+// fullscreening the canvas by itself would take that alternative off the screen with it.
+let fullscreenTarget = null;
+let fullscreenCallback = null;
+
+function isFullscreen() {
+    return Boolean(fullscreenTarget) && document.fullscreenElement === fullscreenTarget;
+}
+
+// State is only ever reported from this event, never assumed from a request that appeared to
+// succeed, so leaving fullscreen by Escape or by the browser's own chrome is seen the same way as
+// pressing the button.
+function fullscreenChanged() {
+    fullscreenCallback?.invokeMethodAsync('FullscreenChanged', isFullscreen());
+}
+
+export function initFullscreen(element, callback) {
+    if (!element) {
+        return false;
+    }
+
+    fullscreenTarget = element;
+    fullscreenCallback = callback;
+    document.addEventListener('fullscreenchange', fullscreenChanged);
+    // Unprefixed only. Where that is missing the caller withholds the control rather than offering
+    // a button that would do nothing.
+    return document.fullscreenEnabled === true && typeof element.requestFullscreen === 'function';
+}
+
+export async function toggleFullscreen() {
+    if (!fullscreenTarget) {
+        return false;
+    }
+
+    try {
+        if (isFullscreen()) {
+            await document.exitFullscreen();
+        } else {
+            await fullscreenTarget.requestFullscreen();
+        }
+
+        return true;
+    } catch {
+        // Refused: no user activation, a permissions policy, or an element the browser will not
+        // present. The caller says so rather than showing a control stuck in the wrong state.
+        return false;
+    }
+}
+
+export async function disposeFullscreen() {
+    document.removeEventListener('fullscreenchange', fullscreenChanged);
+    if (isFullscreen()) {
+        try {
+            // Leaving the page while still fullscreen would strand the browser there.
+            await document.exitFullscreen();
+        } catch {
+            // Already leaving; nothing useful remains to do.
+        }
+    }
+
+    fullscreenTarget = null;
+    fullscreenCallback = null;
+}
+
 export function loadRecordTypeIds(domainId) {
     try {
         const value = globalThis.localStorage.getItem(recordTypeKey(domainId));

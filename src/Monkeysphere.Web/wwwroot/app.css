@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     color-scheme: light;
     --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     --ink: #2d2418;
@@ -1685,6 +1685,35 @@ input[type="checkbox"] {
     display: inline-flex;
     align-items: center;
     gap: .4rem;
+}
+
+.graph-stage-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    justify-content: flex-end;
+    margin-bottom: .75rem;
+}
+
+/* Fullscreen takes the stage out of the page, so it has to bring the page's own background and
+   padding with it, and the canvas has to take whatever height is left once the controls, the
+   description and the record centring combobox have had theirs. */
+.graph-stage:fullscreen {
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem;
+    overflow: auto;
+    background: var(--body-background);
+}
+
+.graph-stage:fullscreen .relationship-graph-shell {
+    flex: 1;
+    min-height: 0;
+}
+
+.graph-stage:fullscreen .relationship-graph {
+    height: 100%;
+    min-height: 0;
 }
 
 .relationship-graph-shell {

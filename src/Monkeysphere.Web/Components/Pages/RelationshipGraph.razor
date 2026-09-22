@@ -1,4 +1,4 @@
-@page "/graph"
+﻿@page "/graph"
 @attribute [Authorize]
 @rendermode InteractiveServer
 @implements IAsyncDisposable
@@ -118,32 +118,48 @@
             <p class="eyebrow">@ModeDescription()</p>
             <h2>@_graph.Nodes.Count nodes · @_graph.Edges.Count edges</h2>
         </div>
-        @if (_graph.Nodes.Count > 0)
-        {
-            <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
-        }
     </div>
 
-    @if (_graph.Nodes.Count == 0)
-    {
-        <p class="empty-state">@EmptyMessage()</p>
-    }
-    else
-    {
-        <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images. Shift-drag an empty area to select several records, Ctrl-click to add or remove one, then drag any selected record to move the group.</p>
-        <RelationshipGraphCanvas @ref="_graphCanvas"
-                                 Graph="_graph"
-                                 NodePositions="_nodePositions"
-                                 Viewport="_viewport"
-                                 OnNodeSelected="SelectNode"
-                                 OnGraphChanged="MarkGraphDirty"
-                                 CenterRecordId="_centreRecordId"
-                                 CenterRequest="_centreRequest" />
-        <label class="graph-record-picker">
-            Centre a displayed record
-            <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Centre a displayed record" OnSelected="SelectNodeFromListAsync" />
-        </label>
-    }
+    @* The fullscreen element, and the reason it is a wrapper rather than the canvas itself: it has
+       to carry the controls that act on the graph and the record centring combobox as well. That
+       combobox is the graph's only non-visual alternative, so fullscreening the canvas alone would
+       take it off the screen exactly when the graph fills it. *@
+    <div class="graph-stage" @ref="_stage">
+        @if (_graph.Nodes.Count == 0)
+        {
+            <p class="empty-state">@EmptyMessage()</p>
+        }
+        else
+        {
+            <div class="graph-stage-tools">
+                @if (_fullscreenAvailable)
+                {
+                    <button class="button graph-fullscreen"
+                            type="button"
+                            aria-pressed="@(_fullscreen ? "true" : "false")"
+                            @onclick="ToggleFullscreenAsync">@(_fullscreen ? "Exit fullscreen" : "Fullscreen")</button>
+                }
+                <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
+            </div>
+            @if (_fullscreenMessage is not null)
+            {
+                <p class="notice" role="status">@_fullscreenMessage</p>
+            }
+            <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images. Shift-drag an empty area to select several records, Ctrl-click to add or remove one, then drag any selected record to move the group.</p>
+            <RelationshipGraphCanvas @ref="_graphCanvas"
+                                     Graph="_graph"
+                                     NodePositions="_nodePositions"
+                                     Viewport="_viewport"
+                                     OnNodeSelected="SelectNode"
+                                     OnGraphChanged="MarkGraphDirty"
+                                     CenterRecordId="_centreRecordId"
+                                     CenterRequest="_centreRequest" />
+            <label class="graph-record-picker">
+                Centre a displayed record
+                <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Centre a displayed record" OnSelected="SelectNodeFromListAsync" />
+            </label>
+        }
+    </div>
 </section>
 
 @if (_selected is not null)
@@ -311,6 +327,11 @@
     private bool _saveError;
     private bool _confirmDeleteGraphView;
     private RelationshipGraphCanvas? _graphCanvas;
+    private ElementReference _stage;
+    private DotNetObjectReference<RelationshipGraph>? _selfReference;
+    private bool _fullscreen;
+    private bool _fullscreenAvailable;
+    private string? _fullscreenMessage;
     private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
     private GraphViewViewport? _viewport;
     private bool _warnUnsavedChanges = true;
@@ -365,6 +386,16 @@
         if (firstRender)
         {
             _preferencesModule = await JS.InvokeAsync<IJSObjectReference>("import", "./graph-preferences.js");
+            // The stage is rendered whether or not the view has any nodes, so registering
+            // once here stays valid for the life of the page: a filter that empties the
+            // graph does not take the fullscreen element away with it.
+            _selfReference = DotNetObjectReference.Create(this);
+            _fullscreenAvailable = await _preferencesModule.InvokeAsync<bool>("initFullscreen", _stage, _selfReference);
+            if (_fullscreenAvailable)
+            {
+                StateHasChanged();
+            }
+
             if (_editingGraphViewId.HasValue)
             {
                 await SaveRecordTypePreferencesAsync();
@@ -813,6 +844,34 @@
         }
     }
 
+    private async Task ToggleFullscreenAsync()
+    {
+        if (_preferencesModule is null)
+        {
+            return;
+        }
+
+        // Nothing here sets _fullscreen. The browser reports what actually happened through
+        // FullscreenChanged, so a refused request leaves the control saying what is true rather
+        // than what was asked for.
+        _fullscreenMessage = await _preferencesModule.InvokeAsync<bool>("toggleFullscreen")
+            ? null
+            : "This browser would not allow the graph to fill the screen.";
+    }
+
+    /// <summary>
+    /// Called for every fullscreen transition, including the ones this page did not start:
+    /// Escape, the browser's own control, or another element taking fullscreen away.
+    /// </summary>
+    [JSInvokable]
+    public Task FullscreenChanged(bool active)
+    {
+        _fullscreen = active;
+        _fullscreenMessage = null;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     private Task MarkGraphDirty()
     {
         _isDirty = true;
@@ -880,11 +939,14 @@
             try
             {
                 await _preferencesModule.InvokeVoidAsync("clearUnsavedChanges");
+                await _preferencesModule.InvokeVoidAsync("disposeFullscreen");
                 await _preferencesModule.DisposeAsync();
             }
             catch (JSDisconnectedException)
             {
             }
         }
+
+        _selfReference?.Dispose();
     }
 }
