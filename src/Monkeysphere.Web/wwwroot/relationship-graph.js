@@ -442,9 +442,23 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
             return;
         }
 
-        cy.nodes().unselect();
-        event.target.select();
-        const recordId = event.target.data('recordId');
+        const node = event.target;
+        // Selecting here does not survive: cytoscape finishes its own tap bookkeeping after user
+        // handlers have run and clears the selection on its way through, so a plain click used to
+        // leave the node unhighlighted while a modified one, which returns above and lets
+        // cytoscape do the selecting, did highlight. Doing it on the next frame is what makes the
+        // two agree.
+        requestAnimationFrame(() => {
+            if (node.removed()) {
+                return;
+            }
+
+            cy.nodes().unselect();
+            node.select();
+            updateSelectionSummary(cy, selectionSummary);
+        });
+
+        const recordId = node.data('recordId');
         if (recordId) {
             callback.invokeMethodAsync('NodeSelected', recordId);
         }

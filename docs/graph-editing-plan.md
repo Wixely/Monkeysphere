@@ -102,6 +102,12 @@ Entering fullscreen refits the graph, because a layout framed for a panel leaves
 
 Verified in Chromium against a published build: the button appears, the fullscreen element is the stage, the label and `aria-pressed` follow the browser's own state, the graph refits to the screen, exiting restores the previous framing exactly, and the combobox measures 1×1 while fullscreen and 448×91 once focused. `GraphFullscreenTests` pins the containment requirement server-side; the button itself cannot be asserted there, because it is rendered only once interop has reported support and so is absent from prerendered HTML.
 
+**Revised 2026-09-22 after use.** The controls became single icon buttons, because two labelled buttons over the canvas covered more graph than they were worth; the label each would have shown lives in `title` and `aria-label`, and the fullscreen control keeps one glyph in both states so it does not jump under the pointer.
+
+Fullscreen also changes what a click does. It no longer opens the image gallery, which is a page-level overlay the fullscreen element does not contain: opening it showed nothing at the time and then presented a modal the moment the operator left fullscreen. A click now selects the record and stops there, and the canvas description stops promising images, since `aria-describedby` is read whether or not the paragraph is on screen.
+
+Making that selection visible turned up a bug older than any of this work. The tap handler selected the node itself, but cytoscape finishes its own tap bookkeeping after user handlers have run and clears the selection on the way through, so a plain click never highlighted anything while a modified click, which returns early and lets cytoscape do the selecting, always did. Selecting on the next animation frame is what makes the two agree. It was invisible before only because the gallery opening was the feedback; fullscreen removed the gallery and left nothing.
+
 One gap remains: the node/edge truncation notice sits above the panel rather than inside the stage, so it is not visible in fullscreen. Moving it in is a small follow-up, and matters more once M4 can create records against that boundary.
 
 ### M2 — Tag editing from a record node

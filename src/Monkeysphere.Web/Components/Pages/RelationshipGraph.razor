@@ -135,7 +135,7 @@
             {
                 <p class="notice" role="status">@_fullscreenMessage</p>
             }
-            <p class="muted graph-stage-aside" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images. Shift-drag an empty area to select several records, Ctrl-click to add or remove one, then drag any selected record to move the group.</p>
+            <p class="muted graph-stage-aside" id="relationship-graph-description">@GraphDescription</p>
             @* The frame exists to give the controls the canvas to sit over. Positioning them against
                the stage instead would land them on the description above the graph, and a row of
                their own would cost layout height and be the "top menu" fullscreen is meant to be
@@ -144,12 +144,18 @@
                 <div class="graph-stage-tools">
                     @if (_fullscreenAvailable)
                     {
-                        <button class="button graph-fullscreen"
+                        <button class="graph-tool-button graph-fullscreen"
                                 type="button"
                                 aria-pressed="@(_fullscreen ? "true" : "false")"
-                                @onclick="ToggleFullscreenAsync">@(_fullscreen ? "Exit fullscreen" : "Fullscreen")</button>
+                                aria-label="@FullscreenLabel"
+                                title="@FullscreenLabel"
+                                @onclick="ToggleFullscreenAsync"><span aria-hidden="true">&#x26F6;</span></button>
                     }
-                    <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
+                    <button class="graph-tool-button graph-reset-viewport"
+                            type="button"
+                            aria-label="Reset viewport"
+                            title="Reset viewport"
+                            @onclick="ResetViewportAsync"><span aria-hidden="true">&#x2316;</span></button>
                 </div>
                 <RelationshipGraphCanvas @ref="_graphCanvas"
                                          Graph="_graph"
@@ -353,6 +359,20 @@
 
     private IReadOnlyList<ComboboxOption<string>> GraphNodeOptions =>
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
+
+    private string FullscreenLabel => _fullscreen ? "Exit fullscreen" : "Fullscreen";
+
+    /// <summary>
+    /// The canvas names this through aria-describedby, which is read whether or not the paragraph
+    /// is on screen, so it has to stop promising images once fullscreen has stopped offering them.
+    /// </summary>
+    private string GraphDescription =>
+        "Lines show relationships between displayed records. " +
+        (_fullscreen
+            ? "Select a node to highlight it; its images stay in the panel view. "
+            : "Select a node to view its images. ") +
+        "Shift-drag an empty area to select several records, Ctrl-click to add or remove one, " +
+        "then drag any selected record to move the group.";
 
     private string CurrentGraphViewValue => _editingGraphViewId?.ToString("D") ?? string.Empty;
 
@@ -629,6 +649,15 @@
         _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
         if (_selected is null)
         {
+            return;
+        }
+
+        if (_fullscreen)
+        {
+            // Fullscreen shows the graph and nothing else, and the gallery is a page-level overlay
+            // the fullscreen element does not contain. Opening it would display nothing now and
+            // then ambush the operator with a modal the moment they left. Selecting the record is
+            // the whole of the response here, and the canvas shows that itself.
             return;
         }
 

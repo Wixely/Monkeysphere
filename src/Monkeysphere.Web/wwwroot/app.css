@@ -1713,6 +1713,41 @@ input[type="checkbox"] {
     justify-content: flex-end;
 }
 
+/* Small and square, because these sit on top of the graph and every pixel they take is graph the
+   operator cannot see. The label they would have shown lives in title and aria-label instead. */
+.graph-tool-button {
+    display: grid;
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: .55rem;
+    background: var(--panel);
+    box-shadow: var(--shadow-small);
+    color: var(--ink);
+    cursor: pointer;
+    font-family: "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.graph-tool-button:hover {
+    border-color: var(--accent-bright);
+}
+
+.graph-tool-button:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
+}
+
+/* The fullscreen control keeps one glyph in both states so it does not jump under the pointer.
+   Which state it is in is carried by aria-pressed, the tooltip, and this. */
+.graph-tool-button[aria-pressed="true"] {
+    border-color: var(--accent-bright);
+    background: var(--accent-bright);
+}
+
 /* Fullscreen is the graph and nothing else: no page chrome, no description, no combobox, and the
    canvas edge-to-edge without the border and rounding that only make sense inside a panel. */
 .graph-stage:fullscreen {
