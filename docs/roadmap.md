@@ -494,6 +494,7 @@ Status: Complete and merged to `main`.
 - Existing nodes retain their saved or current coordinates when filters refresh or new matching records appear.
 - Initial layout, newly introduced nodes, and drag completion enforce deterministic minimum spacing so nodes do not overlap.
 - Later consideration: user-configurable spacing and an explicit automatic relayout action. Owner: TBD; review date: 2026-10-01.
+- Later consideration: making the graph an editing surface rather than only an exploratory one. The [graph editing plan](graph-editing-plan.md) scopes fullscreen, tag editing and bulk tagging, record creation from the canvas, and relationship editing into milestones with acceptance criteria, and records the decisions still to settle. Owner: TBD; review date: 2026-10-05.
 
 MCP disposition for saved views and graph queries: **Deferred** to MCP milestone M5.
 
