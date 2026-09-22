@@ -68,9 +68,15 @@ public static class AuthenticationEndpoints
             new ClaimsPrincipal(identity),
             new AuthenticationProperties
             {
-                IsPersistent = false,
+                // Persistent, and deliberately without an ExpiresUtc of its own. Both matter for a
+                // session to last as long as SessionLifetime says it should. An ExpiresUtc set here
+                // replaces the handler's configured ExpireTimeSpan outright, and sliding expiration
+                // then goes on renewing that same window rather than the configured one, so a
+                // lifetime chosen at sign-in silently overrides the configuration for good. A
+                // non-persistent cookie would end the session when the browser closes, which an
+                // idle timeout measured in days cannot survive either.
+                IsPersistent = true,
                 IssuedUtc = now,
-                ExpiresUtc = now.AddMinutes(30),
                 AllowRefresh = true,
             }).ConfigureAwait(false);
         context.Response.Redirect(returnUrl);
