@@ -120,10 +120,10 @@
         </div>
     </div>
 
-    @* The fullscreen element, and the reason it is a wrapper rather than the canvas itself: it has
-       to carry the controls that act on the graph and the record centring combobox as well. That
-       combobox is the graph's only non-visual alternative, so fullscreening the canvas alone would
-       take it off the screen exactly when the graph fills it. *@
+    @* The fullscreen element. It is a wrapper rather than the canvas itself because the record
+       centring combobox is the graph's only non-visual alternative and has to stay in the element
+       that goes fullscreen. Fullscreen shows the graph and nothing else, so the controls sit over
+       the canvas and the combobox is taken out of sight while staying focusable. *@
     <div class="graph-stage" @ref="_stage">
         @if (_graph.Nodes.Count == 0)
         {
@@ -131,30 +131,36 @@
         }
         else
         {
-            <div class="graph-stage-tools">
-                @if (_fullscreenAvailable)
-                {
-                    <button class="button graph-fullscreen"
-                            type="button"
-                            aria-pressed="@(_fullscreen ? "true" : "false")"
-                            @onclick="ToggleFullscreenAsync">@(_fullscreen ? "Exit fullscreen" : "Fullscreen")</button>
-                }
-                <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
-            </div>
             @if (_fullscreenMessage is not null)
             {
                 <p class="notice" role="status">@_fullscreenMessage</p>
             }
-            <p class="muted" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images. Shift-drag an empty area to select several records, Ctrl-click to add or remove one, then drag any selected record to move the group.</p>
-            <RelationshipGraphCanvas @ref="_graphCanvas"
-                                     Graph="_graph"
-                                     NodePositions="_nodePositions"
-                                     Viewport="_viewport"
-                                     OnNodeSelected="SelectNode"
-                                     OnGraphChanged="MarkGraphDirty"
-                                     CenterRecordId="_centreRecordId"
-                                     CenterRequest="_centreRequest" />
-            <label class="graph-record-picker">
+            <p class="muted graph-stage-aside" id="relationship-graph-description">Lines show relationships between displayed records. Select a node to view its images. Shift-drag an empty area to select several records, Ctrl-click to add or remove one, then drag any selected record to move the group.</p>
+            @* The frame exists to give the controls the canvas to sit over. Positioning them against
+               the stage instead would land them on the description above the graph, and a row of
+               their own would cost layout height and be the "top menu" fullscreen is meant to be
+               free of. *@
+            <div class="graph-canvas-frame">
+                <div class="graph-stage-tools">
+                    @if (_fullscreenAvailable)
+                    {
+                        <button class="button graph-fullscreen"
+                                type="button"
+                                aria-pressed="@(_fullscreen ? "true" : "false")"
+                                @onclick="ToggleFullscreenAsync">@(_fullscreen ? "Exit fullscreen" : "Fullscreen")</button>
+                    }
+                    <button class="button graph-reset-viewport" type="button" @onclick="ResetViewportAsync">Reset viewport</button>
+                </div>
+                <RelationshipGraphCanvas @ref="_graphCanvas"
+                                         Graph="_graph"
+                                         NodePositions="_nodePositions"
+                                         Viewport="_viewport"
+                                         OnNodeSelected="SelectNode"
+                                         OnGraphChanged="MarkGraphDirty"
+                                         CenterRecordId="_centreRecordId"
+                                         CenterRequest="_centreRequest" />
+            </div>
+            <label class="graph-record-picker graph-stage-aside">
                 Centre a displayed record
                 <SearchableSelect TValue="string" Value="@(_selected?.RecordId.ToString("D") ?? string.Empty)" Options="GraphNodeOptions" AriaLabel="Centre a displayed record" OnSelected="SelectNodeFromListAsync" />
             </label>
@@ -332,6 +338,8 @@
     private bool _fullscreen;
     private bool _fullscreenAvailable;
     private string? _fullscreenMessage;
+    private GraphViewViewport? _viewportBeforeFullscreen;
+    private bool _adjustedInFullscreen;
     private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
     private GraphViewViewport? _viewport;
     private bool _warnUnsavedChanges = true;
@@ -864,17 +872,40 @@
     /// Escape, the browser's own control, or another element taking fullscreen away.
     /// </summary>
     [JSInvokable]
-    public Task FullscreenChanged(bool active)
+    public async Task FullscreenChanged(bool active)
     {
+        if (active != _fullscreen && _graphCanvas is not null)
+        {
+            if (active)
+            {
+                // A graph framed for a panel leaves most of a screen empty, so fullscreen refits
+                // it. Where the operator had it is remembered rather than thrown away, because
+                // filling the screen is a way of looking at the graph, not a change to it.
+                _viewportBeforeFullscreen = await _graphCanvas.CaptureViewportAsync();
+                _adjustedInFullscreen = false;
+                await _graphCanvas.FitAsync();
+            }
+            else if (!_adjustedInFullscreen)
+            {
+                // Only when they left the framing alone. Having moved the graph themselves, that
+                // is the arrangement they meant to keep.
+                await _graphCanvas.RestoreViewportAsync(_viewportBeforeFullscreen);
+            }
+        }
+
         _fullscreen = active;
         _fullscreenMessage = null;
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private Task MarkGraphDirty()
     {
         _isDirty = true;
+        if (_fullscreen)
+        {
+            _adjustedInFullscreen = true;
+        }
+
         return Task.CompletedTask;
     }
 

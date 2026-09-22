@@ -1687,33 +1687,91 @@ input[type="checkbox"] {
     gap: .4rem;
 }
 
+.graph-stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The canvas's own coordinate system, so the controls land on the graph rather than on the
+   description that sits above it. */
+.graph-canvas-frame {
+    position: relative;
+}
+
+/* Over the canvas rather than above it. Controls in a row of their own would cost layout height
+   everywhere and would be the "top menu" that fullscreen is meant to be free of, so they float in
+   the corner of the graph instead and follow it into fullscreen without taking any space. */
 .graph-stage-tools {
+    position: absolute;
+    z-index: 3;
+    top: .7rem;
+    right: .7rem;
     display: flex;
     flex-wrap: wrap;
     gap: .5rem;
     justify-content: flex-end;
-    margin-bottom: .75rem;
 }
 
-/* Fullscreen takes the stage out of the page, so it has to bring the page's own background and
-   padding with it, and the canvas has to take whatever height is left once the controls, the
-   description and the record centring combobox have had theirs. */
+/* Fullscreen is the graph and nothing else: no page chrome, no description, no combobox, and the
+   canvas edge-to-edge without the border and rounding that only make sense inside a panel. */
 .graph-stage:fullscreen {
-    display: flex;
-    flex-direction: column;
-    padding: 1.25rem;
-    overflow: auto;
+    padding: 0;
     background: var(--body-background);
 }
 
-.graph-stage:fullscreen .relationship-graph-shell {
+.graph-stage:fullscreen .graph-canvas-frame {
     flex: 1;
     min-height: 0;
+}
+
+.graph-stage:fullscreen .relationship-graph-shell {
+    height: 100%;
 }
 
 .graph-stage:fullscreen .relationship-graph {
     height: 100%;
     min-height: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.graph-stage:fullscreen .graph-type-badges {
+    border-radius: 0;
+}
+
+/* Out of sight, deliberately not out of the document. The canvas names this description through
+   aria-describedby, and the combobox is the graph's only non-visual route to every displayed node,
+   so both stay present and the combobox stays focusable. */
+.graph-stage:fullscreen .graph-stage-aside {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Reached by Tab, it comes back as a panel in the corner rather than staying invisible while it
+   holds focus, which would leave a keyboard user typing into something they cannot see. */
+.graph-stage:fullscreen .graph-record-picker:focus-within {
+    z-index: 4;
+    top: auto;
+    right: auto;
+    bottom: .7rem;
+    left: .7rem;
+    width: min(28rem, calc(100% - 1.4rem));
+    height: auto;
+    padding: .75rem;
+    overflow: visible;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: var(--shadow-small);
+    clip-path: none;
+    white-space: normal;
 }
 
 .relationship-graph-shell {

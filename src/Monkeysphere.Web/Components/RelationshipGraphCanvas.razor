@@ -1,4 +1,4 @@
-@implements IAsyncDisposable
+﻿@implements IAsyncDisposable
 @inject IJSRuntime JS
 
 <div class="relationship-graph-shell">
@@ -99,6 +99,24 @@
         _module is null
             ? null
             : await _module.InvokeAsync<GraphViewViewport?>("getViewport", _element);
+
+    /// <summary>Frames every node in whatever space the canvas now has.</summary>
+    public async Task FitAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("fitToElement", _element);
+        }
+    }
+
+    /// <summary>Puts back a viewport captured earlier, once the canvas has its size again.</summary>
+    public async Task RestoreViewportAsync(GraphViewViewport? viewport)
+    {
+        if (_module is not null && viewport is not null)
+        {
+            await _module.InvokeVoidAsync("restoreViewport", _element, viewport);
+        }
+    }
 
     public async Task ResetViewportAsync()
     {

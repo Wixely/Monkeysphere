@@ -569,6 +569,34 @@ export function resetViewport(element) {
     queueBadgePositions(graph.cy, graph.badgeState);
 }
 
+// Both of these wait for layout before measuring. A fullscreen transition resizes the element
+// after its event has already fired, so acting immediately would frame the size the graph had a
+// moment ago rather than the one it now has.
+function afterLayout(element, act) {
+    const graph = graphs.get(element);
+    if (!graph) {
+        return;
+    }
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!graphs.has(element)) {
+            return;
+        }
+
+        graph.cy.resize();
+        act(graph);
+        queueBadgePositions(graph.cy, graph.badgeState);
+    }));
+}
+
+export function fitToElement(element) {
+    afterLayout(element, graph => graph.cy.fit(graph.cy.elements(), 36));
+}
+
+export function restoreViewport(element, viewport) {
+    afterLayout(element, graph => applyViewport(graph.cy, viewport));
+}
+
 export function centerOn(element, recordId) {
     const cy = graphs.get(element)?.cy;
     const node = cy?.getElementById(recordId);
