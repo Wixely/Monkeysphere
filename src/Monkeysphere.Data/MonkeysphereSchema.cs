@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 35,
+        currentVersion: 36,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -864,6 +864,26 @@ public static class MonkeysphereSchema
                 -- on the canvas shifts when this is turned off.
                 ALTER TABLE GraphSettings ADD COLUMN KeepRecordsApart INTEGER NOT NULL DEFAULT 1
                     CHECK (KeepRecordsApart IN (0, 1));
+                """),
+            DnaXMigration.Sql(36, "relationship-expiry", "Let a relationship be over without being deleted", """
+                -- A relationship that has ended is not the same as one that never was: somebody
+                -- worked somewhere until last year, and deleting it would lose that. Two ways of
+                -- saying so, because they answer different questions. Expired is "this is over"
+                -- with no date to give, and ExpiresAtUtc is "it ends then", which becomes true on
+                -- its own once the date passes. Expired wins where both are set, so marking
+                -- something over never waits for a date to catch up.
+                ALTER TABLE Relationships ADD COLUMN Expired INTEGER NOT NULL DEFAULT 0
+                    CHECK (Expired IN (0, 1));
+                ALTER TABLE Relationships ADD COLUMN ExpiresAtUtc TEXT NULL;
+
+                -- Expiry is part of what a relationship is, so changing it is a change to the
+                -- relationship and has to move the revision with it.
+                DROP TRIGGER Relationships_Revision_Update;
+                CREATE TRIGGER Relationships_Revision_Update
+                AFTER UPDATE OF RelationshipTypeId, SourceRecordId, TargetRecordId, Note, Expired, ExpiresAtUtc
+                ON Relationships BEGIN
+                    UPDATE Relationships SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
+                END;
                 """),
         ]);
 }

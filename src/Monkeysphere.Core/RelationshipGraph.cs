@@ -34,7 +34,15 @@ public sealed record RelationshipGraphEdge(
     RelationshipDirectionality Directionality,
     Guid SourceRecordId,
     Guid TargetRecordId,
-    string? Note);
+    string? Note)
+{
+    /// <summary>
+    /// Whether this relationship is over as of the moment the graph was read. Resolved here rather
+    /// than in the browser so that what is drawn faded and what the rest of the application calls
+    /// expired cannot disagree.
+    /// </summary>
+    public bool IsExpired { get; init; }
+}
 
 public sealed record RelationshipGraphResult(
     IReadOnlyList<RelationshipGraphNode> Nodes,

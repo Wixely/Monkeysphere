@@ -1,10 +1,14 @@
+﻿using System.Globalization;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory connections, IBackstageVisibility visibility) : IRelationshipGraphStore
+public sealed class SqliteRelationshipGraphStore(
+    MonkeysphereConnectionFactory connections,
+    IBackstageVisibility visibility,
+    TimeProvider timeProvider) : IRelationshipGraphStore
 {
     private string Visible(string alias) => BackstageFilter.AndVisible(visibility, alias);
 
@@ -103,7 +107,9 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
                        type.Directionality,
                        relationship.SourceRecordId,
                        relationship.TargetRecordId,
-                       relationship.Note
+                       relationship.Note,
+                       relationship.Expired,
+                       relationship.ExpiresAtUtc
                 FROM Relationships relationship
                 INNER JOIN RelationshipTypes type ON type.Id = relationship.RelationshipTypeId
                 WHERE relationship.SourceRecordId IN @NodeIds
@@ -119,6 +125,9 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
             }, cancellationToken: cancellationToken)).ConfigureAwait(false);
             GraphEdgeRow[] allEdges = edgeRows.ToArray();
             edgesTruncated = allEdges.Length > query.EdgeLimit;
+            // Resolved once against one clock, so every edge in a single reading of the graph
+            // agrees about what "now" was.
+            DateTimeOffset now = timeProvider.GetUtcNow();
             edges = allEdges.Take(query.EdgeLimit).Select(row => new RelationshipGraphEdge(
                 Guid.ParseExact(row.RelationshipId, "D"),
                 Guid.ParseExact(row.RelationshipTypeId, "D"),
@@ -126,7 +135,15 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
                 (RelationshipDirectionality)row.Directionality,
                 Guid.ParseExact(row.SourceRecordId, "D"),
                 Guid.ParseExact(row.TargetRecordId, "D"),
-                row.Note)).ToArray();
+                row.Note)
+            {
+                IsExpired = new RelationshipExpiry(
+                    row.Expired == 1,
+                    row.ExpiresAtUtc is null
+                        ? null
+                        : DateTimeOffset.Parse(row.ExpiresAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
+                    .IsExpiredAt(now),
+            }).ToArray();
         }
 
         RelationshipGraphNode[] nodes = includedRows.Select(row => new RelationshipGraphNode(
@@ -164,5 +181,7 @@ public sealed class SqliteRelationshipGraphStore(MonkeysphereConnectionFactory c
         public required string SourceRecordId { get; init; }
         public required string TargetRecordId { get; init; }
         public string? Note { get; init; }
+        public int Expired { get; init; }
+        public string? ExpiresAtUtc { get; init; }
     }
 }

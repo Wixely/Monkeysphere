@@ -338,6 +338,17 @@
                                         }
                                     </select>
                                 </label>
+                                <label class="checkbox-label graph-context-menu-expired">
+                                    <input type="checkbox" @bind="_relateExpired" />
+                                    <span>Already over</span>
+                                </label>
+                                @if (!_relateExpired)
+                                {
+                                    <label class="graph-context-menu-name">
+                                        Ends on (optional)
+                                        <input type="date" value="@_relateExpiresOn" @oninput="RelateExpiresChanged" />
+                                    </label>
+                                }
                                 <button type="button" role="menuitem" class="graph-context-menu-pick"
                                         disabled="@(_relationshipTypeId is null)"
                                         @onclick="StartPicking">Pick a record on the graph</button>
@@ -582,6 +593,8 @@
     private RecordSummary? _relateTarget;
     private bool _selectedAreSource = true;
     private long _relateRevision;
+    private bool _relateExpired;
+    private string _relateExpiresOn = string.Empty;
     private PendingRelate? _pendingRelate;
     private RecordSummary? _pickedTarget;
     private bool _picking;
@@ -594,7 +607,8 @@
         IReadOnlyList<Guid> RecordIds,
         string Description,
         Guid RelationshipTypeId,
-        bool SelectedAreSource);
+        bool SelectedAreSource,
+        RelationshipExpiry? Expiry);
     private RelationshipGraphCanvas.GraphNodePlacement? _placement;
     private Guid? _newRecordTypeId;
     private string _newRecordName = string.Empty;
@@ -754,7 +768,7 @@
             string label = type.Directionality == RelationshipDirectionality.Symmetric || _selectedAreSource
                 ? type.Name
                 : type.InverseName ?? type.Name;
-            return $"{MenuTargetDescription} — {label} — {_relateTarget.DisplayName}";
+            return $"{MenuTargetDescription} — {label} — {_relateTarget.DisplayName}{DescribeExpiry(RelateExpiry)}";
         }
     }
 
@@ -771,9 +785,16 @@
             string label = type is null || type.Directionality == RelationshipDirectionality.Symmetric || _pendingRelate.SelectedAreSource
                 ? type?.Name ?? "related to"
                 : type.InverseName ?? type.Name;
-            return $"{_pendingRelate.Description} — {label} — {_pickedTarget.DisplayName}";
+            return $"{_pendingRelate.Description} — {label} — {_pickedTarget.DisplayName}{DescribeExpiry(_pendingRelate.Expiry)}";
         }
     }
+
+    private static string DescribeExpiry(RelationshipExpiry? expiry) => expiry switch
+    {
+        { Expired: true } => " (already over)",
+        { ExpiresAtUtc: { } ends } => $" (until {ends.ToLocalTime():d})",
+        _ => string.Empty,
+    };
 
     private string PendingConfirmLabel => _pendingRelate is { RecordIds.Count: > 1 } pending
         ? $"Relate {pending.RecordIds.Count} records"
@@ -1380,6 +1401,8 @@
         _relateSuggestions = [];
         _relateTarget = null;
         _selectedAreSource = true;
+        _relateExpired = false;
+        _relateExpiresOn = string.Empty;
 
         _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
         _menuRecordTags = await TagVocabulary.ListForRecordsAsync(MenuTargets);
@@ -1544,6 +1567,30 @@
         return Task.CompletedTask;
     }
 
+    private void RelateExpiresChanged(ChangeEventArgs args) =>
+        _relateExpiresOn = args.Value?.ToString() ?? string.Empty;
+
+    /// <summary>
+    /// What the form is saying about the end of this relationship. "Already over" wins outright,
+    /// which is why the date is not offered alongside it: the two together could only disagree.
+    /// </summary>
+    private RelationshipExpiry? RelateExpiry
+    {
+        get
+        {
+            if (_relateExpired)
+            {
+                return new(Expired: true);
+            }
+
+            return DateOnly.TryParse(_relateExpiresOn, CultureInfo.InvariantCulture, out DateOnly ends)
+                // End of that day rather than its first instant, so a relationship ending today is
+                // still true today.
+                ? new(Expired: false, ends.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc))
+                : null;
+        }
+    }
+
     private void ChooseRelateTarget(RecordSummary record)
     {
         _relateTarget = record;
@@ -1588,7 +1635,7 @@
             return;
         }
 
-        _pendingRelate = new(MenuTargets, MenuTargetDescription, typeId, _selectedAreSource);
+        _pendingRelate = new(MenuTargets, MenuTargetDescription, typeId, _selectedAreSource, RelateExpiry);
         _pickedTarget = null;
         _picking = true;
         _menu = null;
@@ -1621,7 +1668,8 @@
         try
         {
             IReadOnlyList<RecordRelationshipChange> changes = await Relating.ApplyAsync(new(
-                pending.RecordIds, pending.RelationshipTypeId, _pickedTarget.Id, pending.SelectedAreSource));
+                pending.RecordIds, pending.RelationshipTypeId, _pickedTarget.Id, pending.SelectedAreSource,
+                Expiry: pending.Expiry));
             _menuMessage = DescribeRelateResult(changes, _pickedTarget.DisplayName);
             await RememberRecentAsync("relationships", pending.RelationshipTypeId.ToString("D"));
             await ReloadAsync();
@@ -1655,7 +1703,7 @@
         try
         {
             IReadOnlyList<RecordRelationshipChange> changes = await Relating.ApplyAsync(new(
-                targets, typeId, _relateTarget.Id, _selectedAreSource));
+                targets, typeId, _relateTarget.Id, _selectedAreSource, Expiry: RelateExpiry));
             _menuMessage = DescribeRelateResult(changes, _relateTarget.DisplayName);
             await RememberRecentAsync("relationships", typeId.ToString("D"));
             await ReloadAsync();

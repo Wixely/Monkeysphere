@@ -107,8 +107,8 @@ internal sealed class SqliteRecordRelationshipCommandStore(
         Guid id = Guid.CreateVersion7();
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO Relationships
-                (Id, RelationshipTypeId, SourceRecordId, TargetRecordId, Note, CreatedAtUtc, UpdatedAtUtc)
-            VALUES (@Id, @TypeId, @Source, @Target, @Note, @Now, @Now);
+                (Id, RelationshipTypeId, SourceRecordId, TargetRecordId, Note, Expired, ExpiresAtUtc, CreatedAtUtc, UpdatedAtUtc)
+            VALUES (@Id, @TypeId, @Source, @Target, @Note, @Expired, @ExpiresAtUtc, @Now, @Now);
             """, new
         {
             Id = Key(id),
@@ -116,6 +116,8 @@ internal sealed class SqliteRecordRelationshipCommandStore(
             Source = Key(source),
             Target = Key(target),
             request.Note,
+            Expired = request.Expiry?.Expired == true ? 1 : 0,
+            ExpiresAtUtc = request.Expiry?.ExpiresAtUtc is { } ends ? Timestamp(ends) : null,
             Now = Timestamp(now),
         }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 

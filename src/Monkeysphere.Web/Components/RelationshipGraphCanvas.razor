@@ -68,7 +68,7 @@
     protected override void OnParametersSet()
     {
         string revision = string.Join('|', Graph.Nodes.Select(node => $"{node.RecordId}:{node.DisplayName}:{node.RecordTypeName}:{node.Distance}:{node.ImageId}:{node.RecordTypeSymbol}")) + ":" +
-            string.Join('|', Graph.Edges.Select(edge => $"{edge.RelationshipId}:{edge.SourceRecordId}:{edge.TargetRecordId}:{edge.Label}")) + ":" +
+            string.Join('|', Graph.Edges.Select(edge => $"{edge.RelationshipId}:{edge.SourceRecordId}:{edge.TargetRecordId}:{edge.Label}:{edge.IsExpired}")) + ":" +
             string.Join('|', NodePositions.Select(position => $"{position.RecordId}:{position.X}:{position.Y}")) + ":" +
             $"{Viewport?.PanX}:{Viewport?.PanY}:{Viewport?.Zoom}";
         _needsUpdate = !string.Equals(revision, _revision, StringComparison.Ordinal);

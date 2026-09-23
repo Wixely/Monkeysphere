@@ -24,6 +24,25 @@ public sealed record RelationshipType(
     int? PresetVersion = null,
     string Revision = "");
 
+/// <summary>
+/// When a relationship stopped being true. A relationship that has ended is not the same as one
+/// that never happened, so ending it is a change to the relationship rather than a deletion.
+/// </summary>
+/// <param name="Expired">
+/// Said outright, for an ending with no useful date. This wins wherever both are set, so marking
+/// something over never has to wait for a date to catch up with it.
+/// </param>
+/// <param name="ExpiresAtUtc">When it ends, which becomes true on its own once that moment passes.</param>
+public sealed record RelationshipExpiry(bool Expired = false, DateTimeOffset? ExpiresAtUtc = null)
+{
+    public static readonly RelationshipExpiry None = new();
+
+    public bool IsExpiredAt(DateTimeOffset now) => Expired || (ExpiresAtUtc is { } ends && ends <= now);
+
+    /// <summary>True when anything about this relationship's ending has been recorded at all.</summary>
+    public bool IsSet => Expired || ExpiresAtUtc is not null;
+}
+
 public sealed record StoredRelationship(
     Guid Id,
     RelationshipType Type,
@@ -36,6 +55,9 @@ public sealed record StoredRelationship(
     DateTimeOffset UpdatedAtUtc,
     string Revision = "")
 {
+    /// <summary>When this relationship stopped, or stops, being true.</summary>
+    public RelationshipExpiry Expiry { get; init; } = RelationshipExpiry.None;
+
     /// <summary>Each end's cover image and type symbol, so a related record can be shown the way it is everywhere else.</summary>
     public Guid? SourceImageId { get; init; }
 
@@ -57,6 +79,9 @@ public sealed record RelationshipView(
     DateTimeOffset UpdatedAtUtc,
     string Revision = "")
 {
+    /// <summary>When this relationship stopped, or stops, being true.</summary>
+    public RelationshipExpiry Expiry { get; init; } = RelationshipExpiry.None;
+
     /// <summary>The related record's cover image, so a relationship reads as a picture and a name.</summary>
     public Guid? ImageId { get; init; }
 
@@ -77,7 +102,7 @@ public interface IRelationshipStore
     Task RenameTypeAsync(Guid id, string name, string? inverseName, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task RetireTypeAsync(Guid id, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<StoredRelationship> CreateAsync(Guid id, Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
-    Task<StoredRelationship> UpdateAsync(Guid id, Guid typeId, string? note, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<StoredRelationship> UpdateAsync(Guid id, Guid typeId, string? note, RelationshipExpiry expiry, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default);
     Task<PagedResult<StoredRelationship>> QueryForRecordAsync(Guid recordId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
@@ -97,7 +122,7 @@ public interface IRelationshipService
     /// same thing afterwards. <paramref name="perspectiveRecordId"/> only chooses which way round
     /// the returned view reads.
     /// </summary>
-    Task<RelationshipView> UpdateAsync(Guid id, Guid typeId, string? note, Guid perspectiveRecordId, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<RelationshipView> UpdateAsync(Guid id, Guid typeId, string? note, Guid perspectiveRecordId, string? expectedRevision = null, RelationshipExpiry? expiry = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RelationshipView>> ListForRecordAsync(Guid recordId, int limit = 100, CancellationToken cancellationToken = default);
     Task<PagedResult<RelationshipView>> QueryForRecordAsync(Guid recordId, int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
@@ -151,11 +176,12 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
         string? note,
         Guid perspectiveRecordId,
         string? expectedRevision = null,
+        RelationshipExpiry? expiry = null,
         CancellationToken cancellationToken = default)
     {
         string? normalizedNote = NormalizeNote(note);
         StoredRelationship updated = await store.UpdateAsync(
-            id, typeId, normalizedNote, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
+            id, typeId, normalizedNote, expiry ?? RelationshipExpiry.None, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
         // The caller may be looking from either end, or from neither when the change came from
         // somewhere with no record in hand; mapping from the stored source is then the honest default.
         return Map(updated, perspectiveRecordId == updated.TargetRecordId ? updated.TargetRecordId : updated.SourceRecordId);
@@ -252,7 +278,8 @@ public sealed record BulkRelationshipRequest(
     Guid RelationshipTypeId,
     Guid OtherRecordId,
     bool SelectedAreSource = true,
-    string? Note = null);
+    string? Note = null,
+    RelationshipExpiry? Expiry = null);
 
 public interface IRecordRelationshipCommandStore
 {

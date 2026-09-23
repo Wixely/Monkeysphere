@@ -119,6 +119,52 @@ public sealed class GraphBoundsAndRelationshipEditTests
     }
 
     [Fact]
+    public async Task AnEndedRelationshipStaysOnTheGraphAndSaysThatItIsOver()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+        IRecordRelationshipCommandService relating = application.Services.GetRequiredService<IRecordRelationshipCommandService>();
+        IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Former person");
+        RelationshipType worksAt = await relationships.CreateTypeAsync(new(
+            "works at", RelationshipDirectionality.Directional, "employs"));
+        RecordDetails ada = await records.CreateRecordAsync(type.Id, "Ada", []);
+        RecordDetails past = await records.CreateRecordAsync(type.Id, "Old Job", []);
+        RecordDetails future = await records.CreateRecordAsync(type.Id, "Next Job", []);
+        RecordDetails current = await records.CreateRecordAsync(type.Id, "This Job", []);
+
+        _ = await relating.ApplyAsync(new([ada.Record.Id], worksAt.Id, past.Record.Id,
+            Expiry: new(ExpiresAtUtc: DateTimeOffset.UtcNow.AddDays(-1))));
+        _ = await relating.ApplyAsync(new([ada.Record.Id], worksAt.Id, future.Record.Id,
+            Expiry: new(ExpiresAtUtc: DateTimeOffset.UtcNow.AddDays(30))));
+        _ = await relating.ApplyAsync(new([ada.Record.Id], worksAt.Id, current.Record.Id));
+
+        // Still drawn, all three: an ended relationship is a fact about these records, and hiding
+        // it would lose that Ada worked there at all.
+        RelationshipGraphResult result = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id));
+        Assert.Equal(3, result.Edges.Count);
+
+        Guid ExpiredFor(Guid otherId) => result.Edges
+            .Single(edge => edge.SourceRecordId == otherId || edge.TargetRecordId == otherId).RelationshipId;
+
+        Assert.True(result.Edges.Single(edge => edge.RelationshipId == ExpiredFor(past.Record.Id)).IsExpired);
+        Assert.False(result.Edges.Single(edge => edge.RelationshipId == ExpiredFor(future.Record.Id)).IsExpired);
+        Assert.False(result.Edges.Single(edge => edge.RelationshipId == ExpiredFor(current.Record.Id)).IsExpired);
+
+        // And the flag ends one outright, whatever its date says.
+        RelationshipView stillRunning = (await relationships.ListForRecordAsync(ada.Record.Id))
+            .Single(view => view.RelatedRecordId == future.Record.Id);
+        _ = await relationships.UpdateAsync(stillRunning.Id, worksAt.Id, null, ada.Record.Id, stillRunning.Revision,
+            new RelationshipExpiry(Expired: true, ExpiresAtUtc: DateTimeOffset.UtcNow.AddDays(30)));
+
+        RelationshipGraphResult after = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id));
+        Assert.True(after.Edges.Single(edge =>
+            edge.SourceRecordId == future.Record.Id || edge.TargetRecordId == future.Record.Id).IsExpired);
+    }
+
+    [Fact]
     public async Task AnEditAgainstAStaleRevisionIsRefusedRatherThanOverwriting()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

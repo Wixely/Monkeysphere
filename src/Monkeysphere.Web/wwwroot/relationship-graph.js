@@ -85,6 +85,17 @@ function graphStyles() {
         {
             selector: 'edge[?directional]',
             style: { 'target-arrow-shape': 'triangle' }
+        },
+        {
+            // A relationship that is over is still a fact about these records, so it is faded
+            // rather than hidden: the connection was real and the graph should still say so.
+            selector: 'edge[?expired]',
+            style: {
+                'opacity': 0.38,
+                'line-style': 'dashed',
+                'color': edge,
+                'text-background-opacity': 0.6
+            }
         }
     ];
 }
@@ -124,7 +135,10 @@ function elements(graph, positions) {
                 source: edge.sourceRecordId,
                 target: edge.targetRecordId,
                 label: edge.label,
-                directional: edge.directionality === 0
+                directional: edge.directionality === 0,
+                // Decided on the server against one clock, so what is drawn faded and what the
+                // rest of the application calls expired cannot drift apart.
+                expired: edge.isExpired === true
             }
         }))
     ];

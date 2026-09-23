@@ -182,6 +182,10 @@ Three things it has to get right. A directional type reads differently from each
 
 The other end can be pointed at rather than typed. "Pick a record on the graph" closes the menu, marks the canvas as a target, and takes the next record clicked as the other end; a confirmation then states the assignment in full before anything is written. Two things make that safe: the records being related are captured when picking starts, so the click that names the other end cannot also change what the assignment is about, and the click is swallowed rather than being treated as an ordinary selection, so the image gallery does not open over the confirmation. Both the banner and the confirmation render inside the canvas frame, so picking still works while the graph is fullscreen.
 
+**Relationships can end without being deleted, from 2026-09-23.** A relationship that is over is not one that never happened — somebody worked somewhere until last year, and deleting it would lose that. Migration 36 records it two ways, because they answer different questions: a flag for "this is over" with no useful date, and a date that becomes true on its own once it passes. The flag wins where both are set, so marking something over never waits for a date to catch up, and cannot be undone by one set months ahead.
+
+Expiry is resolved on the server against one clock, so every edge in a single reading of the graph agrees about what "now" was and what is drawn faded cannot drift from what the rest of the application calls expired. Ended relationships are faded and dashed rather than hidden: the connection was real and the graph should still say so. Changing expiry moves the relationship's revision, since it is a change to the relationship.
+
 `BackstageLeakTests` gains it as its twenty-first surface, and its second write surface: relating a hidden record to a visible one would both confirm the hidden record exists and make it reachable from one the caller can see.
 
 ### M5 — Relationship editing

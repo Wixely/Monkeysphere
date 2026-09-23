@@ -175,6 +175,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         Guid id,
         Guid typeId,
         string? note,
+        RelationshipExpiry expiry,
         DateTimeOffset now,
         string? expectedRevision = null,
         CancellationToken cancellationToken = default)
@@ -221,6 +222,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                     SourceRecordId = @SourceId,
                     TargetRecordId = @TargetId,
                     Note = @Note,
+                    Expired = @Expired,
+                    ExpiresAtUtc = @ExpiresAtUtc,
                     UpdatedAtUtc = @Now
                 WHERE Id = @Id;
                 """, new
@@ -230,6 +233,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                 SourceId = Key(source),
                 TargetId = Key(target),
                 Note = note,
+                Expired = expiry.Expired ? 1 : 0,
+                ExpiresAtUtc = expiry.ExpiresAtUtc is { } ends ? Timestamp(ends) : null,
                 Now = Timestamp(now),
             }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
@@ -318,7 +323,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                r.TargetRecordId, target.DisplayName AS TargetDisplayName,
                targetType.Symbol AS TargetRecordTypeSymbol,
                (SELECT image.Id FROM RecordImages image WHERE image.RecordId = target.Id ORDER BY image.IsCover DESC, image.Ordinal, image.Id LIMIT 1) AS TargetImageId,
-               r.Note, r.CreatedAtUtc, r.UpdatedAtUtc, r.Revision
+               r.Note, r.Expired, r.ExpiresAtUtc, r.CreatedAtUtc, r.UpdatedAtUtc, r.Revision
         FROM Relationships r
         JOIN RelationshipTypes rt ON rt.Id = r.RelationshipTypeId
         JOIN Records source ON source.Id = r.SourceRecordId{sourceVisible}
@@ -341,6 +346,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         Guid.Parse(row.TargetRecordId), row.TargetDisplayName,
         row.Note, ParseTimestamp(row.CreatedAtUtc), ParseTimestamp(row.UpdatedAtUtc), row.Revision)
     {
+        Expiry = new(row.Expired == 1, row.ExpiresAtUtc is null ? null : ParseTimestamp(row.ExpiresAtUtc)),
         SourceImageId = row.SourceImageId is null ? null : Guid.Parse(row.SourceImageId),
         SourceRecordTypeSymbol = row.SourceRecordTypeSymbol,
         TargetImageId = row.TargetImageId is null ? null : Guid.Parse(row.TargetImageId),
@@ -397,6 +403,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         public string? TargetRecordTypeSymbol { get; init; }
         public string? TargetImageId { get; init; }
         public string? Note { get; init; }
+        public int Expired { get; init; }
+        public string? ExpiresAtUtc { get; init; }
         public required string CreatedAtUtc { get; init; }
         public required string UpdatedAtUtc { get; init; }
     }
