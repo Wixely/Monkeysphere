@@ -1,6 +1,6 @@
 # Graph editing surface implementation plan
 
-- Status: M1 delivered 2026-09-22; D3 and D6 settled and their groundwork delivered 2026-09-23; M0 tagging work and M2-M5 remain
+- Status: M0 and M1 delivered; D1, D2, D3, D5 and D6 settled; M2-M5 remain, and D4 and D7 with them
 - Created and last reviewed: 2026-09-22
 - Plan owner: TBD
 - Next review: 2026-10-05
@@ -54,9 +54,13 @@ Three things the plan needs do not exist yet, and each is a deliberate decision 
 
 Each has a recommendation; none should be implemented before it is agreed, because all four UI milestones depend on them.
 
-**D1 — Add a bounded tag-only mutation.** Recommend a new Core operation that adds and removes a set of tags across an explicit list of record IDs, transactionally per record, with a revision check per record and a per-record outcome (applied, stale, not found, or type has tags disabled). Bound the selection at 100 records to match the existing `MaximumSelectedRecords`. This keeps bulk tagging off the full-record update path and gives the UI something honest to report when one record in a selection has moved underneath it.
+**D1 — Add a bounded tag-only mutation. Settled and delivered 2026-09-23.** `IRecordTagCommandService.ApplyAsync` adds and removes tags across an explicit set of records and touches nothing else, bounded at 100 records, each its own transaction with its own revision check and its own reported outcome. An edit that cannot mean one thing — no records, no tags, the same tag both added and removed, one record named twice — is refused before anything is written.
 
-**D2 — Read tags on demand rather than widening the graph payload.** Recommend *not* adding `Tags` and `Revision` to `RelationshipGraphNode`: at 500 nodes that inflates every graph query for data only needed when a menu opens. Instead read the selected records' tags and revisions when the tag editor is opened, bounded by the same 100-record cap. Revisit only if the extra round trip is measurably worse in use.
+Original recommendation:  Recommend a new Core operation that adds and removes a set of tags across an explicit list of record IDs, transactionally per record, with a revision check per record and a per-record outcome (applied, stale, not found, or type has tags disabled). Bound the selection at 100 records to match the existing `MaximumSelectedRecords`. This keeps bulk tagging off the full-record update path and gives the UI something honest to report when one record in a selection has moved underneath it.
+
+**D2 — Read tags on demand rather than widening the graph payload. Settled 2026-09-23.** `RelationshipGraphNode` is unchanged, so a graph query costs no more than it did. M2 reads the selected records when the tag editor opens.
+
+Original recommendation:  Recommend *not* adding `Tags` and `Revision` to `RelationshipGraphNode`: at 500 nodes that inflates every graph query for data only needed when a menu opens. Instead read the selected records' tags and revisions when the tag editor is opened, bounded by the same 100-record cap. Revisit only if the extra round trip is measurably worse in use.
 
 **D3 — Decide the relationship editing verb set. Settled 2026-09-23: a proper edit, delivered.** `IRelationshipService.UpdateAsync` changes an existing relationship's type and note in place, with a revision check, so the relationship keeps its identity and anything already holding its ID still refers to the same thing. Moving a relationship onto a symmetric type re-applies the stored end ordering, which is the one case where an edit touches the ends. No UI yet; M5 is where it surfaces.
 
@@ -85,6 +89,14 @@ Dependencies: none.
 - Extend `BackstageLeakTests` coverage to the new write surfaces before they have callers.
 
 Exit criteria: the new Core operations exist with unit and store tests, including revision-conflict and per-record-outcome cases; an ordinary reader cannot tag, relate to, or otherwise touch a hidden record through any new operation, and a backstage reader can; no UI references them yet.
+
+**Delivered 2026-09-23.** The relationship edit landed with D3; the tag command landed with D1. Both are Core contracts with SQLite stores and no caller in the UI yet.
+
+`BackstageLeakTests` gained the tag edit as its twentieth surface, and it is the first *write* surface in that list. The point it makes is worth stating: an ordinary caller asking to tag a hidden record by id must be told exactly what they would be told about an id that does not exist, because any other answer confirms the record is there — and applying the tag would also be a write to something they cannot see. The test asserts an ordinary reader gets `NotFound` and a backstage reader does not, so the surface is proved in both directions rather than passing because the fixture never reached it.
+
+Two details of the tag command are deliberate and easy to get wrong later. A record that already carries the tag is reported `Unchanged` and its revision is left alone, because calling that an edit would invalidate a revision the operator is still holding for records that genuinely did not change. And the existing tag order is preserved with additions appended, so an edit does not show up as a change on every record it touched.
+
+D4 and D7 remain open. Both only affect M4, and neither blocks M2 or M3.
 
 ### M1 — Fullscreen graph
 
@@ -175,4 +187,5 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] D5 settled and delivered as M1.
 - [x] D3 settled and delivered: relationships can be edited in place.
 - [x] D6 settled and delivered: the rendering boundary is configurable from graph settings.
-- [ ] Settle D1, D2, D4 and D7 and record the decisions here, then implement the M0 tagging groundwork. Owner: TBD; review by 2026-10-05.
+- [x] D1 and D2 settled, and the M0 tagging groundwork delivered.
+- [ ] Settle D4 and D7 when M4 is next, then build M2 on the tag command. Owner: TBD; review by 2026-10-05.

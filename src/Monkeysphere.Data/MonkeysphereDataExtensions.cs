@@ -1,4 +1,4 @@
-using DnaX.Data.Migrations;
+﻿using DnaX.Data.Migrations;
 using DnaX.Data.Migrations.Sqlite;
 using DnaX.Hosting;
 using Microsoft.Data.Sqlite;
@@ -31,6 +31,8 @@ public static class MonkeysphereDataExtensions
         services.AddSingleton<IBackstageSessionStore>(provider => provider.GetRequiredService<CachedBackstageSessions>());
         services.AddScoped<IBackstageRecordStore, SqliteBackstageRecordStore>();
         services.AddScoped<IRecordTagStore, SqliteRecordTagStore>();
+        services.AddScoped<IRecordTagCommandStore, SqliteRecordTagCommandStore>();
+        services.AddScoped<IRecordTagCommandService, RecordTagCommandService>();
         services.AddScoped<ITagCatalogue, SqliteTagCatalogue>();
         services.AddSingleton<TagCatalogueSync>();
         services.AddSingleton<TagRenameDrainer>();

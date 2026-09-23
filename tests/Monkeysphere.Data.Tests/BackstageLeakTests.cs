@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,6 +39,7 @@ public sealed class BackstageLeakTests
         "vCard duplicate discovery",
         "vCard export",
         "retained source material",
+        "bulk tag edit",
     ];
 
     private sealed record Fixture(
@@ -162,6 +163,14 @@ public sealed class BackstageLeakTests
 
         if (await services.GetRequiredService<IRecordSourceService>().GetAsync(fixture.HiddenId) is not null)
             Seen("retained source material");
+
+        // A write surface is a read surface too. Tagging is asked to change the hidden record by
+        // id, and an ordinary caller must be told only what they would be told about an id that
+        // does not exist: anything else confirms the record is there, and applying the tag would
+        // also let them write to something they cannot see.
+        IReadOnlyList<RecordTagChange> tagged = await services.GetRequiredService<IRecordTagCommandService>()
+            .ApplyAsync(new([new(fixture.HiddenId)], Add: ["leak-probe"]));
+        if (Assert.Single(tagged).Outcome != RecordTagOutcome.NotFound) Seen("bulk tag edit");
 
         return observed;
     }
