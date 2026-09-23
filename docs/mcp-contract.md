@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.22
+- Contract version: 1.23
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-11
 - Owner: Agent
@@ -63,7 +63,7 @@ Accept: application/json, text/event-stream
 | `query_records` | `records.read` | Optional `query`, `recordTypeId`, up to 10 `filters`, `sort`, `page`, `pageSize`, `domainId`. Structured filtering and sorting with strict bounds and snapshot-consistent totals |
 | `search_records` | `records.read` | Optional `query`, `recordTypeId`, `page` (1), `pageSize` (25), `domainId`. Bounded result with total count |
 | `get_record` | `records.read` | Required `id`, optional `domainId`. One record or null, including aliases, values, image metadata and up to 100 relationships |
-| `get_record_relationships` | `records.read` | Required `id`, optional `domainId`. Up to 100 relationships |
+| `get_record_relationships` | `records.read` | Required `id`, optional `domainId`. Up to 100 relationships, each with `expired` and `expiresAtUtc` |
 | `query_domains` | `records.read` | `page` (1), `pageSize` (25). Complete domain catalog in bounded pages |
 | `query_record_types` | `records.read` | `page`, `pageSize`, optional `domainId`. Type summaries with total count; use `get_record_type` for attached fields |
 | `list_field_definitions` | `records.read` | `page`, `pageSize`, optional `domainId`. Reusable field configuration, lifecycle, choices and provenance |
@@ -82,8 +82,20 @@ Accept: application/json, text/event-stream
 | `delete_record` | `records.delete` | Required `domainId`, `id`, `expectedRevision`, UUID `idempotencyKey`; `previewId` required when dependent data exists. Committed receipt and current media-cleanup flag |
 | `get_record_deletion_status` | `records.delete` | Required `domainId`, apply `idempotencyKey`. Original deletion receipt and current `mediaCleanupPending` status |
 | `create_relationship_type` | `structure.write` | Required `domainId`, `name`, `directionality`, UUID `idempotencyKey`; optional `inverseName`. Creates a definition and returns its ID/revision receipt |
-| `create_relationship` | `relationships.write` | Required `domainId`, `typeId`, `sourceRecordId`, `targetRecordId`, `expectedTypeRevision`, `expectedSourceRevision`, `expectedTargetRevision`, UUID `idempotencyKey`; optional `note`. Creates a link and returns its ID/revision receipt |
+| `create_relationship` | `relationships.write` | Required `domainId`, `typeId`, `sourceRecordId`, `targetRecordId`, `expectedTypeRevision`, `expectedSourceRevision`, `expectedTargetRevision`, UUID `idempotencyKey`; optional `note`, `expired`, `expiresAtUtc`. Creates a link and returns its ID/revision receipt |
+| `update_relationship` | `relationships.write` | Required `domainId`, link `id`, `typeId`, `expectedRevision`, `expectedTypeRevision`, UUID `idempotencyKey`; optional `note`, `expired`, `expiresAtUtc`. Changes the link in place, keeping its ID, and returns its ID/revision receipt |
 | `delete_relationship` | `relationships.write` | Required `domainId`, link `id`, `expectedRevision`, UUID `idempotencyKey`. Deletes only the link and returns a receipt |
+| `list_tags` | `records.read` or `tags.manage` | Optional `domainId`. Every tag with `colour`, `icon`, `domainIds` and `revision`, or only those offered in one domain |
+| `count_tag_usage` | `records.read` or `tags.manage` | Required `tagId`. Records carrying it, per observable domain |
+| `create_tag` | `tags.manage` | Required `domainId`, `name`. Resolves an existing name to that tag and adds the domain rather than duplicating it |
+| `set_tag_appearance` | `tags.manage` | Required `tagId`, `colour` (`#rrggbb`), `icon`, `expectedRevision`. Presentation only |
+| `rename_tag` | `tags.manage` | Required `tagId`, `name`, `expectedRevision`. Renames it everywhere; renaming onto an existing name is refused |
+| `set_tag_domains` | `tags.manage` | Required `tagId`, complete `domainIds`, `expectedRevision`. **Destructive**: a dropped domain loses the tag from every record in it |
+| `delete_tag` | `tags.manage` | Required `tagId`, `expectedRevision`. **Destructive**: removed from every record in every domain |
+| `get_record_source` | `contacts.export` | Required `domainId`, `recordId`. Import occasions and every retained line, values summarized with a 256-character preview |
+| `read_record_source_value` | `contacts.export` | Required `domainId`, `recordId`, `ordinal`; optional `offset` (0), `count` (16384). One retained value in bounded ranges with a whole-value digest |
+| `get_graph_settings` | `records.read` or `structure.write` | Optional `domainId`. The domain's graph limits, its layout flags, the bounds a limit must lie within, and the shipped defaults |
+| `set_graph_settings` | `structure.write` | Required `domainId`; optional `warnUnsavedChanges`, `nodeLimit`, `edgeLimit`, `keepRecordsApart`. Omitted values are left as they stand; an out-of-bounds limit is refused |
 | `create_record_type` | `structure.write` | Required `domainId`, `name`, UUID `idempotencyKey`; optional `symbol`. Creates a custom type and returns its ID/revision receipt |
 | `create_and_attach_field` | `structure.write` | Required `domainId`, `recordTypeId`, `expectedRevision`, `name`, `typeId`, UUID `idempotencyKey`; optional `isRequired` (false), `choiceOptions`. Creates and appends a field; receipt contains the created field followed by the updated type |
 | `attach_field` | `structure.write` | Required `domainId`, `recordTypeId`, `fieldDefinitionId`, `expectedRevision`, `expectedFieldRevision`, UUID `idempotencyKey`; optional `isRequired` (false). Reuses an active field; receipt contains the updated type |
@@ -448,6 +460,67 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Relationship editing and graph settings in 1.23
+
+Contract 1.23 has 66 tools, adding three, and no new grant.
+
+### A relationship can end without being deleted
+
+A relationship that is over is not one that never happened. Somebody worked somewhere until last
+year, and deleting that link would lose the fact that they worked there at all. The store has
+recorded an ending two ways since migration 36 — a flag for "this is over" and a date that becomes
+true on its own once it passes, the flag winning where both are set — but nothing on this surface
+could read or write it.
+
+- `get_record_relationships` now returns `expired` and `expiresAtUtc` on each link.
+  `query_record_relationships` already returned them, having always projected the Core view.
+- `create_relationship` accepts both, for a link already known to have ended when it is recorded.
+- `update_relationship` is new: it changes one link's type, note and ending in place.
+
+Both new inputs are optional and default to a link with no ending, so a 1.22 client calling
+`create_relationship` behaves exactly as before, and one reading relationships ignores two fields.
+
+### Why update rather than delete and recreate
+
+Recreating gives a different relationship with a new ID, and anything already holding the old one
+silently loses it. `update_relationship` keeps the ID, which is the whole point of having it.
+
+It deliberately cannot move a link to different records. Relating a different pair is a different
+relationship, and letting one ID come to mean something else would make every reference to it a
+question about when it was read. That change is a `delete_relationship` and a `create_relationship`,
+which is exactly as much ceremony as it deserves.
+
+It requires `expectedRevision` for the link and `expectedTypeRevision` for the type being set, the
+same pairing `create_relationship` already demands. Omitting `note` clears it, because the tool
+writes the whole link rather than patching fields; `patch_record` is the surface where omission
+means "leave alone", and the two should not be confused.
+
+### Graph settings
+
+How much of the graph a domain draws stopped being a constant when the limits became configurable,
+so a caller has no way to know this deployment's numbers without asking. `get_graph_settings`
+returns the current values along with the bounds a limit must lie within and the shipped defaults,
+so a raised limit can be told from the measured one without the caller knowing this build.
+`set_graph_settings` merges: an omitted value is left as it stands, so raising the node limit does
+not reset the other three.
+
+A limit outside the bounds is refused rather than clamped. The value came from somebody who can be
+told, which is the same reason the browser's settings page refuses it; storage clamps instead,
+because a row written by an older build must still leave the graph able to draw something.
+
+Reading takes `records.read` or `structure.write`; writing takes `structure.write`, the grant that
+already covers changing how a domain is set up. No new grant was added, because a credential that
+can reshape a domain's record types is not meaningfully restrained by being kept from its graph
+bounds.
+
+### What stays out
+
+Whether the graph saves a view automatically is a per-browser preference held in that browser's
+own storage, scoped to a domain. There is no server-side state to read or write, so there is
+nothing for a tool to do. Bulk tagging and bulk relationship assignment are browser interactions
+over a canvas selection rather than new capabilities: a remote caller reaches the same ends with
+`patch_record` and `create_relationship` per record, under the grants those already require.
 
 ## Tag management in 1.22
 

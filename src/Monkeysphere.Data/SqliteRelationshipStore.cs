@@ -182,6 +182,33 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         using SqliteTransaction transaction = connection.BeginTransaction();
+        StoredRelationship updated = await UpdateCoreAsync(
+            connection, transaction, id, typeId, note, expiry, now, expectedRevision, null, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return updated;
+    }
+
+    /// <summary>
+    /// The edit itself, without a transaction of its own, so the browser path and the remote
+    /// command path apply exactly the same rules. A second copy of this would be a second set of
+    /// answers about retired types and symmetric ordering.
+    /// </summary>
+    /// <param name="expectedTypeRevision">
+    /// Checked only when supplied. The remote surface requires the caller to show they read the
+    /// type they are naming; the browser is holding it already.
+    /// </param>
+    internal static async Task<StoredRelationship> UpdateCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid id,
+        Guid typeId,
+        string? note,
+        RelationshipExpiry expiry,
+        DateTimeOffset now,
+        string? expectedRevision,
+        string? expectedTypeRevision,
+        CancellationToken cancellationToken)
+    {
         StoredRelationship existing = await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
             ?? throw new RecordCommandNotFoundException("Relationship was not found.");
         if (expectedRevision is not null && expectedRevision != existing.Revision)
@@ -199,6 +226,11 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
         }
 
         RelationshipType type = MapType(typeRow);
+        if (expectedTypeRevision is not null && expectedTypeRevision != type.Revision)
+        {
+            throw new ConcurrencyConflictException("The relationship type changed. Reload it before saving.");
+        }
+
         if (type.Lifecycle != RelationshipLifecycle.Active)
         {
             throw new DomainValidationException("The relationship type is retired.");
@@ -246,10 +278,8 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
 
         // Read back inside the transaction, so the revision the trigger has just written is the
         // one the caller is handed rather than the one they are replacing.
-        StoredRelationship updated = await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
+        return await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Updated relationship could not be read back.");
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return updated;
     }
 
     public async Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default)

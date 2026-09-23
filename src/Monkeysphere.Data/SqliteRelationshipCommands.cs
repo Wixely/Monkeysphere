@@ -23,7 +23,24 @@ public sealed partial class SqliteMonkeysphereStore : IRelationshipCommandStore
             StoredRelationship created = await SqliteRelationshipStore.InsertCoreAsync(connection, transaction, relationship.Id,
                 relationship.TypeId, relationship.SourceRecordId, relationship.TargetRecordId, relationship.Note, now,
                 relationship.TypeRevision, cancellationToken).ConfigureAwait(false);
+            if (relationship.Expiry.IsSet)
+            {
+                // Written as an edit rather than a second INSERT column list, so a relationship
+                // created as already ended goes through exactly the rules that end an existing one.
+                created = await SqliteRelationshipStore.UpdateCoreAsync(connection, transaction, created.Id,
+                    relationship.TypeId, relationship.Note, relationship.Expiry, now, null, null, cancellationToken).ConfigureAwait(false);
+            }
+
             return [new(created.Id, created.Revision, "created")];
+        }, cancellationToken);
+
+    public Task<RecordCommandReceipt> UpdateRelationshipAsync(RecordCommandIdentity identity, PreparedRelationshipEdit edit,
+        DateTimeOffset now, CancellationToken cancellationToken = default) =>
+        ExecuteEntityCommandAsync(identity, "relationships.update", now, async (connection, transaction) =>
+        {
+            StoredRelationship updated = await SqliteRelationshipStore.UpdateCoreAsync(connection, transaction, edit.Id,
+                edit.TypeId, edit.Note, edit.Expiry, now, edit.ExpectedRevision, edit.TypeRevision, cancellationToken).ConfigureAwait(false);
+            return [new(updated.Id, updated.Revision, "updated")];
         }, cancellationToken);
 
     public Task<RecordCommandReceipt> DeleteRelationshipAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,

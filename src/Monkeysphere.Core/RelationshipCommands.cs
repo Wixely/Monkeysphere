@@ -1,13 +1,26 @@
 namespace Monkeysphere.Core;
 
 public sealed record PreparedRelationship(Guid Id, Guid TypeId, Guid SourceRecordId, Guid TargetRecordId, string? Note,
-    string TypeRevision, string SourceRevision, string TargetRevision);
+    string TypeRevision, string SourceRevision, string TargetRevision)
+{
+    /// <summary>When this relationship stops being true, if that is already known when it is made.</summary>
+    public RelationshipExpiry Expiry { get; init; } = RelationshipExpiry.None;
+}
+
+/// <summary>
+/// An edit to a relationship that already exists. Its two ends are not here, deliberately: changing
+/// who is related is a different relationship, and is made by deleting this one and creating that.
+/// </summary>
+public sealed record PreparedRelationshipEdit(Guid Id, Guid TypeId, string? Note, RelationshipExpiry Expiry,
+    string ExpectedRevision, string TypeRevision);
 
 public interface IRelationshipCommandStore
 {
     Task<RecordCommandReceipt> CreateRelationshipTypeAsync(RecordCommandIdentity identity, RelationshipType type,
         DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<RecordCommandReceipt> CreateRelationshipAsync(RecordCommandIdentity identity, PreparedRelationship relationship,
+        DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> UpdateRelationshipAsync(RecordCommandIdentity identity, PreparedRelationshipEdit edit,
         DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<RecordCommandReceipt> DeleteRelationshipAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
         DateTimeOffset now, CancellationToken cancellationToken = default);
@@ -26,7 +39,7 @@ public sealed class RelationshipCommandService(IRelationshipCommandStore command
 
     public Task<RecordCommandReceipt> CreateAsync(RecordCommandIdentity identity, Guid typeId, Guid sourceRecordId, Guid targetRecordId,
         string expectedTypeRevision, string expectedSourceRevision, string expectedTargetRevision, string? note = null,
-        CancellationToken cancellationToken = default)
+        RelationshipExpiry? expiry = null, CancellationToken cancellationToken = default)
     {
         if (typeId == Guid.Empty || sourceRecordId == Guid.Empty || targetRecordId == Guid.Empty || sourceRecordId == targetRecordId)
             throw new DomainValidationException("Supply a relationship type and two distinct records.");
@@ -34,7 +47,27 @@ public sealed class RelationshipCommandService(IRelationshipCommandStore command
         RequireRevision(expectedSourceRevision);
         RequireRevision(expectedTargetRevision);
         return commands.CreateRelationshipAsync(identity, new(Guid.CreateVersion7(), typeId, sourceRecordId, targetRecordId,
-            RelationshipService.NormalizeNote(note), expectedTypeRevision, expectedSourceRevision, expectedTargetRevision),
+            RelationshipService.NormalizeNote(note), expectedTypeRevision, expectedSourceRevision, expectedTargetRevision)
+        {
+            Expiry = expiry ?? RelationshipExpiry.None,
+        }, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Changes a relationship in place: its type, its note, and whether it has ended. Not its two
+    /// ends — relating different records is a different relationship, and pretending otherwise
+    /// would let one ID quietly come to mean something else.
+    /// </summary>
+    public Task<RecordCommandReceipt> UpdateAsync(RecordCommandIdentity identity, Guid id, Guid typeId,
+        string expectedRevision, string expectedTypeRevision, string? note = null, RelationshipExpiry? expiry = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty || typeId == Guid.Empty)
+            throw new DomainValidationException("Supply a relationship ID and a relationship type.");
+        RequireRevision(expectedRevision);
+        RequireRevision(expectedTypeRevision);
+        return commands.UpdateRelationshipAsync(identity, new(id, typeId, RelationshipService.NormalizeNote(note),
+            expiry ?? RelationshipExpiry.None, expectedRevision, expectedTypeRevision),
             timeProvider.GetUtcNow(), cancellationToken);
     }
 

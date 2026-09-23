@@ -21,11 +21,14 @@ public sealed partial class RemoteRecordWriter
 
     public Task<CallToolResult> CreateRelationshipAsync(Guid domainId, Guid typeId, Guid sourceRecordId, Guid targetRecordId,
         string expectedTypeRevision, string expectedSourceRevision, string expectedTargetRevision, string? note,
+        bool expired, DateTimeOffset? expiresAtUtc,
         Guid idempotencyKey, CancellationToken cancellationToken) => RunAsync(domainId, "relationships.create", async () =>
     {
+        // The hash carries the expiry too. Without it, the same call with and without an ending
+        // would replay each other's receipt and the second would silently do nothing.
         string hash = CommandRequestHash.Compute(new
         {
-            contract = 1,
+            contract = 2,
             domainId,
             typeId,
             sourceRecordId,
@@ -34,12 +37,44 @@ public sealed partial class RemoteRecordWriter
             expectedSourceRevision,
             expectedTargetRevision,
             note,
+            expired,
+            expiresAtUtc,
         });
         RecordCommandIdentity identity = identities.Create(domainId, "relationships.write", "relationships.create", idempotencyKey, hash);
         using IDisposable domain = currentDomain.Use(domainId);
         return await relationshipCommands.CreateAsync(identity, typeId, sourceRecordId, targetRecordId, expectedTypeRevision,
-            expectedSourceRevision, expectedTargetRevision, note, cancellationToken).ConfigureAwait(false);
+            expectedSourceRevision, expectedTargetRevision, note, Expiry(expired, expiresAtUtc), cancellationToken).ConfigureAwait(false);
     });
+
+    public Task<CallToolResult> UpdateRelationshipAsync(Guid domainId, Guid id, Guid typeId, string expectedRevision,
+        string expectedTypeRevision, string? note, bool expired, DateTimeOffset? expiresAtUtc,
+        Guid idempotencyKey, CancellationToken cancellationToken) => RunAsync(domainId, "relationships.update", async () =>
+    {
+        string hash = CommandRequestHash.Compute(new
+        {
+            contract = 1,
+            domainId,
+            id,
+            typeId,
+            expectedRevision,
+            expectedTypeRevision,
+            note,
+            expired,
+            expiresAtUtc,
+        });
+        RecordCommandIdentity identity = identities.Create(domainId, "relationships.write", "relationships.update", idempotencyKey, hash);
+        using IDisposable domain = currentDomain.Use(domainId);
+        return await relationshipCommands.UpdateAsync(identity, id, typeId, expectedRevision, expectedTypeRevision, note,
+            Expiry(expired, expiresAtUtc), cancellationToken).ConfigureAwait(false);
+    });
+
+    /// <summary>
+    /// The flag wins where both are given, which is the same rule the browser applies and the same
+    /// one <see cref="RelationshipExpiry.IsExpiredAt"/> resolves: an ending said outright never has
+    /// to wait for a date to catch up with it.
+    /// </summary>
+    private static RelationshipExpiry Expiry(bool expired, DateTimeOffset? expiresAtUtc) =>
+        new(expired, expiresAtUtc?.ToUniversalTime());
 
     public Task<CallToolResult> DeleteRelationshipAsync(Guid domainId, Guid id, string expectedRevision, Guid idempotencyKey,
         CancellationToken cancellationToken) => RunAsync(domainId, "relationships.delete", async () =>
@@ -63,12 +98,23 @@ public sealed class MonkeysphereRelationshipWriteTools
 
     [RemoteToolScopes("relationships.write")]
     [McpServerTool(Name = "create_relationship", ReadOnly = false, Destructive = false)]
-    [Description("Links two distinct records in an explicit domain. Requires relationships.write, idempotencyKey and current revisions of the type and both records. Symmetric links canonicalize endpoints; duplicate links fail. Optional note is at most 2000 characters. Returns an ID/revision receipt; identical retries replay for 24 hours.")]
+    [Description("Links two distinct records in an explicit domain. Requires relationships.write, idempotencyKey and current revisions of the type and both records. Symmetric links canonicalize endpoints; duplicate links fail. Optional note is at most 2000 characters. Optional expired and expiresAtUtc record a link that has already ended or ends on a date; expired wins where both are given. Returns an ID/revision receipt; identical retries replay for 24 hours.")]
     public static Task<CallToolResult> CreateAsync(RemoteRecordWriter writer, Guid domainId, Guid typeId, Guid sourceRecordId, Guid targetRecordId,
         string expectedTypeRevision, string expectedSourceRevision, string expectedTargetRevision, Guid idempotencyKey,
-        string? note = null, CancellationToken cancellationToken = default) =>
+        string? note = null, bool expired = false, DateTimeOffset? expiresAtUtc = null,
+        CancellationToken cancellationToken = default) =>
         writer.CreateRelationshipAsync(domainId, typeId, sourceRecordId, targetRecordId, expectedTypeRevision,
-            expectedSourceRevision, expectedTargetRevision, note, idempotencyKey, cancellationToken);
+            expectedSourceRevision, expectedTargetRevision, note, expired, expiresAtUtc, idempotencyKey, cancellationToken);
+
+    [RemoteToolScopes("relationships.write")]
+    [McpServerTool(Name = "update_relationship", ReadOnly = false, Destructive = false)]
+    [Description("Changes one existing link in place, keeping its ID: its type, its note, and whether it has ended. Requires relationships.write, explicit domainId, expectedRevision from relationship reads, the current revision of the type being set, and idempotencyKey. It cannot move a link to different records — that is a different relationship, made by deleting this one and creating that. Omitting note clears it; expired and expiresAtUtc set the ending, and expired wins where both are given. Returns an ID/revision receipt; identical retries replay for 24 hours.")]
+    public static Task<CallToolResult> UpdateAsync(RemoteRecordWriter writer, Guid domainId, Guid id, Guid typeId,
+        string expectedRevision, string expectedTypeRevision, Guid idempotencyKey,
+        string? note = null, bool expired = false, DateTimeOffset? expiresAtUtc = null,
+        CancellationToken cancellationToken = default) =>
+        writer.UpdateRelationshipAsync(domainId, id, typeId, expectedRevision, expectedTypeRevision, note, expired,
+            expiresAtUtc, idempotencyKey, cancellationToken);
 
     [RemoteToolScopes("relationships.write")]
     [McpServerTool(Name = "delete_relationship", ReadOnly = false, Destructive = true)]

@@ -221,6 +221,153 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM RecordCommandReceipts;"));
     }
 
+    /// <summary>
+    /// A relationship that has ended is not one that never happened, so the surface that records
+    /// them has to be able to say so — both when the ending is already known and, far more often,
+    /// when it is learned afterwards. Until contract 1.23 a remote caller could only create a link
+    /// or destroy it, and could not see that one had ended even after somebody else said so.
+    /// </summary>
+    [Fact]
+    public async Task McpCanEndARelationshipAndChangeItWithoutReplacingIt()
+    {
+        await using RemoteEnabledApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using IServiceScope scope = factory.Services.CreateScope();
+        IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
+        RecordType recordType = await records.CreateRecordTypeAsync("Employed people");
+        RecordDetails ada = await records.CreateRecordAsync(recordType.Id, "Ada", []);
+        RecordDetails acme = await records.CreateRecordAsync(recordType.Id, "Acme", []);
+        RelationshipType worksAt = await relationships.CreateTypeAsync(
+            new("works at", RelationshipDirectionality.Directional, "employs"));
+        RelationshipType consultsFor = await relationships.CreateTypeAsync(
+            new("consults for", RelationshipDirectionality.Directional, "retains"));
+        var (_, credential, surface) = await EnableRelationshipWritesAsync(
+            factory, ["records.read", "relationships.write", "structure.write"]);
+        Guid domainId = MonkeysphereDomains.DefaultId;
+
+        // Created already over, which is how a job somebody left before this record existed arrives.
+        DateTimeOffset ends = new(2025, 6, 30, 23, 59, 0, TimeSpan.Zero);
+        using JsonDocument created = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_relationship",
+            new
+            {
+                domainId,
+                typeId = worksAt.Id,
+                sourceRecordId = ada.Record.Id,
+                targetRecordId = acme.Record.Id,
+                expectedTypeRevision = worksAt.Revision,
+                expectedSourceRevision = ada.Revision,
+                expectedTargetRevision = acme.Revision,
+                expiresAtUtc = ends,
+                idempotencyKey = Guid.CreateVersion7(),
+            });
+        Guid linkId = Structured(created).Deserialize<RecordCommandReceipt>(JsonOptions)!.Items[0].Id;
+
+        RelationshipView stored = Assert.Single(await relationships.ListForRecordAsync(ada.Record.Id));
+        Assert.Equal(ends, stored.Expiry.ExpiresAtUtc);
+        Assert.False(stored.Expiry.Expired);
+
+        // And a reader sees it. Before this the ending existed in the database and on the graph,
+        // and every remote caller was told the relationship simply ran on.
+        using JsonDocument read = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_record_relationships",
+            new { id = ada.Record.Id, domainId });
+        RemoteRelationship reported = Assert.Single(
+            Structured(read).Deserialize<IReadOnlyList<RemoteRelationship>>(JsonOptions)!);
+        Assert.Equal(ends, reported.ExpiresAtUtc);
+        Assert.False(reported.Expired);
+
+        // Changed in place: a different type, a note, and said outright to be over. The ID is what
+        // makes this an edit rather than a replacement, so anything holding it still resolves.
+        var edit = new
+        {
+            domainId,
+            id = linkId,
+            typeId = consultsFor.Id,
+            expectedRevision = stored.Revision,
+            expectedTypeRevision = consultsFor.Revision,
+            note = "Ended when the contract did",
+            expired = true,
+            idempotencyKey = Guid.CreateVersion7(),
+        };
+        using JsonDocument updated = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "update_relationship", edit);
+        RecordMutationOutcome receipt = Structured(updated).Deserialize<RecordCommandReceipt>(JsonOptions)!.Items[0];
+        Assert.Equal(linkId, receipt.Id);
+        Assert.Equal("updated", receipt.Outcome);
+
+        RelationshipView after = Assert.Single(await relationships.ListForRecordAsync(ada.Record.Id));
+        Assert.Equal(linkId, after.Id);
+        Assert.Equal("consults for", after.Label);
+        Assert.Equal("Ended when the contract did", after.Note);
+        Assert.True(after.Expiry.Expired);
+        Assert.NotEqual(stored.Revision, after.Revision);
+
+        // The same call again replays its receipt rather than writing twice.
+        using JsonDocument replay = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "update_relationship", edit);
+        Assert.Equal(Structured(updated).GetRawText(), Structured(replay).GetRawText());
+
+        // The revision it was made against is spent, so the same edit under a new key is refused
+        // rather than overwriting whatever happened in between.
+        using JsonDocument stale = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "update_relationship",
+            edit with { idempotencyKey = Guid.CreateVersion7() });
+        AssertWriteError(stale, "stale_revision");
+
+        // And the type it names has to be one the caller has actually read.
+        using JsonDocument staleType = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "update_relationship",
+            edit with { expectedRevision = after.Revision, expectedTypeRevision = worksAt.Revision, idempotencyKey = Guid.CreateVersion7() });
+        AssertWriteError(staleType, "stale_revision");
+
+        Assert.Equal(2, (await records.SearchRecordsAsync(new())).TotalCount);
+    }
+
+    /// <summary>
+    /// Editing a relationship is a link write, not a structural one, and must not fall out of a
+    /// grant that only reshapes types — nor be reachable from one that cannot write links at all.
+    /// </summary>
+    [Theory]
+    [InlineData("relationships.write", true)]
+    [InlineData("structure.write", false)]
+    [InlineData("records.write", false)]
+    public async Task McpRelationshipEditingNeedsTheLinkWriteGrant(string grant, bool allowed)
+    {
+        await using RemoteEnabledApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using IServiceScope scope = factory.Services.CreateScope();
+        IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = scope.ServiceProvider.GetRequiredService<IRelationshipService>();
+        RecordType recordType = await records.CreateRecordTypeAsync("Guarded people");
+        RecordDetails first = await records.CreateRecordAsync(recordType.Id, "First", []);
+        RecordDetails second = await records.CreateRecordAsync(recordType.Id, "Second", []);
+        RelationshipType type = await relationships.CreateTypeAsync(new("knows", RelationshipDirectionality.Symmetric));
+        RelationshipView link = await relationships.CreateAsync(type.Id, first.Record.Id, second.Record.Id);
+        var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, [grant]);
+
+        using JsonDocument capabilities = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_capabilities");
+        Assert.Equal(allowed, Structured(capabilities).Deserialize<RemoteCapabilities>(JsonOptions)!
+            .Tools.Single(tool => tool.Name == "update_relationship").Allowed);
+
+        using JsonDocument attempted = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "update_relationship",
+            new
+            {
+                domainId = MonkeysphereDomains.DefaultId,
+                id = link.Id,
+                typeId = type.Id,
+                expectedRevision = link.Revision,
+                expectedTypeRevision = type.Revision,
+                expired = true,
+                idempotencyKey = Guid.CreateVersion7(),
+            });
+        if (allowed)
+        {
+            _ = Structured(attempted);
+        }
+        else
+        {
+            AssertWriteError(attempted, "permission_denied");
+        }
+
+        Assert.Equal(allowed, Assert.Single(await relationships.ListForRecordAsync(first.Record.Id)).Expiry.Expired);
+    }
+
     private sealed record RelationshipInput(Guid domainId, Guid typeId, Guid sourceRecordId, Guid targetRecordId,
         string expectedTypeRevision, string expectedSourceRevision, string expectedTargetRevision, string note, Guid idempotencyKey);
 

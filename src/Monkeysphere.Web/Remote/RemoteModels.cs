@@ -67,7 +67,12 @@ public sealed record RemoteRelationship(
     bool IsOutgoing,
     string? Note,
     DateTimeOffset UpdatedAtUtc,
-    string Revision = "");
+    string Revision = "",
+    // Whether this link has ended, said the two ways it can be: outright, or on a date. A caller
+    // deciding whether to act on a relationship needs to know it is over, and without these it
+    // could only find out by editing it.
+    bool Expired = false,
+    DateTimeOffset? ExpiresAtUtc = null);
 
 public sealed record RemoteRecordValue(
     Guid FieldDefinitionId,
@@ -288,7 +293,8 @@ public sealed partial class MonkeysphereRemoteQueries(
                 item.RelatedDisplayName,
                 item.IsOutgoing,
                 item.Note,
-                item.UpdatedAtUtc, item.Revision))
+                item.UpdatedAtUtc, item.Revision,
+                item.Expiry.Expired, item.Expiry.ExpiresAtUtc))
             .ToArray();
 
     private static string? FormatValue(RecordValue value) => value switch
