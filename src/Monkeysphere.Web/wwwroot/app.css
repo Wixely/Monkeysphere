@@ -1877,11 +1877,11 @@ input[type="checkbox"] {
     z-index: 4;
     display: flex;
     width: 19rem;
-    max-height: 23rem;
+    max-height: 26rem;
     flex-direction: column;
     gap: .35rem;
     padding: .55rem;
-    overflow-y: auto;
+    overflow: hidden;
     border: 1px solid var(--line-strong);
     border-radius: .55rem;
     background: var(--panel-translucent-strong);
@@ -1890,12 +1890,75 @@ input[type="checkbox"] {
 }
 
 .graph-context-menu-title {
+    flex: none;
     margin: 0;
     overflow: hidden;
     color: var(--ink);
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.graph-context-menu-tabs {
+    display: flex;
+    flex: none;
+    gap: .15rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.graph-context-menu-tab {
+    flex: 1;
+    padding: .35rem .4rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.graph-context-menu-tab[aria-selected="true"] {
+    border-bottom-color: var(--accent-bright);
+    color: var(--ink);
+}
+
+.graph-context-menu-tab:hover,
+.graph-context-menu-tab:focus-visible {
+    color: var(--ink);
+    outline: none;
+}
+
+/* Only the panel scrolls. The title and the tabs are how you know what you are looking at and how
+   you leave it, so they must not scroll away from under you. */
+.graph-context-menu-panel {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: .35rem;
+    overflow-y: auto;
+}
+
+/* Name on the left, value on the right, rather than a definition list's default stack: the whole
+   point of the Info tab is being read at a glance. */
+.graph-context-menu-facts {
+    display: grid;
+    margin: 0;
+    gap: .15rem .6rem;
+    grid-template-columns: auto 1fr;
+    font-size: .82rem;
+}
+
+.graph-context-menu-facts dt {
+    color: var(--muted);
+}
+
+.graph-context-menu-facts dd {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .graph-context-menu-section {

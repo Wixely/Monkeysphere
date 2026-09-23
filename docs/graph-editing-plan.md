@@ -188,6 +188,12 @@ Expiry is resolved on the server against one clock, so every edge in a single re
 
 `BackstageLeakTests` gains it as its twenty-first surface, and its second write surface: relating a hidden record to a visible one would both confirm the hidden record exists and make it reachable from one the caller can see.
 
+**The menu became a tabbed panel on 2026-09-23.** It had grown three unrelated jobs stacked vertically — facts about the record, tags, relationships — and reaching the third meant scrolling past the first two every time. Tabs put them side by side: Info, Tags, Relationships.
+
+Which tab was last used is remembered per browser and not per record, because the operator is working on one kind of thing at a time. Somebody assigning workplaces to forty people wants the relationship form on the next record too, and having it reset to Info each time would make the tabs cost more than the scrolling did. The Info tab reads the record on demand — type, when it last changed, aliases, image count, tags — which is D2's rule again: fetch what a panel needs when it opens rather than inflate every graph query with it. With several records selected there is no single record to describe, so Info summarises the selection instead.
+
+This is why the container stopped being `role="menu"`. It holds a tablist, a dropdown and two forms; a menu whose items are forms tells a screen reader something untrue about how to operate it. It is a `role="dialog"` with `role="tab"`/`role="tabpanel"` inside, arrow keys moving between tabs with a roving tabindex. The title and the tab strip do not scroll — only the panel does — so what the menu is acting on stays legible however long its contents are.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.
@@ -221,4 +227,5 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] D1 and D2 settled, and the M0 tagging groundwork delivered.
 - [x] D4 and D7 settled; M2, M3 and M4 delivered as one menu pattern.
 - [x] M5 in part: relationships can be assigned in bulk from the canvas.
+- [x] The menu is a tabbed panel — Info, Tags, Relationships — with the tab remembered per browser.
 - [ ] M5 remainder: editing and deleting an existing relationship from the canvas. Owner: TBD; review by 2026-10-05.

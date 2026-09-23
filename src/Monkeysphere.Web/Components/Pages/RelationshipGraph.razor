@@ -206,9 +206,25 @@
                     @* Inside the frame, not at page level. An overlay outside the fullscreen
                        element is invisible while the graph fills the screen, which is exactly how
                        the image gallery used to behave. *@
-                    <div class="graph-context-menu" role="menu" aria-label="@MenuLabel"
+                    <div class="graph-context-menu" role="dialog" aria-label="@MenuLabel"
                          style="left: @(_menu.X)px; top: @(_menu.Y)px" @onkeydown="MenuKeyDownAsync">
                         <p class="graph-context-menu-title">@MenuLabel</p>
+
+                        @if (_menu.RecordId is not null)
+                        {
+                            <div class="graph-context-menu-tabs" role="tablist" aria-label="Record actions">
+                                @foreach (MenuTab tab in Enum.GetValues<MenuTab>())
+                                {
+                                    <button type="button" role="tab" class="graph-context-menu-tab"
+                                            id="@TabId(tab)"
+                                            aria-selected="@(_menuTab == tab ? "true" : "false")"
+                                            aria-controls="graph-menu-panel"
+                                            tabindex="@(_menuTab == tab ? "0" : "-1")"
+                                            @onclick="() => ChooseTabAsync(tab)"
+                                            @onkeydown="args => TabKeyDownAsync(args, tab)">@TabLabel(tab)</button>
+                                }
+                            </div>
+                        }
 
                         @if (_menu.RecordId is null)
                         {
@@ -216,7 +232,7 @@
                             <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-types">
                                 @foreach (RecordType type in RecentTypes)
                                 {
-                                    <button type="button" role="menuitem"
+                                    <button type="button"
                                             class="graph-context-menu-choice @(type.Id == _newRecordTypeId ? "chosen" : null)"
                                             aria-pressed="@(type.Id == _newRecordTypeId ? "true" : "false")"
                                             @onclick="() => ChooseTypeAsync(type.Id)">@DisplayTypeName(type)</button>
@@ -243,6 +259,44 @@
                         }
                         else
                         {
+                            <div id="graph-menu-panel" role="tabpanel" aria-labelledby="@TabId(_menuTab)"
+                                 class="graph-context-menu-panel">
+
+                            @if (_menuTab == MenuTab.Info)
+                            {
+                                <dl class="graph-context-menu-facts">
+                                    @if (MenuTargets.Count > 1)
+                                    {
+                                        <dt>Selected</dt>
+                                        <dd>@MenuTargets.Count records</dd>
+                                        <dt>Types</dt>
+                                        <dd>@SelectedTypeSummary</dd>
+                                    }
+                                    else
+                                    {
+                                        <dt>Type</dt>
+                                        <dd>@(SelectedNode?.RecordTypeName ?? "Unknown")</dd>
+                                        @if (_menuRecord is not null)
+                                        {
+                                            <dt>Updated</dt>
+                                            <dd>@_menuRecord.Record.UpdatedAtUtc.ToLocalTime().ToString("g")</dd>
+                                            @if (_menuRecord.Aliases.Count > 0)
+                                            {
+                                                <dt>Also known as</dt>
+                                                <dd>@string.Join(", ", _menuRecord.Aliases)</dd>
+                                            }
+                                            <dt>Images</dt>
+                                            <dd>@_menuRecord.Images.Count</dd>
+                                            <dt>Tags</dt>
+                                            <dd>@_menuRecord.Tags.Count</dd>
+                                        }
+                                    }
+                                </dl>
+                                <a class="graph-context-menu-link" href="/records/@_menu.RecordId">Open record</a>
+                            }
+
+                            @if (_menuTab == MenuTab.Tags)
+                            {
                             <p class="graph-context-menu-section" id="graph-menu-attached">@AttachedHeading</p>
                             @if (AttachedTags.Count == 0)
                             {
@@ -254,11 +308,11 @@
                                     @foreach (string tag in AttachedTags)
                                     {
                                         <div class="graph-context-menu-tag attached">
-                                            <button type="button" role="menuitem" class="tag-apply add"
+                                            <button type="button" class="tag-apply add"
                                                     aria-label="@($"Add {tag} to {MenuTargetDescription}")"
                                                     title="@($"Add {tag}")"
                                                     @onclick="() => ApplyTagAsync(tag, add: true)">+</button>
-                                            <button type="button" role="menuitem" class="tag-apply remove"
+                                            <button type="button" class="tag-apply remove"
                                                     aria-label="@($"Remove {tag} from {MenuTargetDescription}")"
                                                     title="@($"Remove {tag}")"
                                                     @onclick="() => ApplyTagAsync(tag, add: false)">&minus;</button>
@@ -282,11 +336,11 @@
                                 @foreach (string tag in RecentTags)
                                 {
                                     <div class="graph-context-menu-tag">
-                                        <button type="button" role="menuitem" class="tag-apply add"
+                                        <button type="button" class="tag-apply add"
                                                 aria-label="@($"Add {tag} to {MenuTargetDescription}")"
                                                 title="@($"Add {tag}")"
                                                 @onclick="() => ApplyTagAsync(tag, add: true)">+</button>
-                                        <button type="button" role="menuitem" class="tag-apply remove"
+                                        <button type="button" class="tag-apply remove"
                                                 aria-label="@($"Remove {tag} from {MenuTargetDescription}")"
                                                 title="@($"Remove {tag}")"
                                                 @onclick="() => ApplyTagAsync(tag, add: false)">&minus;</button>
@@ -295,12 +349,12 @@
                                 }
                             </div>
                             <div class="graph-context-menu-tag other">
-                                <button type="button" role="menuitem" class="tag-apply add"
+                                <button type="button" class="tag-apply add"
                                         disabled="@string.IsNullOrEmpty(_otherTag)"
                                         aria-label="@($"Add the chosen tag to {MenuTargetDescription}")"
                                         title="Add the chosen tag"
                                         @onclick="() => ApplyTagAsync(_otherTag, add: true)">+</button>
-                                <button type="button" role="menuitem" class="tag-apply remove"
+                                <button type="button" class="tag-apply remove"
                                         disabled="@string.IsNullOrEmpty(_otherTag)"
                                         aria-label="@($"Remove the chosen tag from {MenuTargetDescription}")"
                                         title="Remove the chosen tag"
@@ -316,12 +370,16 @@
                                     </select>
                                 </label>
                             </div>
+                            }
+
+                            @if (_menuTab == MenuTab.Relationships)
+                            {
                             <p class="graph-context-menu-section" id="graph-menu-relate">Relate to a record</p>
                             <div class="graph-context-menu-relate" role="group" aria-labelledby="graph-menu-relate">
                                 <div class="graph-context-menu-list">
                                     @foreach (RelationshipType type in RecentRelationshipTypes)
                                     {
-                                        <button type="button" role="menuitem"
+                                        <button type="button"
                                                 class="graph-context-menu-choice @(type.Id == _relationshipTypeId ? "chosen" : null)"
                                                 aria-pressed="@(type.Id == _relationshipTypeId ? "true" : "false")"
                                                 @onclick="() => ChooseRelationshipTypeAsync(type.Id)">@type.Name</button>
@@ -349,7 +407,7 @@
                                         <input type="date" value="@_relateExpiresOn" @oninput="RelateExpiresChanged" />
                                     </label>
                                 }
-                                <button type="button" role="menuitem" class="graph-context-menu-pick"
+                                <button type="button" class="graph-context-menu-pick"
                                         disabled="@(_relationshipTypeId is null)"
                                         @onclick="StartPicking">Pick a record on the graph</button>
                                 <label class="graph-context-menu-name">
@@ -362,7 +420,7 @@
                                     <div class="graph-context-menu-list" role="group" aria-label="Matching records">
                                         @foreach (RecordSummary match in _relateSuggestions)
                                         {
-                                            <button type="button" role="menuitem" class="graph-context-menu-choice"
+                                            <button type="button" class="graph-context-menu-choice"
                                                     @onclick="() => ChooseRelateTarget(match)">@match.DisplayName <small>@match.RecordTypeName</small></button>
                                         }
                                     </div>
@@ -374,7 +432,7 @@
                                     <p class="graph-context-menu-sentence">@RelateSentence</p>
                                     @if (SelectedRelationshipType?.Directionality == RelationshipDirectionality.Directional)
                                     {
-                                        <button type="button" role="menuitem" class="graph-context-menu-swap"
+                                        <button type="button" class="graph-context-menu-swap"
                                                 @onclick="() => _selectedAreSource = !_selectedAreSource">Swap direction</button>
                                     }
                                     <button type="button" class="button primary graph-context-menu-create"
@@ -382,8 +440,8 @@
                                 }
                             </div>
 
-                            <a role="menuitem" class="graph-context-menu-link"
-                               href="/records/@_menu.RecordId">Open record</a>
+                            }
+                            </div>
                         }
 
                         @if (_menuMessage is not null)
@@ -594,6 +652,16 @@
     private bool _selectedAreSource = true;
     private long _relateRevision;
     private bool _relateExpired;
+    private MenuTab _menuTab = MenuTab.Info;
+    private RecordDetails? _menuRecord;
+
+    /// <summary>The parts of the record menu, in the order they are offered.</summary>
+    private enum MenuTab
+    {
+        Info,
+        Tags,
+        Relationships,
+    }
     private string _relateExpiresOn = string.Empty;
     private PendingRelate? _pendingRelate;
     private RecordSummary? _pickedTarget;
@@ -795,6 +863,25 @@
         { ExpiresAtUtc: { } ends } => $" (until {ends.ToLocalTime():d})",
         _ => string.Empty,
     };
+
+    private static string TabId(MenuTab tab) => $"graph-menu-tab-{tab}";
+
+    private static string TabLabel(MenuTab tab) => tab switch
+    {
+        MenuTab.Tags => "Tags",
+        MenuTab.Relationships => "Relationships",
+        _ => "Info",
+    };
+
+    private RelationshipGraphNode? SelectedNode =>
+        _graph.Nodes.FirstOrDefault(node => node.RecordId == _menu?.RecordId);
+
+    private string SelectedTypeSummary =>
+        string.Join(", ", _graph.Nodes
+            .Where(node => MenuTargets.Contains(node.RecordId))
+            .GroupBy(node => node.RecordTypeName, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .Select(group => $"{group.Key} ({group.Count()})"));
 
     private string PendingConfirmLabel => _pendingRelate is { RecordIds.Count: > 1 } pending
         ? $"Relate {pending.RecordIds.Count} records"
@@ -1414,7 +1501,11 @@
             _recentTags = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "tags", domain);
             _recentTypeIds = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "types", domain);
             _recentRelationshipTypeIds = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "relationships", domain);
+            string remembered = await _preferencesModule.InvokeAsync<string>("loadSetting", "menu-tab", nameof(MenuTab.Info));
+            _menuTab = Enum.TryParse(remembered, out MenuTab tab) ? tab : MenuTab.Info;
         }
+
+        await LoadMenuRecordAsync();
 
         _relationshipTypeId = RecentRelationshipTypes.FirstOrDefault()?.Id;
 
@@ -1435,6 +1526,49 @@
         }
 
         return Task.CompletedTask;
+    }
+
+    private async Task ChooseTabAsync(MenuTab tab)
+    {
+        _menuTab = tab;
+        if (_preferencesModule is not null)
+        {
+            await _preferencesModule.InvokeVoidAsync("saveSetting", "menu-tab", tab.ToString());
+        }
+
+        await LoadMenuRecordAsync();
+    }
+
+    /// <summary>Left and right move between tabs, which is what a tablist is expected to do.</summary>
+    private async Task TabKeyDownAsync(KeyboardEventArgs args, MenuTab tab)
+    {
+        MenuTab[] tabs = Enum.GetValues<MenuTab>();
+        int index = Array.IndexOf(tabs, tab);
+        int next = args.Key switch
+        {
+            "ArrowRight" => (index + 1) % tabs.Length,
+            "ArrowLeft" => (index - 1 + tabs.Length) % tabs.Length,
+            "Home" => 0,
+            "End" => tabs.Length - 1,
+            _ => index,
+        };
+
+        if (next != index)
+        {
+            await ChooseTabAsync(tabs[next]);
+        }
+    }
+
+    /// <summary>
+    /// Read only for the Info tab, and only for one record: it is the one part of the menu that
+    /// wants more than the graph already carries, and fetching it for a selection of forty to
+    /// show a count nobody asked for would be worse than not showing it.
+    /// </summary>
+    private async Task LoadMenuRecordAsync()
+    {
+        _menuRecord = _menuTab == MenuTab.Info && MenuTargets.Count == 1 && _menu?.RecordId is Guid id
+            ? await Records.GetRecordAsync(id)
+            : null;
     }
 
     private void OtherTagChosen(ChangeEventArgs args) => _otherTag = args.Value?.ToString() ?? string.Empty;

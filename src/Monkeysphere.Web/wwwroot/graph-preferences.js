@@ -123,6 +123,25 @@ export async function disposeFullscreen() {
 // What the operator reached for last, kept per browser like the record-type filter above. This is
 // a convenience rather than data: losing it costs nothing, so it does not warrant a round trip or
 // a column, and a hardened browser that refuses storage simply gets an unordered list.
+// Deliberately not scoped to a domain or a record: which part of the menu somebody is working in
+// is about what they are doing, not about what they are looking at, and carrying it across is the
+// point of remembering it at all.
+export function loadSetting(key, fallback) {
+    try {
+        return globalThis.localStorage.getItem(`monkeysphere.graph.${key}`) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+export function saveSetting(key, value) {
+    try {
+        globalThis.localStorage.setItem(`monkeysphere.graph.${key}`, value);
+    } catch {
+        // Storage may be unavailable in a hardened or private browser context.
+    }
+}
+
 export function loadRecent(kind, domainId) {
     try {
         const value = globalThis.localStorage.getItem(`monkeysphere.graph.recent.${kind}.${domainId}`);
