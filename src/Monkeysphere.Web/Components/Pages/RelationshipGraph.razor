@@ -179,6 +179,28 @@
                                          KeepRecordsApart="_graphConfiguration.KeepRecordsApart"
                                          Placement="_placement" />
 
+                @if (_picking && _pendingRelate is not null)
+                {
+                    <div class="graph-pick-banner" role="status">
+                        <span>Click the record to relate <strong>@_pendingRelate.Description</strong> to.</span>
+                        <button type="button" class="graph-context-menu-swap" @onclick="CancelPicking">Cancel</button>
+                    </div>
+                }
+
+                @if (_pendingRelate is not null && _pickedTarget is not null)
+                {
+                    <div class="graph-pick-confirm" role="dialog" aria-modal="true"
+                         aria-labelledby="graph-pick-title" @onkeydown="ConfirmKeyDownAsync">
+                        <p class="eyebrow" id="graph-pick-title">Relate these records</p>
+                        <p class="graph-context-menu-sentence">@PendingSentence</p>
+                        <div class="graph-pick-actions">
+                            <button class="button primary" type="button" autofocus
+                                    @onclick="ConfirmPickAsync">@PendingConfirmLabel</button>
+                            <button class="button" type="button" @onclick="CancelPicking">Cancel</button>
+                        </div>
+                    </div>
+                }
+
                 @if (_menu is not null)
                 {
                     @* Inside the frame, not at page level. An overlay outside the fullscreen
@@ -316,8 +338,11 @@
                                         }
                                     </select>
                                 </label>
+                                <button type="button" role="menuitem" class="graph-context-menu-pick"
+                                        disabled="@(_relationshipTypeId is null)"
+                                        @onclick="StartPicking">Pick a record on the graph</button>
                                 <label class="graph-context-menu-name">
-                                    Record to relate to
+                                    Or search for one
                                     <input type="text" maxlength="200" placeholder="Search every record"
                                            value="@_relateQuery" @oninput="RelateSearchAsync" />
                                 </label>
@@ -557,6 +582,19 @@
     private RecordSummary? _relateTarget;
     private bool _selectedAreSource = true;
     private long _relateRevision;
+    private PendingRelate? _pendingRelate;
+    private RecordSummary? _pickedTarget;
+    private bool _picking;
+
+    /// <summary>
+    /// An assignment waiting for its other end to be pointed at. The menu closes while picking, so
+    /// what it was about has to be carried rather than read back off the menu.
+    /// </summary>
+    private sealed record PendingRelate(
+        IReadOnlyList<Guid> RecordIds,
+        string Description,
+        Guid RelationshipTypeId,
+        bool SelectedAreSource);
     private RelationshipGraphCanvas.GraphNodePlacement? _placement;
     private Guid? _newRecordTypeId;
     private string _newRecordName = string.Empty;
@@ -719,6 +757,27 @@
             return $"{MenuTargetDescription} — {label} — {_relateTarget.DisplayName}";
         }
     }
+
+    private string PendingSentence
+    {
+        get
+        {
+            if (_pendingRelate is null || _pickedTarget is null)
+            {
+                return string.Empty;
+            }
+
+            RelationshipType? type = _relationshipTypes.FirstOrDefault(item => item.Id == _pendingRelate.RelationshipTypeId);
+            string label = type is null || type.Directionality == RelationshipDirectionality.Symmetric || _pendingRelate.SelectedAreSource
+                ? type?.Name ?? "related to"
+                : type.InverseName ?? type.Name;
+            return $"{_pendingRelate.Description} — {label} — {_pickedTarget.DisplayName}";
+        }
+    }
+
+    private string PendingConfirmLabel => _pendingRelate is { RecordIds.Count: > 1 } pending
+        ? $"Relate {pending.RecordIds.Count} records"
+        : "Relate this record";
 
     private string RelateButtonLabel => MenuTargets.Count > 1
         ? $"Relate {MenuTargets.Count} records"
@@ -1009,6 +1068,21 @@
 
     private async Task SelectNode(Guid recordId)
     {
+        if (_picking && _pendingRelate is not null)
+        {
+            // The whole point of picking: this click names the other end, so it must not also
+            // change the selection the assignment is about or open the gallery over the top of
+            // the confirmation.
+            RelationshipGraphNode? node = _graph.Nodes.FirstOrDefault(item => item.RecordId == recordId);
+            if (node is not null)
+            {
+                _pickedTarget = new(node.RecordId, node.RecordTypeId, node.RecordTypeName, node.DisplayName, DateTimeOffset.UtcNow);
+                _picking = false;
+            }
+
+            return;
+        }
+
         _selected = _graph.Nodes.SingleOrDefault(node => node.RecordId == recordId);
         if (_selected is null)
         {
@@ -1501,6 +1575,68 @@
         }
 
         _relateSuggestions = [.. matches.Items.Take(RecentCount)];
+    }
+
+    /// <summary>
+    /// Hands the assignment over to the canvas: the menu closes so the graph is visible and
+    /// clickable, and the next record clicked becomes the other end rather than a selection.
+    /// </summary>
+    private void StartPicking()
+    {
+        if (_menu is null || _relationshipTypeId is not Guid typeId || MenuTargets.Count == 0)
+        {
+            return;
+        }
+
+        _pendingRelate = new(MenuTargets, MenuTargetDescription, typeId, _selectedAreSource);
+        _pickedTarget = null;
+        _picking = true;
+        _menu = null;
+    }
+
+    private void CancelPicking()
+    {
+        _picking = false;
+        _pendingRelate = null;
+        _pickedTarget = null;
+    }
+
+    private Task ConfirmKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CancelPicking();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ConfirmPickAsync()
+    {
+        if (_pendingRelate is not PendingRelate pending || _pickedTarget is null)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<RecordRelationshipChange> changes = await Relating.ApplyAsync(new(
+                pending.RecordIds, pending.RelationshipTypeId, _pickedTarget.Id, pending.SelectedAreSource));
+            _menuMessage = DescribeRelateResult(changes, _pickedTarget.DisplayName);
+            await RememberRecentAsync("relationships", pending.RelationshipTypeId.ToString("D"));
+            await ReloadAsync();
+            _isDirty = true;
+        }
+        catch (DomainValidationException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+        catch (RecordCommandNotFoundException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+
+        CancelPicking();
     }
 
     private async Task RelateAsync()

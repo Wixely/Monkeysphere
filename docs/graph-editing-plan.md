@@ -180,6 +180,8 @@ Two things surfaced while verifying it. Creating a record relayouts the graph, w
 
 Three things it has to get right. A directional type reads differently from each end, so the menu spells the assignment out as a sentence and offers to swap it: "Ada + 2 others — works at — Acme" rather than two labels and a guess. A symmetric type stores its ends in a fixed order, so relating A to B and later B to A must find the first rather than write a mirror of it. And the record being related to is very often not on the canvas — a workplace, when what is displayed is people — so the picker searches every record rather than the types the view is filtered to.
 
+The other end can be pointed at rather than typed. "Pick a record on the graph" closes the menu, marks the canvas as a target, and takes the next record clicked as the other end; a confirmation then states the assignment in full before anything is written. Two things make that safe: the records being related are captured when picking starts, so the click that names the other end cannot also change what the assignment is about, and the click is swallowed rather than being treated as an ordinary selection, so the image gallery does not open over the confirmation. Both the banner and the confirmation render inside the canvas frame, so picking still works while the graph is fullscreen.
+
 `BackstageLeakTests` gains it as its twenty-first surface, and its second write surface: relating a hidden record to a visible one would both confirm the hidden record exists and make it reachable from one the caller can see.
 
 ### M5 — Relationship editing
