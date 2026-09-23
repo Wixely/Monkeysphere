@@ -39,6 +39,17 @@
     [Parameter]
     public EventCallback OnContextMenuDismissed { get; set; }
 
+    /// <summary>
+    /// Whether records being placed or moved are nudged clear of one another. Changing it never
+    /// rearranges what is already on the canvas: it governs the next placement, not the last one.
+    /// </summary>
+    [Parameter]
+    public bool KeepRecordsApart { get; set; } = true;
+
+    /// <summary>Where a newly created record should appear, in canvas coordinates.</summary>
+    [Parameter]
+    public GraphNodePlacement? Placement { get; set; }
+
     [Parameter]
     public Guid? CenterRecordId { get; set; }
 
@@ -51,6 +62,8 @@
     private string _revision = string.Empty;
     private bool _needsUpdate;
     private long _completedCenterRequest;
+    private long _completedPlacement;
+    private bool? _appliedKeepApart;
 
     protected override void OnParametersSet()
     {
@@ -68,13 +81,30 @@
         {
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./relationship-graph.js");
             _reference = DotNetObjectReference.Create(this);
-            await _module.InvokeVoidAsync("create", _element, _reference, Graph, NodePositions, Viewport);
+            await _module.InvokeVoidAsync("create", _element, _reference, Graph, NodePositions, Viewport, KeepRecordsApart);
+            _appliedKeepApart = KeepRecordsApart;
             _needsUpdate = false;
         }
         else if (_needsUpdate && _module is not null)
         {
-            await _module.InvokeVoidAsync("update", _element, Graph, NodePositions);
+            GraphNodePlacement? placement = Placement is { } pending && pending.Request != _completedPlacement
+                ? pending
+                : null;
+            await _module.InvokeVoidAsync("update", _element, Graph, NodePositions, placement);
+            if (placement is not null)
+            {
+                _completedPlacement = placement.Request;
+            }
+
             _needsUpdate = false;
+        }
+
+        // Pushed on its own rather than folded into the revision, because a change here must not
+        // trigger a relayout: turning spacing off is not a request to rearrange the canvas.
+        if (_module is not null && _appliedKeepApart != KeepRecordsApart)
+        {
+            await _module.InvokeVoidAsync("setKeepApart", _element, KeepRecordsApart);
+            _appliedKeepApart = KeepRecordsApart;
         }
 
         if (_module is not null && CenterRecordId.HasValue && CenterRequest != _completedCenterRequest)
@@ -111,6 +141,13 @@
 
     /// <summary>Where the canvas was asked for a menu, and what the menu should act on.</summary>
     public sealed record ContextMenuRequest(Guid? RecordId, IReadOnlyList<Guid> RecordIds, int X, int Y);
+
+    /// <summary>
+    /// A record to drop at a point of the canvas. <paramref name="Request"/> makes it one-shot, so
+    /// a later redraw does not move the record back to where it was first put.
+    /// </summary>
+    /// <param name="X">Canvas x, as the context menu reported it.</param>
+    public sealed record GraphNodePlacement(string RecordId, int X, int Y, long Request);
 
     public async Task<IReadOnlyList<GraphViewNodePosition>> CaptureNodePositionsAsync()
     {

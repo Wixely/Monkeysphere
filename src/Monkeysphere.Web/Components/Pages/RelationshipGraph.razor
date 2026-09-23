@@ -173,7 +173,9 @@
                                          CenterRecordId="_centreRecordId"
                                          CenterRequest="_centreRequest"
                                          OnContextMenuRequested="OpenMenuAsync"
-                                         OnContextMenuDismissed="CloseMenu" />
+                                         OnContextMenuDismissed="CloseMenu"
+                                         KeepRecordsApart="_graphConfiguration.KeepRecordsApart"
+                                         Placement="_placement" />
 
                 @if (_menu is not null)
                 {
@@ -217,7 +219,41 @@
                         }
                         else
                         {
-                            <p class="graph-context-menu-section" id="graph-menu-tags">Tags</p>
+                            <p class="graph-context-menu-section" id="graph-menu-attached">@AttachedHeading</p>
+                            @if (AttachedTags.Count == 0)
+                            {
+                                <p class="graph-context-menu-empty">@AttachedEmptyMessage</p>
+                            }
+                            else
+                            {
+                                <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-attached">
+                                    @foreach (string tag in AttachedTags)
+                                    {
+                                        <div class="graph-context-menu-tag attached">
+                                            <button type="button" role="menuitem" class="tag-apply add"
+                                                    aria-label="@($"Add {tag} to {MenuTargetDescription}")"
+                                                    title="@($"Add {tag}")"
+                                                    @onclick="() => ApplyTagAsync(tag, add: true)">+</button>
+                                            <button type="button" role="menuitem" class="tag-apply remove"
+                                                    aria-label="@($"Remove {tag} from {MenuTargetDescription}")"
+                                                    title="@($"Remove {tag}")"
+                                                    @onclick="() => ApplyTagAsync(tag, add: false)">&minus;</button>
+                                            <span class="graph-context-menu-tag-name">@tag</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (PartlyHeldTags.Count > 0)
+                            {
+                                @* Named rather than hidden: with several records selected, a tag on
+                                   some but not all of them is the case where "what do they have?"
+                                   has no single answer, and quietly showing nothing would mislead. *@
+                                <p class="graph-context-menu-empty">
+                                    On some but not all: @string.Join(", ", PartlyHeldTags)
+                                </p>
+                            }
+
+                            <p class="graph-context-menu-section" id="graph-menu-tags">Recently used</p>
                             <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-tags">
                                 @foreach (string tag in RecentTags)
                                 {
@@ -456,6 +492,10 @@
     private IReadOnlyList<string> _recentTags = [];
     private IReadOnlyList<string> _recentTypeIds = [];
     private string _otherTag = string.Empty;
+    private IReadOnlyDictionary<Guid, IReadOnlyList<string>> _menuRecordTags =
+        new Dictionary<Guid, IReadOnlyList<string>>();
+    private long _placementRequest;
+    private RelationshipGraphCanvas.GraphNodePlacement? _placement;
     private Guid? _newRecordTypeId;
     private string _newRecordName = string.Empty;
     private string? _menuMessage;
@@ -494,15 +534,87 @@
         }
     }
 
+    private IReadOnlyList<Guid> MenuTargets =>
+        _menu is null ? [] : _menu.RecordIds.Count > 0 ? _menu.RecordIds : _menu.RecordId is Guid one ? [one] : [];
+
+    /// <summary>
+    /// What the menu's records actually carry: one record's tags, or with several selected only
+    /// the tags every one of them has. A tag on some but not all is reported separately, because
+    /// "they share this" and "one of them has this" are different answers and the buttons here
+    /// apply to all of them either way.
+    /// </summary>
+    private IReadOnlyList<string> AttachedTags
+    {
+        get
+        {
+            IReadOnlyList<Guid> targets = MenuTargets;
+            if (targets.Count == 0)
+            {
+                return [];
+            }
+
+            IEnumerable<string>? shared = null;
+            foreach (Guid id in targets)
+            {
+                IReadOnlyList<string> tags = _menuRecordTags.TryGetValue(id, out IReadOnlyList<string>? held) ? held : [];
+                shared = shared is null ? tags : shared.Intersect(tags, StringComparer.OrdinalIgnoreCase);
+            }
+
+            return [.. (shared ?? []).OrderBy(tag => tag, StringComparer.CurrentCultureIgnoreCase)];
+        }
+    }
+
+    private IReadOnlyList<string> PartlyHeldTags
+    {
+        get
+        {
+            if (MenuTargets.Count < 2)
+            {
+                return [];
+            }
+
+            HashSet<string> everywhere = new(AttachedTags, StringComparer.OrdinalIgnoreCase);
+            return
+            [
+                .. MenuTargets
+                    .SelectMany(id => _menuRecordTags.TryGetValue(id, out IReadOnlyList<string>? held) ? held : [])
+                    .Where(tag => !everywhere.Contains(tag))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(tag => tag, StringComparer.CurrentCultureIgnoreCase),
+            ];
+        }
+    }
+
+    private string AttachedHeading => MenuTargets.Count > 1
+        ? $"On all {MenuTargets.Count} selected"
+        : "On this record";
+
+    private string AttachedEmptyMessage => MenuTargets.Count > 1
+        ? "No tag is on every selected record."
+        : "No tags yet.";
+
     // Recently used first, then whatever else the catalogue offers, so the list is never empty on
-    // a browser that has not been used for this yet.
-    private IReadOnlyList<string> RecentTags =>
-        [.. _recentTags.Where(tag => _tagVocabulary.Contains(tag, StringComparer.OrdinalIgnoreCase))
-            .Concat(_tagVocabulary.Where(tag => !_recentTags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
-            .Take(RecentCount)];
+    // a browser that has not been used for this yet. What the records already carry is shown above
+    // instead, so it is not repeated here.
+    private IReadOnlyList<string> RecentTags
+    {
+        get
+        {
+            HashSet<string> attached = new(AttachedTags, StringComparer.OrdinalIgnoreCase);
+            return
+            [
+                .. _recentTags.Where(tag => _tagVocabulary.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                    .Concat(_tagVocabulary.Where(tag => !_recentTags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
+                    .Where(tag => !attached.Contains(tag))
+                    .Take(RecentCount),
+            ];
+        }
+    }
 
     private IReadOnlyList<string> OtherTags =>
-        [.. _tagVocabulary.Where(tag => !RecentTags.Contains(tag, StringComparer.OrdinalIgnoreCase))];
+        [.. _tagVocabulary
+            .Where(tag => !RecentTags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            .Where(tag => !AttachedTags.Contains(tag, StringComparer.OrdinalIgnoreCase))];
 
     private IReadOnlyList<RecordType> RecentTypes =>
         [.. _recentTypeIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
@@ -1093,6 +1205,7 @@
         // Read when the menu opens rather than carrying tags on every graph query. At 500 nodes
         // that would be a much larger response for something most graph loads never look at.
         _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
+        _menuRecordTags = await TagVocabulary.ListForRecordsAsync(MenuTargets);
         if (_preferencesModule is not null)
         {
             string domain = CurrentDomain.Id.ToString("D");
@@ -1164,6 +1277,10 @@
                 Remove: add ? null : [tag]));
             _menuMessage = DescribeTagResult(tag, add, changes);
             await RememberRecentAsync("tags", tag);
+            // Re-read rather than patch: what the menu shows about these records has to be what
+            // they now hold, including the ones the change did not apply to.
+            _menuRecordTags = await TagVocabulary.ListForRecordsAsync(targets);
+            _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
             await ReloadAsync();
         }
         catch (DomainValidationException exception)
@@ -1214,6 +1331,10 @@
         {
             RecordDetails created = await Records.CreateRecordAsync(typeId, _newRecordName.Trim(), []);
             await RememberRecentAsync("types", typeId.ToString("D"));
+
+            // Roughly where they right-clicked. Roughly, because spacing may still nudge it clear
+            // of a record already sitting there unless that has been turned off.
+            _placement = new(created.Record.Id.ToString("D"), _menu.X, _menu.Y, ++_placementRequest);
 
             // Added to the selected set so it is displayed whatever the current filter is, which
             // is the only way a newly created record is guaranteed to be visible at all.

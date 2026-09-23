@@ -39,6 +39,7 @@ This is a regression/load-boundary test, not a benchmark or latency promise. The
 
 - Keep SQLite, media, temporary work, and backups on storage with sufficient free space and normal host monitoring.
 - Narrow graph searches before increasing depth; do not increase browser caps to compensate for an overly broad query.
+- Records placed or dragged on the graph are nudged clear of one another by default. That can be turned off in graph settings for deliberate hand-arrangement; it changes placement only, moves nothing already drawn, and has no bearing on the node and edge bounds above.
 - Put an upstream request/body limit and connection limit at any external reverse proxy, matching or tightening the application limits.
 - Schedule backups outside the busiest interactive period for large media collections.
 - Treat the single-process data-root lock and single-administrator model as intentional; this release does not claim multi-instance or high-concurrency operation.

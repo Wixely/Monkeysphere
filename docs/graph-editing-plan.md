@@ -128,6 +128,12 @@ Fullscreen also changes what a click does. It no longer opens the image gallery,
 
 Making that selection visible turned up a bug older than any of this work. The tap handler selected the node itself, but cytoscape finishes its own tap bookkeeping after user handlers have run and clears the selection on the way through, so a plain click never highlighted anything while a modified click, which returns early and lets cytoscape do the selecting, always did. Selecting on the next animation frame is what makes the two agree. It was invisible before only because the gallery opening was the feedback; fullscreen removed the gallery and left nothing.
 
+**Revised 2026-09-23 after use.** The tag menu now shows what the records actually carry, set apart from the merely recently used: one record's tags, or with several selected only the tags every one of them has, with anything held by some but not all named separately. That distinction matters because the buttons apply to the whole selection either way, so "they share this" and "one of them has this" must not look the same. Reading it costs one bounded query when the menu opens, which is D2 working as intended.
+
+A record created from the canvas now appears roughly where the right-click was, its point converted from the screen into the graph's own coordinates and offered to the layout as a position already chosen. Roughly, because spacing may still nudge it clear of a record already sitting there.
+
+And that spacing is now a choice. The graph nudges records apart so one cannot hide another, which is right by default and a nuisance when arranging a layout by hand. Turning it off in graph settings governs only records placed or moved from then on: nothing already on the canvas shifts, because the flag is pushed to the canvas without triggering a relayout.
+
 One gap remains: the node/edge truncation notice sits above the panel rather than inside the stage, so it is not visible in fullscreen. Moving it in is a small follow-up, and matters more once M4 can create records against that boundary.
 
 ### M2 — Tag editing from a record node

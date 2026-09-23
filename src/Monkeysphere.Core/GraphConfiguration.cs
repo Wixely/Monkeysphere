@@ -9,7 +9,8 @@
 public sealed record GraphConfiguration(
     bool WarnUnsavedChanges = true,
     int NodeLimit = RelationshipGraphService.DefaultNodes,
-    int EdgeLimit = RelationshipGraphService.DefaultEdges)
+    int EdgeLimit = RelationshipGraphService.DefaultEdges,
+    bool KeepRecordsApart = true)
 {
     /// <summary>True when the graph is drawing more than the boundary the load evidence covers.</summary>
     public bool IsRaised =>
@@ -20,10 +21,11 @@ public sealed record GraphConfiguration(
     /// build, or edited by hand, must leave the graph drawing something rather than nothing; the
     /// service validates instead when the value comes from an operator who can be told.
     /// </summary>
-    public static GraphConfiguration Clamped(bool warnUnsavedChanges, int nodeLimit, int edgeLimit) =>
+    public static GraphConfiguration Clamped(bool warnUnsavedChanges, int nodeLimit, int edgeLimit, bool keepRecordsApart) =>
         new(warnUnsavedChanges,
             Math.Clamp(nodeLimit, RelationshipGraphService.MinimumNodes, RelationshipGraphService.MaximumNodes),
-            Math.Clamp(edgeLimit, RelationshipGraphService.MinimumEdges, RelationshipGraphService.MaximumEdges));
+            Math.Clamp(edgeLimit, RelationshipGraphService.MinimumEdges, RelationshipGraphService.MaximumEdges),
+            keepRecordsApart);
 }
 
 public interface IGraphSettingsStore

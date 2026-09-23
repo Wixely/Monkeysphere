@@ -23,7 +23,10 @@ public sealed class GraphBoundsAndRelationshipEditTests
         Assert.Equal(RelationshipGraphService.DefaultEdges, shipped.EdgeLimit);
         Assert.False(shipped.IsRaised);
 
-        GraphConfiguration raised = await settings.SaveAsync(new(WarnUnsavedChanges: false, NodeLimit: 900, EdgeLimit: 4_000));
+        Assert.True(shipped.KeepRecordsApart);
+
+        GraphConfiguration raised = await settings.SaveAsync(new(
+            WarnUnsavedChanges: false, NodeLimit: 900, EdgeLimit: 4_000, KeepRecordsApart: false));
         Assert.True(raised.IsRaised);
 
         // Read back through a fresh scope, because a setting that only lives in the instance that
@@ -32,6 +35,7 @@ public sealed class GraphBoundsAndRelationshipEditTests
         Assert.Equal(900, reloaded.NodeLimit);
         Assert.Equal(4_000, reloaded.EdgeLimit);
         Assert.False(reloaded.WarnUnsavedChanges);
+        Assert.False(reloaded.KeepRecordsApart);
     }
 
     [Fact]

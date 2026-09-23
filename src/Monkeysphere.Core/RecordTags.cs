@@ -63,6 +63,15 @@ public interface IRecordTagStore
 
     /// <summary>Counts records carrying any tag, so removing tags from a type can say what it hides.</summary>
     Task<int> CountTaggedRecordsAsync(Guid recordTypeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What each of these records carries, so a caller acting on several at once can show what
+    /// they already have rather than asking blind. Records this caller cannot see are simply
+    /// absent from the result, exactly as they are absent from every other read.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<string>>> ListForRecordsAsync(
+        IReadOnlyList<Guid> recordIds,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>What became of one record in a bulk tag edit.</summary>

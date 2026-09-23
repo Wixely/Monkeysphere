@@ -1941,6 +1941,25 @@ input[type="checkbox"] {
     gap: .35rem;
 }
 
+/* What the records actually carry, set apart from the merely recently used above it. Without this
+   the two lists read as one and there is no telling which tags are already on the record. */
+.graph-context-menu-tag.attached {
+    padding: .1rem .3rem;
+    border-left: 3px solid var(--accent-bright);
+    border-radius: .25rem;
+    background: var(--accent-soft);
+}
+
+.graph-context-menu-tag.attached .graph-context-menu-tag-name {
+    font-weight: 700;
+}
+
+.graph-context-menu-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: .78rem;
+}
+
 .graph-context-menu-tag-name {
     overflow: hidden;
     text-overflow: ellipsis;

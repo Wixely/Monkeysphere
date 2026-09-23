@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Monkeysphere.Core;
@@ -69,5 +69,47 @@ internal sealed class SqliteRecordTagStore(
             new { RecordTypeId = Key(recordTypeId) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<string>>> ListForRecordsAsync(
+        IReadOnlyList<Guid> recordIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recordIds);
+        Guid[] distinct = [.. recordIds.Distinct()];
+        if (distinct.Length == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<string>>();
+        }
+
+        if (distinct.Length > RecordTagCommandService.MaximumRecords)
+        {
+            throw new DomainValidationException(
+                $"Cannot read tags for more than {RecordTagCommandService.MaximumRecords} records at once.");
+        }
+
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        // The same visibility predicate as every other read of Records. A hidden record simply has
+        // no entry here, which is what the caller would see for an id that does not exist.
+        IEnumerable<TagRow> rows = await connection.QueryAsync<TagRow>(new CommandDefinition($"""
+            SELECT t.RecordId, t.Value
+            FROM RecordTags t
+            JOIN Records r ON r.Id = t.RecordId{BackstageFilter.AndVisible(visibility, "r")}
+            WHERE t.RecordId IN @RecordIds
+            ORDER BY t.RecordId, t.Ordinal;
+            """, new { RecordIds = distinct.Select(Key).ToArray() }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+
+        Dictionary<Guid, IReadOnlyList<string>> result = [];
+        foreach (IGrouping<string, TagRow> group in rows.GroupBy(row => row.RecordId, StringComparer.Ordinal))
+        {
+            if (Guid.TryParse(group.Key, out Guid recordId))
+            {
+                result[recordId] = [.. group.Select(row => row.Value)];
+            }
+        }
+
+        return result;
+    }
+
     private static string Key(Guid id) => id.ToString("D", CultureInfo.InvariantCulture);
+
+    private sealed record TagRow(string RecordId, string Value);
 }

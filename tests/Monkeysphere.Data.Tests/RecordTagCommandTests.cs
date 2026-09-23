@@ -144,6 +144,34 @@ public sealed class RecordTagCommandTests
     }
 
     [Fact]
+    public async Task ReadingSeveralRecordsTagsIsWhatLetsTheMenuShowWhatTheyShare()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordTagStore tags = application.Services.GetRequiredService<IRecordTagStore>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Shared person");
+        RecordDetails ada = await records.CreateRecordAsync(type.Id, "Ada", [], null, ["work", "london"]);
+        RecordDetails grace = await records.CreateRecordAsync(type.Id, "Grace", [], null, ["work", "navy"]);
+        RecordDetails bare = await records.CreateRecordAsync(type.Id, "Bare", []);
+
+        IReadOnlyDictionary<Guid, IReadOnlyList<string>> held = await tags.ListForRecordsAsync(
+            [ada.Record.Id, grace.Record.Id, bare.Record.Id]);
+
+        // Order preserved per record, because that is the order the record itself shows.
+        Assert.Equal(["work", "london"], held[ada.Record.Id]);
+        Assert.Equal(["work", "navy"], held[grace.Record.Id]);
+
+        // A record with no tags is simply absent rather than present and empty, so the caller has
+        // one thing to handle instead of two.
+        Assert.False(held.ContainsKey(bare.Record.Id));
+
+        // What the menu calls "on all selected" is the intersection, which here is one tag.
+        string[] shared = [.. held[ada.Record.Id].Intersect(held[grace.Record.Id], StringComparer.OrdinalIgnoreCase)];
+        Assert.Equal(["work"], shared);
+    }
+
+    [Fact]
     public async Task AnEditThatCannotMeanOneThingIsRefusedBeforeAnythingIsWritten()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

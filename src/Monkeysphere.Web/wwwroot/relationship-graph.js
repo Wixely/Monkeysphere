@@ -202,8 +202,10 @@ function angleOffset(id) {
     return ((hash >>> 0) % 360) * Math.PI / 180;
 }
 
-function findFreePosition(origin, occupied, id) {
-    if (isPositionFree(origin, occupied)) {
+function findFreePosition(origin, occupied, id, keepApart) {
+    // Turned off, a record goes exactly where it was asked to go, even on top of another. That is
+    // the operator arranging a layout deliberately, and it is their canvas.
+    if (!keepApart || isPositionFree(origin, occupied)) {
         return origin;
     }
 
@@ -237,7 +239,7 @@ function averagePosition(positions) {
     };
 }
 
-function normalizePositions(nodes, fixedPositions) {
+function normalizePositions(nodes, fixedPositions, keepApart) {
     const occupied = [];
     const placed = new globalThis.Map();
     const pending = [];
@@ -249,7 +251,7 @@ function normalizePositions(nodes, fixedPositions) {
             return;
         }
 
-        const position = findFreePosition(preferred, occupied, node.id());
+        const position = findFreePosition(preferred, occupied, node.id(), keepApart);
         node.position(position);
         occupied.push(position);
         placed.set(node.id(), position);
@@ -260,7 +262,7 @@ function normalizePositions(nodes, fixedPositions) {
             .map(neighbour => placed.get(neighbour.id()))
             .filter(Boolean);
         const origin = neighbours.length ? averagePosition(neighbours) : averagePosition(occupied);
-        const position = findFreePosition(origin, occupied, node.id());
+        const position = findFreePosition(origin, occupied, node.id(), keepApart);
         node.position(position);
         occupied.push(position);
         placed.set(node.id(), position);
@@ -291,7 +293,7 @@ function currentViewport(cy) {
     };
 }
 
-function runLayout(cy, savedPositions, preservedPositions, badgeState, viewport) {
+function runLayout(cy, savedPositions, preservedPositions, badgeState, viewport, keepApart) {
     const fixedPositions = positionMap(savedPositions);
     preservedPositions.forEach((position, id) => fixedPositions.set(id, position));
     const nodes = cy.nodes().toArray().sort((left, right) => left.id().localeCompare(right.id()));
@@ -307,9 +309,9 @@ function runLayout(cy, savedPositions, preservedPositions, badgeState, viewport)
             idealEdgeLength: () => 150,
             randomize: true
         }).run();
-        normalizePositions(nodes, capturePositionMap(cy));
+        normalizePositions(nodes, capturePositionMap(cy), keepApart);
     } else {
-        normalizePositions(nodes, fixedPositions);
+        normalizePositions(nodes, fixedPositions, keepApart);
     }
 
     if (!applyViewport(cy, viewport)) {
@@ -350,7 +352,13 @@ function findFreeGroupOffset(nodes, occupied, id) {
     return { x: occupied.length * minimumNodeDistance, y: 0 };
 }
 
-function separateDraggedNodes(cy, draggedNode) {
+function separateDraggedNodes(cy, draggedNode, keepApart) {
+    // Only what was dragged is ever moved by this, and with spacing off nothing is: a record stays
+    // exactly where it was dropped.
+    if (!keepApart) {
+        return;
+    }
+
     const selected = cy.nodes(':selected').toArray();
     const moved = draggedNode.selected() && selected.length > 1 ? selected : [draggedNode];
     const movedIds = new Set(moved.map(node => node.id()));
@@ -414,7 +422,7 @@ function dismissMenuIfOpen(callback, state) {
     callback.invokeMethodAsync('ContextMenuDismissed');
 }
 
-export function create(element, callback, graph, savedPositions, savedViewport) {
+export function create(element, callback, graph, savedPositions, savedViewport, keepApart) {
     if (!globalThis.cytoscape || !element?.isConnected || graphs.has(element)) {
         return;
     }
@@ -431,6 +439,9 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
     });
     const shell = element.parentElement;
     const menuState = { open: false };
+    // Held in an object so that changing it later reaches the handlers already bound below,
+    // and so that changing it moves nothing that is already placed.
+    const spacing = { keepApart: keepApart !== false };
     const badgeLayer = shell.querySelector('.graph-type-badges');
     const selectionSummary = shell.querySelector('.graph-multi-selection');
     const badgeState = { elements: new globalThis.Map(), frame: undefined };
@@ -515,7 +526,7 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         }
     });
     cy.on('dragfree', 'node', event => {
-        separateDraggedNodes(cy, event.target);
+        separateDraggedNodes(cy, event.target, spacing.keepApart);
         notifyGraphChanged();
     });
 
@@ -564,24 +575,45 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         });
     });
     observer.observe(element);
-    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState, selectionSummary, menuState });
-    runLayout(cy, savedPositions, new globalThis.Map(), badgeState, savedViewport);
+    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState, selectionSummary, menuState, spacing });
+    runLayout(cy, savedPositions, new globalThis.Map(), badgeState, savedViewport, spacing.keepApart);
 }
 
-export function update(element, graph, savedPositions) {
+export function update(element, graph, savedPositions, placement) {
     const instance = graphs.get(element);
     if (!instance) {
         return;
     }
 
-    const { cy, badgeLayer, badgeState } = instance;
+    const { cy, badgeLayer, badgeState, spacing } = instance;
     const preservedPositions = capturePositionMap(cy);
     const preservedViewport = currentViewport(cy);
+
+    // A record created from the canvas belongs where the operator right-clicked, so its point is
+    // converted from the screen into the graph's own coordinates and offered to the layout as a
+    // position already chosen. Spacing may still nudge it off that exact point, which is why the
+    // menu promises roughly there rather than exactly.
+    if (placement?.recordId) {
+        preservedPositions.set(placement.recordId, {
+            x: (placement.x - cy.pan().x) / cy.zoom(),
+            y: (placement.y - cy.pan().y) / cy.zoom()
+        });
+    }
+
     cy.elements().remove();
     cy.add(elements(graph, savedPositions));
     rebuildBadges(badgeLayer, graph, badgeState);
     updateSelectionSummary(cy, instance.selectionSummary);
-    runLayout(cy, savedPositions, preservedPositions, badgeState, preservedViewport);
+    runLayout(cy, savedPositions, preservedPositions, badgeState, preservedViewport, spacing.keepApart);
+}
+
+/// Changed without relayout on purpose: turning spacing off must not rearrange a canvas the
+/// operator has already arranged. It governs what happens to records placed or moved from now on.
+export function setKeepApart(element, keepApart) {
+    const instance = graphs.get(element);
+    if (instance) {
+        instance.spacing.keepApart = keepApart !== false;
+    }
 }
 
 export function getPositions(element) {
@@ -591,7 +623,7 @@ export function getPositions(element) {
     }
 
     const nodes = graph.cy.nodes().toArray().sort((left, right) => left.id().localeCompare(right.id()));
-    normalizePositions(nodes, capturePositionMap(graph.cy));
+    normalizePositions(nodes, capturePositionMap(graph.cy), graph.spacing.keepApart);
     queueBadgePositions(graph.cy, graph.badgeState);
     return nodes
         .map(node => {

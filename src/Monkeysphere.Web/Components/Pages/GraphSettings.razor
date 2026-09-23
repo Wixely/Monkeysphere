@@ -39,6 +39,17 @@ else
         </label>
         <p class="muted">This includes changes to filters, selected records, node positions, pan, and zoom. The warning also applies when closing or reloading the browser tab.</p>
 
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_keepRecordsApart" />
+            <span>Keep records from overlapping when they are placed or moved</span>
+        </label>
+        <p class="muted">
+            On, a record being placed or dragged is nudged clear of its neighbours so that one cannot hide
+            another. Off, it stays exactly where it is put, which is what you want when arranging a layout
+            by hand. Either way this only governs records you place or move from now on: turning it off
+            does not rearrange anything already on the canvas.
+        </p>
+
         <h2>How much of the graph to draw</h2>
         <p class="muted">
             The graph stops at these figures and says so rather than drawing without limit. They ship at
@@ -67,6 +78,7 @@ else
 
 @code {
     private bool _warnUnsavedChanges = true;
+    private bool _keepRecordsApart = true;
     private int _nodeLimit = RelationshipGraphService.DefaultNodes;
     private int _edgeLimit = RelationshipGraphService.DefaultEdges;
     private bool _loading = true;
@@ -77,6 +89,7 @@ else
     {
         GraphConfiguration configuration = await GraphSettingsService.GetAsync();
         _warnUnsavedChanges = configuration.WarnUnsavedChanges;
+        _keepRecordsApart = configuration.KeepRecordsApart;
         _nodeLimit = configuration.NodeLimit;
         _edgeLimit = configuration.EdgeLimit;
         _loading = false;
@@ -89,7 +102,7 @@ else
         try
         {
             GraphConfiguration saved = await GraphSettingsService.SaveAsync(
-                new(_warnUnsavedChanges, _nodeLimit, _edgeLimit));
+                new(_warnUnsavedChanges, _nodeLimit, _edgeLimit, _keepRecordsApart));
             _message = saved.IsRaised
                 ? $"Graph settings saved. The graph will draw up to {saved.NodeLimit:N0} records and {saved.EdgeLimit:N0} relationships, which is above the size this release was measured at."
                 : $"Graph settings saved. The graph will draw up to {saved.NodeLimit:N0} records and {saved.EdgeLimit:N0} relationships.";

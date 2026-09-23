@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 34,
+        currentVersion: 35,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -856,6 +856,14 @@ public static class MonkeysphereSchema
                     CHECK (NodeLimit BETWEEN 10 AND 2000);
                 ALTER TABLE GraphSettings ADD COLUMN EdgeLimit INTEGER NOT NULL DEFAULT 2000
                     CHECK (EdgeLimit BETWEEN 10 AND 10000);
+                """),
+            DnaXMigration.Sql(35, "optional-node-spacing", "Let an operator place records where they choose rather than apart", """
+                -- The graph nudges records apart so that one cannot hide another. That is the right
+                -- default and a nuisance when somebody is arranging a layout deliberately, so it
+                -- becomes a choice. It governs only records being placed or moved; nothing already
+                -- on the canvas shifts when this is turned off.
+                ALTER TABLE GraphSettings ADD COLUMN KeepRecordsApart INTEGER NOT NULL DEFAULT 1
+                    CHECK (KeepRecordsApart IN (0, 1));
                 """),
         ]);
 }
