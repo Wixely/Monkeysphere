@@ -6,6 +6,9 @@
 @inject IGraphViewService GraphViews
 @inject IGraphSettingsService GraphSettings
 @inject IMonkeysphereService Records
+@inject IRecordTagCommandService Tagging
+@inject IRecordTagStore TagVocabulary
+@inject ITagCatalogue TagCatalogue
 @inject ICurrentDomain CurrentDomain
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -168,7 +171,101 @@
                                          OnNodeSelected="SelectNode"
                                          OnGraphChanged="MarkGraphDirty"
                                          CenterRecordId="_centreRecordId"
-                                         CenterRequest="_centreRequest" />
+                                         CenterRequest="_centreRequest"
+                                         OnContextMenuRequested="OpenMenuAsync"
+                                         OnContextMenuDismissed="CloseMenu" />
+
+                @if (_menu is not null)
+                {
+                    @* Inside the frame, not at page level. An overlay outside the fullscreen
+                       element is invisible while the graph fills the screen, which is exactly how
+                       the image gallery used to behave. *@
+                    <div class="graph-context-menu" role="menu" aria-label="@MenuLabel"
+                         style="left: @(_menu.X)px; top: @(_menu.Y)px" @onkeydown="MenuKeyDownAsync">
+                        <p class="graph-context-menu-title">@MenuLabel</p>
+
+                        @if (_menu.RecordId is null)
+                        {
+                            <p class="graph-context-menu-section" id="graph-menu-types">New record type</p>
+                            <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-types">
+                                @foreach (RecordType type in RecentTypes)
+                                {
+                                    <button type="button" role="menuitem"
+                                            class="graph-context-menu-choice @(type.Id == _newRecordTypeId ? "chosen" : null)"
+                                            aria-pressed="@(type.Id == _newRecordTypeId ? "true" : "false")"
+                                            @onclick="() => ChooseTypeAsync(type.Id)">@DisplayTypeName(type)</button>
+                                }
+                            </div>
+                            <label class="graph-context-menu-other">
+                                Other type
+                                <select value="@(_newRecordTypeId?.ToString("D") ?? string.Empty)"
+                                        @onchange="OtherTypeChosenAsync">
+                                    <option value="">Choose a type</option>
+                                    @foreach (RecordType type in _recordTypes)
+                                    {
+                                        <option value="@type.Id.ToString("D")">@DisplayTypeName(type)</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="graph-context-menu-name">
+                                Name
+                                <input type="text" maxlength="200" placeholder="What is it called?"
+                                       value="@_newRecordName" @oninput="NewRecordNameChanged" />
+                            </label>
+                            <button type="button" class="button primary graph-context-menu-create"
+                                    disabled="@(!CanCreateRecord)" @onclick="CreateRecordAsync">Create record</button>
+                        }
+                        else
+                        {
+                            <p class="graph-context-menu-section" id="graph-menu-tags">Tags</p>
+                            <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-tags">
+                                @foreach (string tag in RecentTags)
+                                {
+                                    <div class="graph-context-menu-tag">
+                                        <button type="button" role="menuitem" class="tag-apply add"
+                                                aria-label="@($"Add {tag} to {MenuTargetDescription}")"
+                                                title="@($"Add {tag}")"
+                                                @onclick="() => ApplyTagAsync(tag, add: true)">+</button>
+                                        <button type="button" role="menuitem" class="tag-apply remove"
+                                                aria-label="@($"Remove {tag} from {MenuTargetDescription}")"
+                                                title="@($"Remove {tag}")"
+                                                @onclick="() => ApplyTagAsync(tag, add: false)">&minus;</button>
+                                        <span class="graph-context-menu-tag-name">@tag</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="graph-context-menu-tag other">
+                                <button type="button" role="menuitem" class="tag-apply add"
+                                        disabled="@string.IsNullOrEmpty(_otherTag)"
+                                        aria-label="@($"Add the chosen tag to {MenuTargetDescription}")"
+                                        title="Add the chosen tag"
+                                        @onclick="() => ApplyTagAsync(_otherTag, add: true)">+</button>
+                                <button type="button" role="menuitem" class="tag-apply remove"
+                                        disabled="@string.IsNullOrEmpty(_otherTag)"
+                                        aria-label="@($"Remove the chosen tag from {MenuTargetDescription}")"
+                                        title="Remove the chosen tag"
+                                        @onclick="() => ApplyTagAsync(_otherTag, add: false)">&minus;</button>
+                                <label class="graph-context-menu-other">
+                                    <span class="visually-hidden">Other tag</span>
+                                    <select value="@_otherTag" @onchange="OtherTagChosen">
+                                        <option value="">Other tag...</option>
+                                        @foreach (string tag in OtherTags)
+                                        {
+                                            <option value="@tag">@tag</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+                            <a role="menuitem" class="graph-context-menu-link"
+                               href="/records/@_menu.RecordId">Open record</a>
+                        }
+
+                        @if (_menuMessage is not null)
+                        {
+                            <p class="graph-context-menu-message" role="status">@_menuMessage</p>
+                        }
+                    </div>
+                }
             </div>
             <label class="graph-record-picker graph-stage-aside">
                 Centre a displayed record
@@ -354,6 +451,14 @@
     private GraphViewViewport? _viewport;
     private bool _warnUnsavedChanges = true;
     private GraphConfiguration _graphConfiguration = new();
+    private RelationshipGraphCanvas.ContextMenuRequest? _menu;
+    private IReadOnlyList<string> _tagVocabulary = [];
+    private IReadOnlyList<string> _recentTags = [];
+    private IReadOnlyList<string> _recentTypeIds = [];
+    private string _otherTag = string.Empty;
+    private Guid? _newRecordTypeId;
+    private string _newRecordName = string.Empty;
+    private string? _menuMessage;
     private bool _isDirty;
     private bool _allowNavigation;
     private RecordDetails? _galleryRecord;
@@ -366,6 +471,48 @@
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
 
     private string FullscreenLabel => _fullscreen ? "Exit fullscreen" : "Fullscreen";
+
+    /// <summary>How many of each the menu offers before falling back to its dropdown.</summary>
+    private const int RecentCount = 5;
+
+    private string MenuLabel => _menu?.RecordId is null
+        ? "Create a record here"
+        : $"Actions for {MenuTargetDescription}";
+
+    private string MenuTargetDescription
+    {
+        get
+        {
+            int count = _menu?.RecordIds.Count ?? 0;
+            if (count > 1)
+            {
+                return $"{count} selected records";
+            }
+
+            Guid? id = _menu?.RecordId;
+            return _graph.Nodes.FirstOrDefault(node => node.RecordId == id)?.DisplayName ?? "this record";
+        }
+    }
+
+    // Recently used first, then whatever else the catalogue offers, so the list is never empty on
+    // a browser that has not been used for this yet.
+    private IReadOnlyList<string> RecentTags =>
+        [.. _recentTags.Where(tag => _tagVocabulary.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            .Concat(_tagVocabulary.Where(tag => !_recentTags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
+            .Take(RecentCount)];
+
+    private IReadOnlyList<string> OtherTags =>
+        [.. _tagVocabulary.Where(tag => !RecentTags.Contains(tag, StringComparer.OrdinalIgnoreCase))];
+
+    private IReadOnlyList<RecordType> RecentTypes =>
+        [.. _recentTypeIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
+            .Select(id => _recordTypes.FirstOrDefault(type => type.Id == id))
+            .Where(type => type is not null)
+            .Concat(_recordTypes.Where(type => !_recentTypeIds.Contains(type.Id.ToString("D"), StringComparer.Ordinal)))
+            .OfType<RecordType>()
+            .Take(RecentCount)];
+
+    private bool CanCreateRecord => _newRecordTypeId is not null && !string.IsNullOrWhiteSpace(_newRecordName);
 
     /// <summary>
     /// The canvas names this through aria-describedby, which is read whether or not the paragraph
@@ -933,6 +1080,172 @@
         _fullscreen = active;
         _fullscreenMessage = null;
         StateHasChanged();
+    }
+
+    private async Task OpenMenuAsync(RelationshipGraphCanvas.ContextMenuRequest request)
+    {
+        _menu = request;
+        _menuMessage = null;
+        _otherTag = string.Empty;
+        _newRecordName = string.Empty;
+        _newRecordTypeId = RecentTypes.FirstOrDefault()?.Id;
+
+        // Read when the menu opens rather than carrying tags on every graph query. At 500 nodes
+        // that would be a much larger response for something most graph loads never look at.
+        _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
+        if (_preferencesModule is not null)
+        {
+            string domain = CurrentDomain.Id.ToString("D");
+            _recentTags = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "tags", domain);
+            _recentTypeIds = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "types", domain);
+        }
+
+        StateHasChanged();
+    }
+
+    private void CloseMenu()
+    {
+        _menu = null;
+        _menuMessage = null;
+    }
+
+    private Task MenuKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CloseMenu();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void OtherTagChosen(ChangeEventArgs args) => _otherTag = args.Value?.ToString() ?? string.Empty;
+
+    private void NewRecordNameChanged(ChangeEventArgs args) => _newRecordName = args.Value?.ToString() ?? string.Empty;
+
+    private Task ChooseTypeAsync(Guid typeId)
+    {
+        _newRecordTypeId = typeId;
+        return Task.CompletedTask;
+    }
+
+    private Task OtherTypeChosenAsync(ChangeEventArgs args)
+    {
+        _newRecordTypeId = Guid.TryParse(args.Value?.ToString(), out Guid id) ? id : null;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Applies one tag to everything the menu is acting on, regardless of what each record carried
+    /// before. No expected revision goes with it deliberately: adding or removing one named tag
+    /// cannot overwrite somebody else's concurrent change the way a whole-record save could, so a
+    /// revision check here would refuse work without preventing any loss.
+    /// </summary>
+    private async Task ApplyTagAsync(string tag, bool add)
+    {
+        if (_menu is null || string.IsNullOrWhiteSpace(tag))
+        {
+            return;
+        }
+
+        IReadOnlyList<Guid> targets = _menu.RecordIds.Count > 0
+            ? _menu.RecordIds
+            : _menu.RecordId is Guid single ? [single] : [];
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<RecordTagChange> changes = await Tagging.ApplyAsync(new(
+                [.. targets.Select(id => new RecordTagSelection(id))],
+                Add: add ? [tag] : null,
+                Remove: add ? null : [tag]));
+            _menuMessage = DescribeTagResult(tag, add, changes);
+            await RememberRecentAsync("tags", tag);
+            await ReloadAsync();
+        }
+        catch (DomainValidationException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+    }
+
+    private static string DescribeTagResult(string tag, bool add, IReadOnlyList<RecordTagChange> changes)
+    {
+        int changed = changes.Count(change => change.Outcome == RecordTagOutcome.Applied);
+        int already = changes.Count(change => change.Outcome == RecordTagOutcome.Unchanged);
+        int refused = changes.Count(change => change.Outcome == RecordTagOutcome.TagsDisabled);
+        string verb = add ? "Added" : "Removed";
+        string preposition = add ? "to" : "from";
+        List<string> parts = [$"{verb} {tag} {preposition} {changed} record{(changed == 1 ? string.Empty : "s")}"];
+        if (already > 0)
+        {
+            parts.Add($"{already} already {(add ? "had" : "lacked")} it");
+        }
+
+        // Named rather than folded into the count: a record whose type has no tags did not take
+        // the change, and reporting it as done would be untrue.
+        if (refused > 0)
+        {
+            parts.Add($"{refused} cannot carry tags");
+        }
+
+        return string.Join("; ", parts) + ".";
+    }
+
+    private async Task CreateRecordAsync()
+    {
+        if (_menu is null || _newRecordTypeId is not Guid typeId || string.IsNullOrWhiteSpace(_newRecordName))
+        {
+            return;
+        }
+
+        if (_graph.NodesTruncated)
+        {
+            // The view is already showing everything it will draw, so a new record would be
+            // created and then not appear, which reads as a failure.
+            _menuMessage = "This view is already at its record limit, so a new record would not appear. Narrow the view or raise the limit in graph settings first.";
+            return;
+        }
+
+        try
+        {
+            RecordDetails created = await Records.CreateRecordAsync(typeId, _newRecordName.Trim(), []);
+            await RememberRecentAsync("types", typeId.ToString("D"));
+
+            // Added to the selected set so it is displayed whatever the current filter is, which
+            // is the only way a newly created record is guaranteed to be visible at all.
+            _selectedRecords.Add(created.Record);
+            await ReloadAsync();
+            _menuMessage = $"Created {created.Record.DisplayName}.";
+            _newRecordName = string.Empty;
+            _isDirty = true;
+        }
+        catch (DomainValidationException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+    }
+
+    private async Task RememberRecentAsync(string kind, string value)
+    {
+        if (_preferencesModule is null)
+        {
+            return;
+        }
+
+        string[] next = await _preferencesModule.InvokeAsync<string[]>(
+            "rememberRecent", kind, CurrentDomain.Id.ToString("D"), value, RecentCount);
+        if (kind == "tags")
+        {
+            _recentTags = next;
+        }
+        else
+        {
+            _recentTypeIds = next;
+        }
     }
 
     private Task MarkGraphDirty()

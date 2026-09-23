@@ -10,9 +10,6 @@
          aria-describedby="relationship-graph-description"></div>
     <div class="graph-type-badges" aria-hidden="true"></div>
     <div class="graph-multi-selection" role="status" aria-live="polite" hidden></div>
-    <div class="graph-record-menu" role="menu" aria-label="Record actions" hidden>
-        <a role="menuitem" href="/records">View record</a>
-    </div>
 </div>
 
 @code {
@@ -30,6 +27,17 @@
 
     [Parameter]
     public EventCallback OnGraphChanged { get; set; }
+
+    /// <summary>
+    /// Raised when the canvas is asked for a context menu, on a record or on empty space. The
+    /// menu is rendered by the page rather than here: it carries record types, tags and controls,
+    /// which is a user interface, and the canvas only knows where and on what it was asked for.
+    /// </summary>
+    [Parameter]
+    public EventCallback<ContextMenuRequest> OnContextMenuRequested { get; set; }
+
+    [Parameter]
+    public EventCallback OnContextMenuDismissed { get; set; }
 
     [Parameter]
     public Guid? CenterRecordId { get; set; }
@@ -84,6 +92,25 @@
 
     [JSInvokable]
     public Task GraphChanged() => OnGraphChanged.InvokeAsync();
+
+    /// <summary>
+    /// A null <paramref name="recordId"/> means empty canvas. <paramref name="recordIds"/> is what
+    /// the menu should act on: the whole selection when the pointer was inside it, and the one
+    /// record it was pointing at when it was not.
+    /// </summary>
+    [JSInvokable]
+    public Task ContextMenuRequested(string? recordId, string[] recordIds, int x, int y) =>
+        OnContextMenuRequested.InvokeAsync(new(
+            Guid.TryParse(recordId, out Guid parsed) ? parsed : null,
+            [.. recordIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty).Where(id => id != Guid.Empty)],
+            x,
+            y));
+
+    [JSInvokable]
+    public Task ContextMenuDismissed() => OnContextMenuDismissed.InvokeAsync();
+
+    /// <summary>Where the canvas was asked for a menu, and what the menu should act on.</summary>
+    public sealed record ContextMenuRequest(Guid? RecordId, IReadOnlyList<Guid> RecordIds, int X, int Y);
 
     public async Task<IReadOnlyList<GraphViewNodePosition>> CaptureNodePositionsAsync()
     {

@@ -381,28 +381,37 @@ function isAdditiveSelection(event) {
     return Boolean(original?.ctrlKey || original?.metaKey || original?.shiftKey);
 }
 
-function hideRecordMenu(menu) {
-    menu.hidden = true;
+// The menu itself is rendered by the component rather than built here. It carries record types,
+// tags, buttons and a dropdown, which is a user interface rather than a bit of canvas decoration,
+// and reimplementing focus order and labelling for it in this file would be building a second one.
+// What this file still owns is where and when: it decides that a menu was asked for, on what, and
+// at which point of the canvas, and hands that over.
+function selectedRecordIds(cy) {
+    return cy.nodes(':selected').map(node => node.data('recordId')).filter(Boolean);
 }
 
-function showRecordMenu(element, menu, node, renderedPosition) {
-    const recordId = node.data('recordId');
-    if (!recordId) {
+// Clamped here rather than in the component, because this is where the canvas's own size is
+// known. The figures are the menu's rough extent: a little too generous is a menu that opens
+// slightly inside the edge, which is better than one that opens past it.
+const menuExtent = { width: 320, height: 380 };
+
+function requestMenu(element, callback, recordId, recordIds, renderedPosition) {
+    const x = Math.min(
+        Math.max(8, renderedPosition?.x ?? 0),
+        Math.max(8, element.clientWidth - menuExtent.width - 8));
+    const y = Math.min(
+        Math.max(8, renderedPosition?.y ?? 0),
+        Math.max(8, element.clientHeight - menuExtent.height - 8));
+    callback.invokeMethodAsync('ContextMenuRequested', recordId ?? null, recordIds, Math.round(x), Math.round(y));
+}
+
+function dismissMenuIfOpen(callback, state) {
+    if (!state.open) {
         return;
     }
 
-    const link = menu.querySelector('a');
-    link.href = `/records/${encodeURIComponent(recordId)}`;
-    link.textContent = `View ${node.data('label') || 'record'}`;
-    menu.hidden = false;
-
-    const menuWidth = menu.offsetWidth;
-    const menuHeight = menu.offsetHeight;
-    const x = Math.min(Math.max(8, renderedPosition.x), Math.max(8, element.clientWidth - menuWidth - 8));
-    const y = Math.min(Math.max(8, renderedPosition.y), Math.max(8, element.clientHeight - menuHeight - 8));
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    link.focus({ preventScroll: true });
+    state.open = false;
+    callback.invokeMethodAsync('ContextMenuDismissed');
 }
 
 export function create(element, callback, graph, savedPositions, savedViewport) {
@@ -421,7 +430,7 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         style: graphStyles()
     });
     const shell = element.parentElement;
-    const menu = shell.querySelector('.graph-record-menu');
+    const menuState = { open: false };
     const badgeLayer = shell.querySelector('.graph-type-badges');
     const selectionSummary = shell.querySelector('.graph-multi-selection');
     const badgeState = { elements: new globalThis.Map(), frame: undefined };
@@ -464,23 +473,44 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         }
     });
     cy.on('select unselect', 'node', () => updateSelectionSummary(cy, selectionSummary));
-    cy.on('cxttap', 'node', event => {
-        const node = event.target;
-        if (!node.data('recordId')) {
+    // One handler for both menus. Cytoscape reports a right-click on empty canvas with the core
+    // as its target, so telling them apart here is what decides whether the component is being
+    // asked about a record or about the space between them.
+    cy.on('cxttap', event => {
+        event.originalEvent?.preventDefault();
+        const node = event.target !== cy && event.target.isNode?.() ? event.target : null;
+        const recordId = node?.data('recordId');
+        if (!recordId) {
+            menuState.open = true;
+            requestMenu(element, callback, null, [], event.renderedPosition);
             return;
         }
 
-        event.originalEvent?.preventDefault();
-        if (!node.selected()) {
-            cy.nodes().unselect();
-            node.select();
+        // Right-clicking outside the selection acts on that record alone, which is what the
+        // pointer was pointing at; right-clicking within it keeps the whole selection.
+        const alreadySelected = node.selected();
+        const ids = alreadySelected ? selectedRecordIds(cy) : [recordId];
+        if (!alreadySelected) {
+            requestAnimationFrame(() => {
+                if (node.removed()) {
+                    return;
+                }
+
+                cy.nodes().unselect();
+                node.select();
+                updateSelectionSummary(cy, selectionSummary);
+            });
         }
-        showRecordMenu(element, menu, node, event.renderedPosition);
+
+        menuState.open = true;
+        requestMenu(element, callback, recordId, ids, event.renderedPosition);
     });
-    cy.on('tap drag', () => hideRecordMenu(menu));
+    cy.on('tap drag', () => dismissMenuIfOpen(callback, menuState));
     cy.on('pan zoom', event => {
-        hideRecordMenu(menu);
+        // Only when the operator moved the graph. Creating a record relayouts it, and a menu that
+        // closed on its own relayout would take its own "created that" message with it.
         if (event.originalEvent) {
+            dismissMenuIfOpen(callback, menuState);
             notifyGraphChanged();
         }
     });
@@ -491,13 +521,15 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
 
     const suppressContextMenu = event => event.preventDefault();
     const dismissMenu = event => {
-        if (!shell.contains(event.target)) {
-            hideRecordMenu(menu);
+        // The menu is the component's element now, so it is not inside the shell; a pointer landing
+        // in it must not be read as a click away from it.
+        if (!shell.contains(event.target) && !event.target?.closest?.('.graph-context-menu')) {
+            dismissMenuIfOpen(callback, menuState);
         }
     };
     const handleKeyDown = event => {
         if (event.key === 'Escape') {
-            hideRecordMenu(menu);
+            dismissMenuIfOpen(callback, menuState);
             element.focus();
             return;
         }
@@ -509,12 +541,16 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         const node = selected.length
             ? selected.first()
             : cy.nodes().filter(item => item.data('recordId')).first();
+        event.preventDefault();
+        menuState.open = true;
         if (!node?.length) {
+            // No record to act on, so this is the canvas menu, opened from the keyboard at a
+            // sensible place rather than wherever a pointer last happened to be.
+            requestMenu(element, callback, null, [], { x: element.clientWidth / 2, y: element.clientHeight / 2 });
             return;
         }
 
-        event.preventDefault();
-        showRecordMenu(element, menu, node, node.renderedPosition());
+        requestMenu(element, callback, node.data('recordId'), selectedRecordIds(cy), node.renderedPosition());
     };
     element.addEventListener('contextmenu', suppressContextMenu);
     element.addEventListener('keydown', handleKeyDown);
@@ -528,7 +564,7 @@ export function create(element, callback, graph, savedPositions, savedViewport) 
         });
     });
     observer.observe(element);
-    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState, selectionSummary });
+    graphs.set(element, { cy, observer, suppressContextMenu, handleKeyDown, dismissMenu, badgeLayer, badgeState, changeState, selectionSummary, menuState });
     runLayout(cy, savedPositions, new globalThis.Map(), badgeState, savedViewport);
 }
 

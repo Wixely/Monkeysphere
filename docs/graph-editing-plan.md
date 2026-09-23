@@ -1,6 +1,6 @@
 # Graph editing surface implementation plan
 
-- Status: M0 and M1 delivered; D1, D2, D3, D5 and D6 settled; M2-M5 remain, and D4 and D7 with them
+- Status: M0-M4 delivered; every decision settled except what M5 needs; M5 remains
 - Created and last reviewed: 2026-09-22
 - Plan owner: TBD
 - Next review: 2026-10-05
@@ -66,7 +66,9 @@ Original recommendation:  Recommend *not* adding `Tags` and `Revision` to `Relat
 
 Original recommendation:  Recommend adding a relationship update for the note and the relationship type, with a revision check, so "edit" means edit rather than delete-and-recreate — recreating changes the relationship's identity, which would silently invalidate anything holding its ID. If that is judged too large for a first pass, ship create and delete only and say so in the UI, rather than implementing edit as delete-plus-create.
 
-**D4 — Decide which record types are creatable from the canvas.** The captured open question. Recommend offering the record types currently selected in the view's type filter first, since that is the context the operator is already working in, with a search over all installed types behind a "more types" affordance. Where exactly one type is selected, default to it and ask only for the name.
+**D4 — Decide which record types are creatable from the canvas. Settled 2026-09-23, and not as recommended.** The shortlist is the five types most recently picked, kept per browser, with a dropdown for the rest. Recency beats the filter context the original recommendation proposed: what somebody reached for last is a better guess at what they want next than what their current view happens to be filtered to, and it needs no explaining.
+
+Original recommendation, superseded:  The captured open question. Recommend offering the record types currently selected in the view's type filter first, since that is the context the operator is already working in, with a search over all installed types behind a "more types" affordance. Where exactly one type is selected, default to it and ask only for the name.
 
 **D5 — Fullscreen must include the accessible alternative. Settled and implemented in M1.** Fullscreening `.relationship-graph-shell` would drop the "Centre a displayed record" combobox out of view, because it is a sibling of the canvas component rather than a child. That is an accessibility regression against a documented, test-asserted requirement. Recommend introducing a wrapper element containing the canvas *and* the accessible controls, and requesting fullscreen on that.
 
@@ -74,7 +76,9 @@ Original recommendation:  Recommend adding a relationship update for the note an
 
 Original recommendation, superseded:  A record or relationship created while the view is already truncated at 500 nodes or 2,000 edges may not appear in the re-query. Recommend that creation from the canvas refuses with an explanation while the view is truncated, rather than appearing to succeed and vanishing. The alternative — create anyway and warn — is acceptable but must be an explicit choice.
 
-**D7 — Decide whether a created record joins the filter or the selection.** A new record may fall outside the active filter and so not appear at all. Recommend adding it to the page's selected-record set, which guarantees it is displayed, and pinning it at the click position so it appears where the operator clicked.
+**D7 — Decide whether a created record joins the filter or the selection. Settled and delivered 2026-09-23 as recommended:** the new record joins the selected set, which is the only way it is guaranteed to be drawn whatever the current filter is.
+
+Original recommendation:  A new record may fall outside the active filter and so not appear at all. Recommend adding it to the page's selected-record set, which guarantees it is displayed, and pinning it at the click position so it appears where the operator clicked.
 
 ## Milestones
 
@@ -156,6 +160,16 @@ Dependencies: M0 (D4, D6, D7).
 
 Exit criteria: the created record exists with the chosen type and name and is visible in the graph without a manual re-query; it opens in the record form with no field values and no aliases; unsaved node positions elsewhere in the view survive the re-query; creation while truncated is refused with an explanation.
 
+**M2, M3 and M4 delivered 2026-09-23, as one menu rather than three features.** Right-clicking a record offers its tags; right-clicking empty canvas offers a new record. Both use the same shape: the five most recently picked, then a dropdown for everything else, kept per browser because losing it costs nothing.
+
+Tags carry a green `+` and a red `-` rather than a toggle showing state. Either applies to everything selected regardless of what each record carried before, which makes the action idempotent and independent of order, and means the menu does not have to read and display the selection's current tags to be honest. The result is reported as counts, naming separately how many already had the tag and how many belong to a type that cannot carry tags.
+
+Those go through the M0 command with no expected revision, deliberately. Adding or removing one named tag cannot overwrite somebody else's concurrent change the way a whole-record save could, so a revision check there would refuse work without preventing any loss. That is a departure from the cross-cutting rule below and is why it is written down.
+
+The menu moved out of `relationship-graph.js` and into the component. It carries record types, tags, buttons and a dropdown, which is a user interface; reimplementing focus order and labelling for that in JavaScript would have been building a second one. The canvas still decides where and on what a menu was asked for, and the menu renders inside the canvas frame so that it is present in fullscreen.
+
+Two things surfaced while verifying it. Creating a record relayouts the graph, which fires cytoscape's `pan`/`zoom`, which closed the menu and took its own "created that" confirmation with it; dismissal is now limited to operator-driven movement, which the same handler already distinguished for dirty-tracking. And right-clicking a record outside the current selection acts on that record alone, while right-clicking within the selection keeps the whole of it — the pointer pointing at something is a weaker signal of intent than a selection already made.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.
@@ -177,7 +191,6 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 
 ## Open questions
 
-- D6 revisited: with the limit now raisable, what should M4 do when creating a record into a view that is already truncated?
 - Should relationship *type* creation be reachable from the canvas when no suitable type exists, or should that remain a trip to Structures? Recommend the latter, to keep structure changes deliberate.
 - The truncation notice is outside the stage and so is hidden in fullscreen. Move it in before M4, which has to report that boundary.
 - Touch parity is unverified. The canvas `aria-label` tells the operator they can "long-press a record for actions", but the menu is wired only to cytoscape's `cxttap` and no `taphold` handler exists. Whether long-press reaches the menu on a real touch device needs checking before the menu carries destructive actions, and the label corrected if it does not.
@@ -188,4 +201,5 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] D3 settled and delivered: relationships can be edited in place.
 - [x] D6 settled and delivered: the rendering boundary is configurable from graph settings.
 - [x] D1 and D2 settled, and the M0 tagging groundwork delivered.
-- [ ] Settle D4 and D7 when M4 is next, then build M2 on the tag command. Owner: TBD; review by 2026-10-05.
+- [x] D4 and D7 settled; M2, M3 and M4 delivered as one menu pattern.
+- [ ] M5: relationship editing on the canvas, on the same menu. Owner: TBD; review by 2026-10-05.

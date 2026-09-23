@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.IO.Compression;
@@ -77,8 +77,11 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         Assert.Contains("graph-type-badge", graphScript, StringComparison.Ordinal);
         Assert.Contains("node.renderedPosition()", graphScript, StringComparison.Ordinal);
         Assert.Contains("cy.on('render'", graphScript, StringComparison.Ordinal);
-        Assert.Contains("cy.on('cxttap', 'node'", graphScript, StringComparison.Ordinal);
-        Assert.Contains("View ${node.data('label') || 'record'}", graphScript, StringComparison.Ordinal);
+        // One handler now, because a right-click on empty canvas offers its own menu and telling
+        // the two apart is the point; the menu itself is the component's and no longer built here.
+        Assert.Contains("cy.on('cxttap', event =>", graphScript, StringComparison.Ordinal);
+        Assert.Contains("ContextMenuRequested", graphScript, StringComparison.Ordinal);
+        Assert.Contains("ContextMenuDismissed", graphScript, StringComparison.Ordinal);
         Assert.Contains("event.shiftKey && event.key === 'F10'", graphScript, StringComparison.Ordinal);
         Assert.Contains("'active-bg-opacity': 0", graphScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere:themechanged", graphScript, StringComparison.Ordinal);
@@ -89,9 +92,14 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         Assert.Contains("preservedPositions", graphScript, StringComparison.Ordinal);
         Assert.Contains("ResizeObserver", graphScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, graphPreferences.StatusCode);
-        Assert.Contains("monkeysphere.graph.record-types", await graphPreferences.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        string preferencesScript = await graphPreferences.Content.ReadAsStringAsync();
+        Assert.Contains("monkeysphere.graph.record-types", preferencesScript, StringComparison.Ordinal);
+        Assert.Contains("monkeysphere.graph.recent.", preferencesScript, StringComparison.Ordinal);
         Assert.Contains(".relationship-graph", css, StringComparison.Ordinal);
         Assert.Contains(".graph-type-badges", css, StringComparison.Ordinal);
+        Assert.Contains(".graph-context-menu", css, StringComparison.Ordinal);
+        Assert.Contains(".tag-apply.add", css, StringComparison.Ordinal);
+        Assert.Contains(".tag-apply.remove", css, StringComparison.Ordinal);
         Assert.Contains("pointer-events: none;", css, StringComparison.Ordinal);
         Assert.Contains("background: var(--graph-background);", css, StringComparison.Ordinal);
         Assert.Contains(".saved-view-layout", css, StringComparison.Ordinal);

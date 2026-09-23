@@ -1870,11 +1870,18 @@ input[type="checkbox"] {
     display: none;
 }
 
-.graph-record-menu {
+/* Rendered by the component and positioned by the canvas, which is why this only describes how it
+   looks. It lives inside the canvas frame so that it is still there when the graph is fullscreen. */
+.graph-context-menu {
     position: absolute;
-    z-index: 3;
-    min-width: 10rem;
-    padding: .3rem;
+    z-index: 4;
+    display: flex;
+    width: 19rem;
+    max-height: 23rem;
+    flex-direction: column;
+    gap: .35rem;
+    padding: .55rem;
+    overflow-y: auto;
     border: 1px solid var(--line-strong);
     border-radius: .55rem;
     background: var(--panel-translucent-strong);
@@ -1882,24 +1889,158 @@ input[type="checkbox"] {
     backdrop-filter: blur(10px);
 }
 
-.graph-record-menu[hidden] {
-    display: none;
+.graph-context-menu-title {
+    margin: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.graph-record-menu a {
-    display: block;
-    padding: .5rem .65rem;
+.graph-context-menu-section {
+    margin: .25rem 0 0;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.graph-context-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+}
+
+.graph-context-menu-choice {
+    padding: .4rem .55rem;
+    border: 1px solid transparent;
+    border-radius: .35rem;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.graph-context-menu-choice:hover,
+.graph-context-menu-choice:focus-visible {
+    background: var(--accent-soft);
+    outline: none;
+}
+
+.graph-context-menu-choice.chosen {
+    border-color: var(--accent-bright);
+    font-weight: 700;
+}
+
+.graph-context-menu-tag {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+.graph-context-menu-tag-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Colour is the whole signal here: one button adds to everything selected and the other takes it
+   away from everything selected, and they sit next to each other. The glyph alone would not be
+   enough to tell them apart at a glance, and the label is on each button for anyone not going by
+   colour at all. */
+.tag-apply {
+    display: grid;
+    width: 1.6rem;
+    height: 1.6rem;
+    flex: none;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: .35rem;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.tag-apply.add {
+    background: var(--positive-soft, #d8efd8);
+    color: var(--positive-ink, #1f5d1f);
+}
+
+.tag-apply.remove {
+    background: var(--negative-soft, #f6dada);
+    color: var(--negative-ink, #7d2020);
+}
+
+.tag-apply:hover:not(:disabled) {
+    border-color: currentcolor;
+}
+
+.tag-apply:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 1px;
+}
+
+.tag-apply:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.graph-context-menu-other,
+.graph-context-menu-name {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: .2rem;
+    color: var(--muted);
+    font-size: .8rem;
+}
+
+.graph-context-menu-other select,
+.graph-context-menu-name input {
+    width: 100%;
+    min-width: 0;
+}
+
+.graph-context-menu-create {
+    margin-top: .25rem;
+}
+
+.graph-context-menu-link {
+    padding: .45rem .55rem;
     border-radius: .35rem;
     color: var(--ink);
     font-weight: 700;
     text-decoration: none;
 }
 
-.graph-record-menu a:hover,
-.graph-record-menu a:focus-visible {
+.graph-context-menu-link:hover,
+.graph-context-menu-link:focus-visible {
     color: var(--accent-dark);
     background: var(--accent-soft);
     outline: none;
+}
+
+.graph-context-menu-message {
+    margin: .2rem 0 0;
+    color: var(--muted);
+    font-size: .8rem;
+}
+
+/* Present for assistive technology, absent from the screen. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .graph-filter-grid {

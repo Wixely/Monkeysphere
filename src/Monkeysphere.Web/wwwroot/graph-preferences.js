@@ -120,6 +120,30 @@ export async function disposeFullscreen() {
     fullscreenCallback = null;
 }
 
+// What the operator reached for last, kept per browser like the record-type filter above. This is
+// a convenience rather than data: losing it costs nothing, so it does not warrant a round trip or
+// a column, and a hardened browser that refuses storage simply gets an unordered list.
+export function loadRecent(kind, domainId) {
+    try {
+        const value = globalThis.localStorage.getItem(`monkeysphere.graph.recent.${kind}.${domainId}`);
+        const parsed = value ? JSON.parse(value) : null;
+        return Array.isArray(parsed) && parsed.every(item => typeof item === 'string') ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+export function rememberRecent(kind, domainId, value, keep) {
+    try {
+        const existing = loadRecent(kind, domainId).filter(item => item !== value);
+        const next = [value, ...existing].slice(0, keep);
+        globalThis.localStorage.setItem(`monkeysphere.graph.recent.${kind}.${domainId}`, JSON.stringify(next));
+        return next;
+    } catch {
+        return [value];
+    }
+}
+
 export function loadRecordTypeIds(domainId) {
     try {
         const value = globalThis.localStorage.getItem(recordTypeKey(domainId));
