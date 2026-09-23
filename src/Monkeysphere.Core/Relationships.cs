@@ -239,6 +239,11 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
             relationship.Note,
             relationship.UpdatedAtUtc, relationship.Revision)
         {
+            // Carried through rather than defaulted. Whether a relationship has ended is a fact
+            // about it, not about which end is reading it, and a view that quietly dropped it
+            // would have every caller but the graph believing nothing ever ends.
+            Expiry = relationship.Expiry,
+
             // The view looks outward from the record being read, so it carries the other end's picture.
             ImageId = outgoing ? relationship.TargetImageId : relationship.SourceImageId,
             RecordTypeSymbol = outgoing ? relationship.TargetRecordTypeSymbol : relationship.SourceRecordTypeSymbol,

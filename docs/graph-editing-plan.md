@@ -194,6 +194,18 @@ Which tab was last used is remembered per browser and not per record, because th
 
 This is why the container stopped being `role="menu"`. It holds a tablist, a dropdown and two forms; a menu whose items are forms tells a screen reader something untrue about how to operate it. It is a `role="dialog"` with `role="tab"`/`role="tabpanel"` inside, arrow keys moving between tabs with a roving tabindex. The title and the tab strip do not scroll — only the panel does — so what the menu is acting on stays legible however long its contents are.
 
+**M5 finished on 2026-09-23: a relationship can be changed and removed from the canvas.** Expiry made this urgent rather than merely outstanding — a relationship could be given an ending when it was created and never afterwards, which is the wrong way round, since almost every ending is learned after the fact.
+
+A line is now a thing you can right-click. Until this it was not: cytoscape reports an edge as a target that is not a node, which fell through to the empty-canvas branch, so pointing at a connection offered to create a record. Right-clicking a line opens its editor already filled in, with no tabs — there is no record there to describe or to tag. The same editor is reached from the Relationships tab of a record's menu, which lists that record's relationships above the form that makes new ones. That second route is what keeps the capability reachable without a pointer: the menu opens from `ContextMenu` or `Shift+F10`, and the tabs and list are ordinary focusable controls.
+
+Editing changes the relationship in place and carries its revision, so a relationship somebody else moved reports a conflict and closes the editor rather than overwriting; the operator has to see the change before arguing with it. Deleting asks first, and the question says what the alternative is — "if it has simply ended, mark it over instead" — because deletion and expiry look interchangeable and are not: one says this was never true, the other says it stopped being true.
+
+One thing editing deliberately does not do is swap a directional relationship's ends. `UpdateAsync` changes type, note and expiry; reversing which record is the source would be a different write. Getting the direction wrong is already guarded at creation, where the assignment is spelled out as a sentence with a swap offered before anything is written, and the remedy for one that slipped through is to delete it and make it again.
+
+**A bug the work surfaced.** `RelationshipService.Map` never copied expiry into `RelationshipView`, so every reader except the graph was told that no relationship ever ends. It went unnoticed because the graph resolves expiry through its own store and the tests written for expiry all went that way. The record page's relationship list was affected too. Fixed, with a test that reads a relationship back from both ends and would have failed the day expiry shipped.
+
+**The truncation notice moved onto the canvas.** It was a block above the panel, which meant that in fullscreen — where an operator is most likely to believe they are seeing everything — the graph silently stopped drawing and said nothing. It is now a small overlay in the corner of the canvas frame, carrying the link to raise the limit, which is the one remedy that does not require leaving fullscreen first. `GraphFullscreenTests` pins it inside the stage.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.
@@ -216,8 +228,7 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 ## Open questions
 
 - Should relationship *type* creation be reachable from the canvas when no suitable type exists, or should that remain a trip to Structures? Recommend the latter, to keep structure changes deliberate.
-- The truncation notice is outside the stage and so is hidden in fullscreen. Move it in before M4, which has to report that boundary.
-- Touch parity is unverified. The canvas `aria-label` tells the operator they can "long-press a record for actions", but the menu is wired only to cytoscape's `cxttap` and no `taphold` handler exists. Whether long-press reaches the menu on a real touch device needs checking before the menu carries destructive actions, and the label corrected if it does not.
+- Touch parity is unverified, and is now the last thing outstanding. The canvas `aria-label` tells the operator they can "long-press a record for actions", but the menu is wired only to cytoscape's `cxttap` and no `taphold` handler exists. The condition this was waiting on has arrived: the menu now carries deletion. Whether long-press reaches it on a real touch device needs checking on hardware, and the label corrected if it does not.
 
 ## Next action
 
@@ -228,4 +239,5 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] D4 and D7 settled; M2, M3 and M4 delivered as one menu pattern.
 - [x] M5 in part: relationships can be assigned in bulk from the canvas.
 - [x] The menu is a tabbed panel — Info, Tags, Relationships — with the tab remembered per browser.
-- [ ] M5 remainder: editing and deleting an existing relationship from the canvas. Owner: TBD; review by 2026-10-05.
+- [x] M5 complete: a relationship can be created, edited and deleted from the canvas.
+- [ ] Touch parity: whether long-press reaches the menu, now that the menu carries a destructive action. Owner: TBD; review by 2026-10-05.

@@ -10,6 +10,7 @@
 @inject IRecordTagStore TagVocabulary
 @inject ITagCatalogue TagCatalogue
 @inject IRelationshipService Relationships
+@inject TimeProvider TimeProvider
 @inject IRecordRelationshipCommandService Relating
 @inject ICurrentDomain CurrentDomain
 @inject IJSRuntime JS
@@ -110,17 +111,6 @@
                       NameSelector="DisplayTypeName" SelectedChanged="RecordTypesChangedAsync" />
 </section>
 
-@if (_graph.NodesTruncated || _graph.EdgesTruncated)
-{
-    <div class="notice" role="status">
-        This view reached the @(_graph.NodesTruncated
-            ? $"{_graphConfiguration.NodeLimit:N0}-record"
-            : $"{_graphConfiguration.EdgeLimit:N0}-relationship") limit, so some of what matches is not drawn.
-        Remove record types or choose a smaller record set to reveal them, or
-        <a href="/settings/graph">raise the limit in graph settings</a> if you would rather see more at once.
-    </div>
-}
-
 <section class="panel">
     <div class="section-heading">
         <div>
@@ -179,6 +169,22 @@
                                          KeepRecordsApart="_graphConfiguration.KeepRecordsApart"
                                          Placement="_placement" />
 
+                @if (_graph.NodesTruncated || _graph.EdgesTruncated)
+                {
+                    @* Over the canvas rather than above the panel. Said outside the stage it was
+                       invisible in fullscreen, which is exactly where an operator is most likely to
+                       believe they are looking at everything. Floating costs no layout height, so
+                       it does not become the top menu fullscreen is meant to be free of. *@
+                    <div class="graph-truncation-notice" role="status">
+                        <span>
+                            This view reached the @(_graph.NodesTruncated
+                                ? $"{_graphConfiguration.NodeLimit:N0}-record"
+                                : $"{_graphConfiguration.EdgeLimit:N0}-relationship") limit, so some of what matches is not drawn.
+                        </span>
+                        <a href="/settings/graph">Raise the limit</a>
+                    </div>
+                }
+
                 @if (_picking && _pendingRelate is not null)
                 {
                     <div class="graph-pick-banner" role="status">
@@ -210,7 +216,7 @@
                          style="left: @(_menu.X)px; top: @(_menu.Y)px" @onkeydown="MenuKeyDownAsync">
                         <p class="graph-context-menu-title">@MenuLabel</p>
 
-                        @if (_menu.RecordId is not null)
+                        @if (_menu.RecordId is not null && _menu.RelationshipId is null)
                         {
                             <div class="graph-context-menu-tabs" role="tablist" aria-label="Record actions">
                                 @foreach (MenuTab tab in Enum.GetValues<MenuTab>())
@@ -226,7 +232,15 @@
                             </div>
                         }
 
-                        @if (_menu.RecordId is null)
+                        @if (_menu.RelationshipId is not null)
+                        {
+                            @* A menu asked for on a line is about that one relationship, so it has
+                               no tabs: there is no record here to describe or to tag. *@
+                            <div class="graph-context-menu-panel">
+                                @RelationshipSection
+                            </div>
+                        }
+                        else if (_menu.RecordId is null)
                         {
                             <p class="graph-context-menu-section" id="graph-menu-types">New record type</p>
                             <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-types">
@@ -374,6 +388,8 @@
 
                             @if (_menuTab == MenuTab.Relationships)
                             {
+                            @RelationshipSection
+
                             <p class="graph-context-menu-section" id="graph-menu-relate">Relate to a record</p>
                             <div class="graph-context-menu-relate" role="group" aria-labelledby="graph-menu-relate">
                                 <div class="graph-context-menu-list">
@@ -485,7 +501,7 @@
                     <p class="eyebrow">Record images</p>
                     <h2 id="graph-gallery-title">@_selected.DisplayName</h2>
                 </div>
-                <button class="icon-button"
+                <button class="graph-tool-button"
                         type="button"
                         aria-label="Close image gallery"
                         title="Close image gallery"
@@ -654,6 +670,14 @@
     private bool _relateExpired;
     private MenuTab _menuTab = MenuTab.Info;
     private RecordDetails? _menuRecord;
+    private IReadOnlyList<RelationshipView> _menuRelationships = [];
+    private int _menuRelationshipTotal;
+    private RelationshipView? _editingRelationship;
+    private Guid? _editRelationshipTypeId;
+    private string _editNote = string.Empty;
+    private bool _editExpired;
+    private string _editExpiresOn = string.Empty;
+    private Guid? _confirmDeleteRelationshipId;
 
     /// <summary>The parts of the record menu, in the order they are offered.</summary>
     private enum MenuTab
@@ -697,9 +721,37 @@
     /// <summary>How many of each the menu offers before falling back to its dropdown.</summary>
     private const int RecentCount = 5;
 
-    private string MenuLabel => _menu?.RecordId is null
-        ? "Create a record here"
-        : $"Actions for {MenuTargetDescription}";
+    private string MenuLabel => _menu switch
+    {
+        { RelationshipId: not null } => $"Actions for {EdgeDescription}",
+        { RecordId: null } => "Create a record here",
+        _ => $"Actions for {MenuTargetDescription}",
+    };
+
+    /// <summary>The line the menu was asked for, when it was asked for on one rather than a record.</summary>
+    private RelationshipGraphEdge? MenuEdge =>
+        _menu?.RelationshipId is Guid id ? _graph.Edges.FirstOrDefault(edge => edge.RelationshipId == id) : null;
+
+    /// <summary>
+    /// A line read the way the graph draws it, source first. That order is the relationship's own
+    /// rather than the operator's, which for a directional type is the difference between "works
+    /// at" and "employs", so it is not reversed to suit whichever end was clicked nearer.
+    /// </summary>
+    private string EdgeDescription
+    {
+        get
+        {
+            if (MenuEdge is not RelationshipGraphEdge edge)
+            {
+                return "this relationship";
+            }
+
+            return $"{NodeName(edge.SourceRecordId)} — {edge.Label} — {NodeName(edge.TargetRecordId)}";
+        }
+    }
+
+    private string NodeName(Guid recordId) =>
+        _graph.Nodes.FirstOrDefault(node => node.RecordId == recordId)?.DisplayName ?? "a record";
 
     private string MenuTargetDescription
     {
@@ -1490,6 +1542,10 @@
         _selectedAreSource = true;
         _relateExpired = false;
         _relateExpiresOn = string.Empty;
+        _editingRelationship = null;
+        _confirmDeleteRelationshipId = null;
+        _menuRelationships = [];
+        _menuRelationshipTotal = 0;
 
         _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
         _menuRecordTags = await TagVocabulary.ListForRecordsAsync(MenuTargets);
@@ -1505,7 +1561,26 @@
             _menuTab = Enum.TryParse(remembered, out MenuTab tab) ? tab : MenuTab.Info;
         }
 
+        // A menu asked for on a line is about that line, so it opens on the tab that can act on
+        // it and does not wait to be told which of three jobs it is for.
+        if (_menu.RelationshipId is not null)
+        {
+            _menuTab = MenuTab.Relationships;
+        }
+
         await LoadMenuRecordAsync();
+        await LoadMenuRelationshipsAsync();
+
+        // Right-clicking a line is already a choice of relationship, so its editor opens filled in
+        // rather than making the operator find the same line again in a list.
+        if (_menu.RelationshipId is Guid asked)
+        {
+            RelationshipView? picked = _menuRelationships.FirstOrDefault(view => view.Id == asked);
+            if (picked is not null)
+            {
+                StartEditRelationship(picked);
+            }
+        }
 
         _relationshipTypeId = RecentRelationshipTypes.FirstOrDefault()?.Id;
 
@@ -1537,6 +1612,7 @@
         }
 
         await LoadMenuRecordAsync();
+        await LoadMenuRelationshipsAsync();
     }
 
     /// <summary>Left and right move between tabs, which is what a tablist is expected to do.</summary>
@@ -1570,6 +1646,312 @@
             ? await Records.GetRecordAsync(id)
             : null;
     }
+
+    /// <summary>How many of a record's relationships the menu lists before saying how many it did not.</summary>
+    private const int MenuRelationshipCount = 8;
+
+    /// <summary>
+    /// The relationships that can be edited from here, read only when the Relationships tab is the
+    /// one open. One record's, or the one line that was right-clicked: with several records selected
+    /// there is no single answer to "which relationship", and listing forty records' worth of them
+    /// would be a list nobody could act on.
+    /// </summary>
+    private async Task LoadMenuRelationshipsAsync()
+    {
+        if (_menuTab != MenuTab.Relationships || _menu is null)
+        {
+            _menuRelationships = [];
+            _menuRelationshipTotal = 0;
+            return;
+        }
+
+        // A line names its own two ends, so the read is anchored on one of them; otherwise it is
+        // the one record the menu is for.
+        Guid? anchor = MenuEdge?.SourceRecordId ?? (MenuTargets.Count == 1 ? _menu.RecordId : null);
+        if (anchor is not Guid recordId)
+        {
+            _menuRelationships = [];
+            _menuRelationshipTotal = 0;
+            return;
+        }
+
+        PagedResult<RelationshipView> page = await Relationships.QueryForRecordAsync(
+            recordId, page: 1, pageSize: MenuRelationshipCount);
+        _menuRelationships = page.Items;
+        _menuRelationshipTotal = page.TotalCount;
+
+        // The line that was right-clicked may sit past the first page, and a menu opened on it that
+        // then could not show it would be worse than a longer read.
+        if (_menu.RelationshipId is Guid asked && _menuRelationships.All(view => view.Id != asked))
+        {
+            IReadOnlyList<RelationshipView> all = await Relationships.ListForRecordAsync(recordId);
+            if (all.FirstOrDefault(view => view.Id == asked) is RelationshipView found)
+            {
+                _menuRelationships = [found, .. _menuRelationships];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fills the editor from what the relationship is now. Its revision comes with it, which is
+    /// what makes saving refuse to overwrite a change somebody else made in the meantime.
+    /// </summary>
+    private void StartEditRelationship(RelationshipView view)
+    {
+        _editingRelationship = view;
+        _confirmDeleteRelationshipId = null;
+        _menuMessage = null;
+        _editRelationshipTypeId = view.RelationshipTypeId;
+        _editNote = view.Note ?? string.Empty;
+        _editExpired = view.Expiry.Expired;
+        _editExpiresOn = view.Expiry is { Expired: false, ExpiresAtUtc: { } ends }
+            ? ends.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private void CancelEditRelationship()
+    {
+        _editingRelationship = null;
+        _editRelationshipTypeId = null;
+        _editNote = string.Empty;
+        _editExpired = false;
+        _editExpiresOn = string.Empty;
+    }
+
+    private void EditNoteChanged(ChangeEventArgs args) => _editNote = args.Value?.ToString() ?? string.Empty;
+
+    private void EditExpiresChanged(ChangeEventArgs args) => _editExpiresOn = args.Value?.ToString() ?? string.Empty;
+
+    private void EditRelationshipTypeChosen(ChangeEventArgs args) =>
+        _editRelationshipTypeId = Guid.TryParse(args.Value?.ToString(), out Guid id) ? id : null;
+
+    /// <summary>
+    /// What the editor is saying about this relationship's ending, in the same shape the creation
+    /// form uses: said outright, or a date, never both.
+    /// </summary>
+    private RelationshipExpiry EditExpiry => _editExpired
+        ? new(Expired: true)
+        : DateOnly.TryParse(_editExpiresOn, CultureInfo.InvariantCulture, out DateOnly ends)
+            ? new(Expired: false, ends.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc))
+            : RelationshipExpiry.None;
+
+    /// <summary>
+    /// Changes the relationship in place rather than replacing it. Deleting and recreating would
+    /// give a different relationship with a new ID, and anything already holding the old one would
+    /// silently lose it.
+    /// </summary>
+    private async Task SaveRelationshipAsync()
+    {
+        if (_editingRelationship is not RelationshipView editing || _editRelationshipTypeId is not Guid typeId)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = await Relationships.UpdateAsync(
+                editing.Id, typeId, _editNote, PerspectiveRecordId(), editing.Revision, EditExpiry);
+            _menuMessage = $"Saved {DescribeRelationship(editing)}.";
+            await RememberRecentAsync("relationships", typeId.ToString("D"));
+            CancelEditRelationship();
+            await ReloadAsync();
+            await LoadMenuRelationshipsAsync();
+            _isDirty = true;
+        }
+        catch (ConcurrencyConflictException exception)
+        {
+            // The editor closes rather than staying open against a revision that no longer exists:
+            // the operator has to see what changed before deciding what to do about it.
+            _menuMessage = exception.Message;
+            CancelEditRelationship();
+            await LoadMenuRelationshipsAsync();
+        }
+        catch (DomainValidationException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+        catch (RecordCommandNotFoundException exception)
+        {
+            _menuMessage = exception.Message;
+            CancelEditRelationship();
+            await LoadMenuRelationshipsAsync();
+        }
+    }
+
+    /// <summary>
+    /// Closes the editor, the way starting an edit closes this. Two forms open on one relationship
+    /// at once, one of them asking whether to keep it, is a question about which of them matters.
+    /// </summary>
+    private void AskDeleteRelationship(Guid relationshipId)
+    {
+        CancelEditRelationship();
+        _confirmDeleteRelationshipId = relationshipId;
+        _menuMessage = null;
+    }
+
+    private void CancelDeleteRelationship() => _confirmDeleteRelationshipId = null;
+
+    /// <summary>
+    /// Deletion is for a relationship that should never have existed. One that has ended is a
+    /// different thing and is said with expiry instead, which is why the two sit side by side here
+    /// rather than deleting being the only way to stop a relationship being true.
+    /// </summary>
+    private async Task DeleteRelationshipAsync(RelationshipView view)
+    {
+        try
+        {
+            bool deleted = await Relationships.DeleteAsync(view.Id, view.Revision);
+            _menuMessage = deleted
+                ? $"Deleted {DescribeRelationship(view)}."
+                : "That relationship was already gone.";
+            _confirmDeleteRelationshipId = null;
+            CancelEditRelationship();
+            await ReloadAsync();
+            await LoadMenuRelationshipsAsync();
+            _isDirty = true;
+        }
+        catch (ConcurrencyConflictException exception)
+        {
+            _menuMessage = exception.Message;
+            _confirmDeleteRelationshipId = null;
+            await LoadMenuRelationshipsAsync();
+        }
+    }
+
+    /// <summary>
+    /// Which end the change is being made from. It only chooses how the saved relationship reads
+    /// back, so the message about it matches the wording the operator was just looking at.
+    /// </summary>
+    private Guid PerspectiveRecordId() =>
+        MenuEdge?.SourceRecordId ?? _menu?.RecordId ?? Guid.Empty;
+
+    private static string DescribeRelationship(RelationshipView view) =>
+        $"“{view.Label} {view.RelatedDisplayName}”";
+
+    /// <summary>
+    /// A relationship as one line. Whether its date has passed is decided against the same clock
+    /// the graph used to decide what to draw faded, so a line described as still running here is
+    /// never one the canvas has already faded out.
+    /// </summary>
+    private string RelationshipRowSummary(RelationshipView view)
+    {
+        DateTimeOffset now = TimeProvider.GetUtcNow();
+        string ending = view.Expiry switch
+        {
+            { Expired: true } => " — over",
+            { ExpiresAtUtc: { } ends } when ends <= now => $" — ended {ends.ToLocalTime():d}",
+            { ExpiresAtUtc: { } ends } => $" — until {ends.ToLocalTime():d}",
+            _ => string.Empty,
+        };
+
+        return $"{view.Label} {view.RelatedDisplayName}{ending}";
+    }
+
+    private string MenuRelationshipHeading => _menu?.RelationshipId is not null
+        ? "This relationship"
+        : _menuRelationshipTotal > _menuRelationships.Count
+            ? $"Existing relationships ({_menuRelationships.Count} of {_menuRelationshipTotal})"
+            : "Existing relationships";
+
+    /// <summary>
+    /// The relationships this menu can act on. A menu asked for on a line shows that line alone:
+    /// the pointer already chose, and offering the other seven would be asking again.
+    /// </summary>
+    private IReadOnlyList<RelationshipView> MenuRelationshipRows =>
+        _menu?.RelationshipId is Guid asked
+            ? [.. _menuRelationships.Where(view => view.Id == asked)]
+            : _menuRelationships;
+
+    private string MenuRelationshipEmpty => _menu?.RelationshipId is not null
+        ? "That relationship is no longer here."
+        : "No relationships yet.";
+
+    /// <summary>
+    /// Editing and ending existing relationships, shared by the Relationships tab and by the menu a
+    /// right-clicked line opens. One markup for both, because they are the same job reached two
+    /// ways, and two copies would drift.
+    /// </summary>
+    private RenderFragment RelationshipSection => @<text>
+        <p class="graph-context-menu-section" id="graph-menu-existing">@MenuRelationshipHeading</p>
+        @if (MenuRelationshipRows.Count == 0)
+        {
+            <p class="graph-context-menu-empty">@MenuRelationshipEmpty</p>
+        }
+        else
+        {
+            <div class="graph-context-menu-relationships" role="group" aria-labelledby="graph-menu-existing">
+                @foreach (RelationshipView view in MenuRelationshipRows)
+                {
+                    <div class="graph-context-menu-relationship @(view.Expiry.IsExpiredAt(TimeProvider.GetUtcNow()) ? "over" : null)">
+                        <span class="graph-context-menu-relationship-name">@RelationshipRowSummary(view)</span>
+                        <button type="button" class="graph-context-menu-swap"
+                                aria-label="@($"Edit {view.Label} {view.RelatedDisplayName}")"
+                                @onclick="() => StartEditRelationship(view)">Edit</button>
+                        <button type="button" class="graph-context-menu-danger"
+                                aria-label="@($"Delete {view.Label} {view.RelatedDisplayName}")"
+                                @onclick="() => AskDeleteRelationship(view.Id)">Delete</button>
+                    </div>
+
+                    @if (_confirmDeleteRelationshipId == view.Id)
+                    {
+                        @* Asked before doing, because this is the one action here that loses
+                           something. A relationship that has merely ended is said with "Already
+                           over" instead, which the editor below offers. *@
+                        <div class="graph-context-menu-confirm" role="group"
+                             aria-label="@($"Delete {view.Label} {view.RelatedDisplayName}?")">
+                            <p>Delete this relationship? If it has simply ended, mark it over instead.</p>
+                            <div class="graph-pick-actions">
+                                <button type="button" class="graph-context-menu-danger" autofocus
+                                        @onclick="() => DeleteRelationshipAsync(view)">Delete it</button>
+                                <button type="button" class="graph-context-menu-swap"
+                                        @onclick="CancelDeleteRelationship">Keep it</button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_editingRelationship?.Id == view.Id)
+                    {
+                        <div class="graph-context-menu-edit" role="group"
+                             aria-label="@($"Edit {view.Label} {view.RelatedDisplayName}")">
+                            <label class="graph-context-menu-other">
+                                Relationship
+                                <select value="@(_editRelationshipTypeId?.ToString("D") ?? string.Empty)"
+                                        @onchange="EditRelationshipTypeChosen">
+                                    @foreach (RelationshipType type in _relationshipTypes)
+                                    {
+                                        <option value="@type.Id.ToString("D")">@type.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="graph-context-menu-name">
+                                Note
+                                <input type="text" maxlength="2000" placeholder="Why are they related?"
+                                       value="@_editNote" @oninput="EditNoteChanged" />
+                            </label>
+                            <label class="checkbox-label graph-context-menu-expired">
+                                <input type="checkbox" @bind="_editExpired" />
+                                <span>Already over</span>
+                            </label>
+                            @if (!_editExpired)
+                            {
+                                <label class="graph-context-menu-name">
+                                    Ends on (optional)
+                                    <input type="date" value="@_editExpiresOn" @oninput="EditExpiresChanged" />
+                                </label>
+                            }
+                            <div class="graph-pick-actions">
+                                <button type="button" class="button primary"
+                                        disabled="@(_editRelationshipTypeId is null)"
+                                        @onclick="SaveRelationshipAsync">Save relationship</button>
+                                <button type="button" class="graph-context-menu-swap"
+                                        @onclick="CancelEditRelationship">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </text>;
 
     private void OtherTagChosen(ChangeEventArgs args) => _otherTag = args.Value?.ToString() ?? string.Empty;
 
@@ -1841,6 +2223,9 @@
             _menuMessage = DescribeRelateResult(changes, _relateTarget.DisplayName);
             await RememberRecentAsync("relationships", typeId.ToString("D"));
             await ReloadAsync();
+            // The list above this form has just become wrong, and a menu still saying "no
+            // relationships yet" under a message announcing one is worse than not listing them.
+            await LoadMenuRelationshipsAsync();
             _isDirty = true;
         }
         catch (DomainValidationException exception)

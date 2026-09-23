@@ -2131,6 +2131,93 @@ input[type="checkbox"] {
     gap: .5rem;
 }
 
+/* Bottom left, because the tools are top right and the picking banner is top centre, and a
+   boundary the operator has already been told about should not sit over what they are trying to
+   read. It follows the canvas into fullscreen, which is the whole reason it moved here. */
+.graph-truncation-notice {
+    position: absolute;
+    z-index: 3;
+    bottom: .7rem;
+    left: .7rem;
+    display: flex;
+    max-width: min(32rem, calc(100% - 1.4rem));
+    align-items: baseline;
+    gap: .5rem;
+    padding: .45rem .7rem;
+    border: 1px solid var(--warning-line);
+    border-radius: .55rem;
+    background: var(--panel-translucent-strong);
+    box-shadow: var(--shadow-small);
+    backdrop-filter: blur(10px);
+    font-size: .8rem;
+}
+
+.graph-truncation-notice a {
+    flex: none;
+}
+
+/* One relationship per line: what it says, then the two things that can be done to it. */
+.graph-context-menu-relationships {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+}
+
+.graph-context-menu-relationship {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.graph-context-menu-relationship-name {
+    flex: 1;
+    min-width: 0;
+    font-size: .85rem;
+}
+
+/* Faded the way the canvas fades an ended relationship, so the list and the graph agree about
+   which connections are over. */
+.graph-context-menu-relationship.over .graph-context-menu-relationship-name {
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
+/* Destructive, and it says so rather than being a small red glyph beside a small green one: the
+   confirmation it opens is what protects the relationship, and this is what warns of it. */
+.graph-context-menu-danger {
+    flex: none;
+    padding: .25rem .5rem;
+    border: 1px solid var(--danger);
+    border-radius: .35rem;
+    background: none;
+    color: var(--danger);
+    cursor: pointer;
+    font: inherit;
+    font-size: .78rem;
+}
+
+.graph-context-menu-danger:hover,
+.graph-context-menu-danger:focus-visible {
+    background: var(--danger);
+    color: var(--on-danger);
+}
+
+.graph-context-menu-confirm,
+.graph-context-menu-edit {
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+    padding: .55rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .5rem;
+    background: var(--panel-warm);
+}
+
+.graph-context-menu-confirm p {
+    margin: 0;
+    font-size: .8rem;
+}
+
 /* While picking, the canvas is a target rather than something to rearrange. */
 .graph-canvas-frame:has(.graph-pick-banner) .relationship-graph {
     cursor: crosshair;

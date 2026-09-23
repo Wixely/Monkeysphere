@@ -46,6 +46,35 @@ public sealed class GraphFullscreenTests
         Assert.DoesNotContain("Record name or alias", stage, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TheBoundaryTheGraphStoppedDrawingAtIsSaidInsideTheFullscreenStage()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IGraphSettingsService settings = scope.ServiceProvider.GetRequiredService<IGraphSettingsService>();
+            _ = await settings.SaveAsync(new(NodeLimit: RelationshipGraphService.MinimumNodes));
+
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            RecordType type = await records.CreateRecordTypeAsync("Crowded type");
+            for (int index = 0; index < RelationshipGraphService.MinimumNodes + 2; index++)
+            {
+                _ = await records.CreateRecordAsync(type.Id, $"Record {index}", []);
+            }
+        }
+
+        string stage = Stage(await SignedInGraphPageAsync(factory));
+
+        // Said where the graph is, not above the panel. Outside the stage it was invisible in
+        // fullscreen, which is exactly where an operator is most likely to believe the graph is
+        // showing them everything that matches.
+        Assert.Contains("so some of what matches is not drawn", stage, StringComparison.Ordinal);
+
+        // And the way out of it goes with the notice, because raising the limit is the one remedy
+        // that does not require leaving fullscreen first.
+        Assert.Contains("/settings/graph", stage, StringComparison.Ordinal);
+    }
+
     private static async Task<string> SignedInGraphPageAsync(MonkeysphereApplicationFactory factory)
     {
         using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions

@@ -417,14 +417,15 @@ function selectedRecordIds(cy) {
 // slightly inside the edge, which is better than one that opens past it.
 const menuExtent = { width: 320, height: 380 };
 
-function requestMenu(element, callback, recordId, recordIds, renderedPosition) {
+function requestMenu(element, callback, recordId, recordIds, renderedPosition, relationshipId) {
     const x = Math.min(
         Math.max(8, renderedPosition?.x ?? 0),
         Math.max(8, element.clientWidth - menuExtent.width - 8));
     const y = Math.min(
         Math.max(8, renderedPosition?.y ?? 0),
         Math.max(8, element.clientHeight - menuExtent.height - 8));
-    callback.invokeMethodAsync('ContextMenuRequested', recordId ?? null, recordIds, Math.round(x), Math.round(y));
+    callback.invokeMethodAsync(
+        'ContextMenuRequested', recordId ?? null, recordIds, relationshipId ?? null, Math.round(x), Math.round(y));
 }
 
 function dismissMenuIfOpen(callback, state) {
@@ -503,11 +504,16 @@ export function create(element, callback, graph, savedPositions, savedViewport, 
     // asked about a record or about the space between them.
     cy.on('cxttap', event => {
         event.originalEvent?.preventDefault();
-        const node = event.target !== cy && event.target.isNode?.() ? event.target : null;
+        const picked = event.target !== cy ? event.target : null;
+        const node = picked?.isNode?.() ? picked : null;
         const recordId = node?.data('recordId');
         if (!recordId) {
+            // A line is a relationship, and right-clicking one asks about that relationship.
+            // Without this an edge fell through to the empty-canvas branch, so pointing at a
+            // connection offered to create a record — an answer to a question nobody asked.
+            const relationshipId = picked?.isEdge?.() ? picked.id() : null;
             menuState.open = true;
-            requestMenu(element, callback, null, [], event.renderedPosition);
+            requestMenu(element, callback, null, [], event.renderedPosition, relationshipId);
             return;
         }
 
@@ -528,7 +534,7 @@ export function create(element, callback, graph, savedPositions, savedViewport, 
         }
 
         menuState.open = true;
-        requestMenu(element, callback, recordId, ids, event.renderedPosition);
+        requestMenu(element, callback, recordId, ids, event.renderedPosition, null);
     });
     cy.on('tap drag', () => dismissMenuIfOpen(callback, menuState));
     cy.on('pan zoom', event => {
@@ -571,11 +577,11 @@ export function create(element, callback, graph, savedPositions, savedViewport, 
         if (!node?.length) {
             // No record to act on, so this is the canvas menu, opened from the keyboard at a
             // sensible place rather than wherever a pointer last happened to be.
-            requestMenu(element, callback, null, [], { x: element.clientWidth / 2, y: element.clientHeight / 2 });
+            requestMenu(element, callback, null, [], { x: element.clientWidth / 2, y: element.clientHeight / 2 }, null);
             return;
         }
 
-        requestMenu(element, callback, node.data('recordId'), selectedRecordIds(cy), node.renderedPosition());
+        requestMenu(element, callback, node.data('recordId'), selectedRecordIds(cy), node.renderedPosition(), null);
     };
     element.addEventListener('contextmenu', suppressContextMenu);
     element.addEventListener('keydown', handleKeyDown);

@@ -6,7 +6,7 @@
          @ref="_element"
          role="img"
          tabindex="0"
-         aria-label="Relationship graph visualization. Select a record to view its images. Shift-drag to select several records and drag a selected record to move the group. Control-click toggles records in the selection. Right-click or long-press a record for actions."
+         aria-label="Relationship graph visualization. Select a record to view its images. Shift-drag to select several records and drag a selected record to move the group. Control-click toggles records in the selection. Right-click or long-press a record for actions, or a line between two records for actions on that relationship."
          aria-describedby="relationship-graph-description"></div>
     <div class="graph-type-badges" aria-hidden="true"></div>
     <div class="graph-multi-selection" role="status" aria-live="polite" hidden></div>
@@ -124,23 +124,30 @@
     public Task GraphChanged() => OnGraphChanged.InvokeAsync();
 
     /// <summary>
-    /// A null <paramref name="recordId"/> means empty canvas. <paramref name="recordIds"/> is what
-    /// the menu should act on: the whole selection when the pointer was inside it, and the one
-    /// record it was pointing at when it was not.
+    /// A null <paramref name="recordId"/> means empty canvas, unless
+    /// <paramref name="relationshipId"/> names one, in which case the menu was asked for on a line
+    /// rather than on a record. <paramref name="recordIds"/> is what the menu should act on: the
+    /// whole selection when the pointer was inside it, and the one record it was pointing at when
+    /// it was not.
     /// </summary>
     [JSInvokable]
-    public Task ContextMenuRequested(string? recordId, string[] recordIds, int x, int y) =>
+    public Task ContextMenuRequested(string? recordId, string[] recordIds, string? relationshipId, int x, int y) =>
         OnContextMenuRequested.InvokeAsync(new(
             Guid.TryParse(recordId, out Guid parsed) ? parsed : null,
             [.. recordIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty).Where(id => id != Guid.Empty)],
+            Guid.TryParse(relationshipId, out Guid relationship) ? relationship : null,
             x,
             y));
 
     [JSInvokable]
     public Task ContextMenuDismissed() => OnContextMenuDismissed.InvokeAsync();
 
-    /// <summary>Where the canvas was asked for a menu, and what the menu should act on.</summary>
-    public sealed record ContextMenuRequest(Guid? RecordId, IReadOnlyList<Guid> RecordIds, int X, int Y);
+    /// <summary>
+    /// Where the canvas was asked for a menu, and what the menu should act on: a record and
+    /// whatever else is selected with it, one relationship, or neither, which is empty canvas.
+    /// </summary>
+    public sealed record ContextMenuRequest(
+        Guid? RecordId, IReadOnlyList<Guid> RecordIds, Guid? RelationshipId, int X, int Y);
 
     /// <summary>
     /// A record to drop at a point of the canvas. <paramref name="Request"/> makes it one-shot, so

@@ -165,6 +165,73 @@ public sealed class GraphBoundsAndRelationshipEditTests
     }
 
     [Fact]
+    public async Task ARelationshipReadBackFromEitherEndStillSaysWhenItEnds()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Reading person");
+        RelationshipType worksAt = await relationships.CreateTypeAsync(new(
+            "works at", RelationshipDirectionality.Directional, "employs"));
+        RecordDetails ada = await records.CreateRecordAsync(type.Id, "Ada", []);
+        RecordDetails acme = await records.CreateRecordAsync(type.Id, "Acme", []);
+
+        RelationshipView created = await relationships.CreateAsync(worksAt.Id, ada.Record.Id, acme.Record.Id);
+        DateTimeOffset ends = new(2025, 6, 30, 23, 59, 0, TimeSpan.Zero);
+        _ = await relationships.UpdateAsync(
+            created.Id, worksAt.Id, null, ada.Record.Id, created.Revision, new RelationshipExpiry(ExpiresAtUtc: ends));
+
+        // The graph resolves expiry through its own store, so for a while this was the only path
+        // that knew about it: every other reader was told the relationship never ends, and nothing
+        // failed to say so. Anything showing a record's relationships has to agree with the canvas
+        // about which of them are over.
+        Assert.Equal(ends, Assert.Single(await relationships.ListForRecordAsync(ada.Record.Id)).Expiry.ExpiresAtUtc);
+        Assert.Equal(ends, Assert.Single(
+            (await relationships.QueryForRecordAsync(ada.Record.Id)).Items).Expiry.ExpiresAtUtc);
+
+        // And from the other end, where the label reverses but the ending does not.
+        RelationshipView fromAcme = Assert.Single(await relationships.ListForRecordAsync(acme.Record.Id));
+        Assert.Equal("employs", fromAcme.Label);
+        Assert.Equal(ends, fromAcme.Expiry.ExpiresAtUtc);
+        Assert.False(fromAcme.Expiry.Expired);
+    }
+
+    [Fact]
+    public async Task DeletingARelationshipTakesExactlyOneEdgeOffTheGraph()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+        IRelationshipGraphService graph = application.Services.GetRequiredService<IRelationshipGraphService>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Severed person");
+        RelationshipType knows = await relationships.CreateTypeAsync(new("knows", RelationshipDirectionality.Symmetric));
+        RelationshipType worksWith = await relationships.CreateTypeAsync(new("works with", RelationshipDirectionality.Symmetric));
+        RecordDetails ada = await records.CreateRecordAsync(type.Id, "Ada", []);
+        RecordDetails grace = await records.CreateRecordAsync(type.Id, "Grace", []);
+        RecordDetails mira = await records.CreateRecordAsync(type.Id, "Mira", []);
+
+        // Two relationships between the same pair, and a third to somebody else: the cases where
+        // deleting the wrong one would be easy and invisible.
+        RelationshipView doomed = await relationships.CreateAsync(knows.Id, ada.Record.Id, grace.Record.Id);
+        _ = await relationships.CreateAsync(worksWith.Id, ada.Record.Id, grace.Record.Id);
+        _ = await relationships.CreateAsync(knows.Id, ada.Record.Id, mira.Record.Id);
+
+        Assert.Equal(3, (await graph.QueryAsync(new(FocusRecordId: ada.Record.Id))).Edges.Count);
+
+        Assert.True(await relationships.DeleteAsync(doomed.Id, doomed.Revision));
+
+        RelationshipGraphResult after = await graph.QueryAsync(new(FocusRecordId: ada.Record.Id));
+        Assert.Equal(2, after.Edges.Count);
+        Assert.DoesNotContain(doomed.Id, after.Edges.Select(edge => edge.RelationshipId));
+
+        // The records themselves are untouched. Deleting a relationship says these two are not
+        // connected that way, not that either of them is gone.
+        Assert.Equal(3, after.Nodes.Count);
+    }
+
+    [Fact]
     public async Task AnEditAgainstAStaleRevisionIsRefusedRatherThanOverwriting()
     {
         await using TestApplication application = await TestApplication.CreateAsync();
