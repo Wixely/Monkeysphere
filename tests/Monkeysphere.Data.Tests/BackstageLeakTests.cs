@@ -40,11 +40,13 @@ public sealed class BackstageLeakTests
         "vCard export",
         "retained source material",
         "bulk tag edit",
+        "bulk relationship assignment",
     ];
 
     private sealed record Fixture(
         Guid HiddenId, Guid VisibleId,
-        Guid TypeId, Guid DateFieldId, Guid TextFieldId, Guid LocationFieldId);
+        Guid TypeId, Guid DateFieldId, Guid TextFieldId, Guid LocationFieldId,
+        Guid RelationshipTypeId);
 
     private static async Task<Fixture> SeedAsync(IServiceProvider services)
     {
@@ -87,7 +89,7 @@ public sealed class BackstageLeakTests
         RelationshipType link = await relationships.CreateTypeAsync(new("Knows", RelationshipDirectionality.Symmetric));
         await relationships.CreateAsync(link.Id, visible.Record.Id, hidden.Record.Id);
 
-        return new(hidden.Record.Id, visible.Record.Id, type.Id, date.Id, text.Id, place.Id);
+        return new(hidden.Record.Id, visible.Record.Id, type.Id, date.Id, text.Id, place.Id, link.Id);
     }
 
     private static async Task HideAsync(IServiceProvider services, Guid recordId)
@@ -171,6 +173,14 @@ public sealed class BackstageLeakTests
         IReadOnlyList<RecordTagChange> tagged = await services.GetRequiredService<IRecordTagCommandService>()
             .ApplyAsync(new([new(fixture.HiddenId)], Add: ["leak-probe"]));
         if (Assert.Single(tagged).Outcome != RecordTagOutcome.NotFound) Seen("bulk tag edit");
+
+        // The same for relating: asked to relate the hidden record to a visible one, an ordinary
+        // caller must be told only what they would be told about an id that does not exist. Any
+        // other answer confirms it is there, and creating the relationship would also make the
+        // hidden record reachable from one they can see.
+        IReadOnlyList<RecordRelationshipChange> related = await services.GetRequiredService<IRecordRelationshipCommandService>()
+            .ApplyAsync(new([fixture.HiddenId], fixture.RelationshipTypeId, fixture.VisibleId));
+        if (Assert.Single(related).Outcome != RecordRelationshipOutcome.NotFound) Seen("bulk relationship assignment");
 
         return observed;
     }

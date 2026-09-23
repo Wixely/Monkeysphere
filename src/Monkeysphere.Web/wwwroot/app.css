@@ -2025,6 +2025,47 @@ input[type="checkbox"] {
     min-width: 0;
 }
 
+.graph-context-menu-relate {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+
+/* The assignment spelled out, because with a directional type the two readings mean opposite
+   things and the labels alone do not say which one is about to be written. */
+.graph-context-menu-sentence {
+    margin: .2rem 0 0;
+    padding: .35rem .45rem;
+    border-radius: .35rem;
+    background: var(--accent-soft);
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.graph-context-menu-swap {
+    align-self: flex-start;
+    padding: .25rem .5rem;
+    border: 1px solid var(--line);
+    border-radius: .35rem;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: .78rem;
+}
+
+.graph-context-menu-swap:hover,
+.graph-context-menu-swap:focus-visible {
+    border-color: var(--accent-bright);
+    outline: none;
+}
+
+.graph-context-menu-choice small {
+    margin-left: .35rem;
+    color: var(--muted);
+    font-weight: 400;
+}
+
 .graph-context-menu-create {
     margin-top: .25rem;
 }

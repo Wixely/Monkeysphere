@@ -1,6 +1,6 @@
 # Graph editing surface implementation plan
 
-- Status: M0-M4 delivered; every decision settled except what M5 needs; M5 remains
+- Status: M0-M4 delivered, and M5 in part: relationships can be assigned in bulk from the canvas. Editing and deleting an existing relationship there remain.
 - Created and last reviewed: 2026-09-22
 - Plan owner: TBD
 - Next review: 2026-10-05
@@ -176,6 +176,12 @@ The menu moved out of `relationship-graph.js` and into the component. It carries
 
 Two things surfaced while verifying it. Creating a record relayouts the graph, which fires cytoscape's `pan`/`zoom`, which closed the menu and took its own "created that" confirmation with it; dismissal is now limited to operator-driven movement, which the same handler already distinguished for dirty-tracking. And right-clicking a record outside the current selection acts on that record alone, while right-clicking within the selection keeps the whole of it — the pointer pointing at something is a weaker signal of intent than a selection already made.
 
+**Assignment delivered 2026-09-23, ahead of the rest of M5 and larger than it was scoped.** M5 assumed relating two records at a time. The need in practice is the opposite shape: select many people and set where they all work. `IRecordRelationshipCommandService` relates a set of records to one other record, bounded at 100 like the tag edit, each its own transaction with its own outcome — created, already related, not found, or is-that-record.
+
+Three things it has to get right. A directional type reads differently from each end, so the menu spells the assignment out as a sentence and offers to swap it: "Ada + 2 others — works at — Acme" rather than two labels and a guess. A symmetric type stores its ends in a fixed order, so relating A to B and later B to A must find the first rather than write a mirror of it. And the record being related to is very often not on the canvas — a workplace, when what is displayed is people — so the picker searches every record rather than the types the view is filtered to.
+
+`BackstageLeakTests` gains it as its twenty-first surface, and its second write surface: relating a hidden record to a visible one would both confirm the hidden record exists and make it reachable from one the caller can see.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.
@@ -208,4 +214,5 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] D6 settled and delivered: the rendering boundary is configurable from graph settings.
 - [x] D1 and D2 settled, and the M0 tagging groundwork delivered.
 - [x] D4 and D7 settled; M2, M3 and M4 delivered as one menu pattern.
-- [ ] M5: relationship editing on the canvas, on the same menu. Owner: TBD; review by 2026-10-05.
+- [x] M5 in part: relationships can be assigned in bulk from the canvas.
+- [ ] M5 remainder: editing and deleting an existing relationship from the canvas. Owner: TBD; review by 2026-10-05.

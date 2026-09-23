@@ -33,6 +33,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IRecordTagStore, SqliteRecordTagStore>();
         services.AddScoped<IRecordTagCommandStore, SqliteRecordTagCommandStore>();
         services.AddScoped<IRecordTagCommandService, RecordTagCommandService>();
+        services.AddScoped<IRecordRelationshipCommandStore, SqliteRecordRelationshipCommandStore>();
+        services.AddScoped<IRecordRelationshipCommandService, RecordRelationshipCommandService>();
         services.AddScoped<ITagCatalogue, SqliteTagCatalogue>();
         services.AddSingleton<TagCatalogueSync>();
         services.AddSingleton<TagRenameDrainer>();

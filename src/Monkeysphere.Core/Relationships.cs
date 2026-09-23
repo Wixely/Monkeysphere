@@ -219,3 +219,93 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
         };
     }
 }
+
+/// <summary>What became of one record in a bulk relationship assignment.</summary>
+public enum RecordRelationshipOutcome
+{
+    /// <summary>The relationship was created.</summary>
+    Created,
+
+    /// <summary>These two were already related by this type, so nothing was written.</summary>
+    AlreadyRelated,
+
+    /// <summary>No such record, or none this caller may see.</summary>
+    NotFound,
+
+    /// <summary>It is the record being related to, and nothing can be related to itself.</summary>
+    SameRecord,
+}
+
+public sealed record RecordRelationshipChange(
+    Guid RecordId,
+    RecordRelationshipOutcome Outcome,
+    string DisplayName,
+    Guid? RelationshipId);
+
+/// <summary>
+/// Relates many records to one other record in a single stroke: a set of people to the place they
+/// work, say. <paramref name="SelectedAreSource"/> chooses which end the selection is, which for a
+/// directional type is the difference between "works at" and "employs".
+/// </summary>
+public sealed record BulkRelationshipRequest(
+    IReadOnlyList<Guid> RecordIds,
+    Guid RelationshipTypeId,
+    Guid OtherRecordId,
+    bool SelectedAreSource = true,
+    string? Note = null);
+
+public interface IRecordRelationshipCommandStore
+{
+    Task<IReadOnlyList<RecordRelationshipChange>> ApplyAsync(
+        BulkRelationshipRequest request,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IRecordRelationshipCommandService
+{
+    Task<IReadOnlyList<RecordRelationshipChange>> ApplyAsync(
+        BulkRelationshipRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class RecordRelationshipCommandService(
+    IRecordRelationshipCommandStore store,
+    TimeProvider timeProvider) : IRecordRelationshipCommandService
+{
+    /// <summary>The same bound as a graph filter and a bulk tag edit, so the three agree.</summary>
+    public const int MaximumRecords = 100;
+
+    public Task<IReadOnlyList<RecordRelationshipChange>> ApplyAsync(
+        BulkRelationshipRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Guid[] recordIds = [.. request.RecordIds.Distinct()];
+        if (recordIds.Length == 0)
+        {
+            throw new DomainValidationException("Choose at least one record to relate.");
+        }
+
+        if (recordIds.Length > MaximumRecords)
+        {
+            throw new DomainValidationException(
+                $"A relationship assignment cannot cover more than {MaximumRecords} records.");
+        }
+
+        if (request.RelationshipTypeId == Guid.Empty)
+        {
+            throw new DomainValidationException("Choose a relationship type.");
+        }
+
+        if (request.OtherRecordId == Guid.Empty)
+        {
+            throw new DomainValidationException("Choose the record to relate them to.");
+        }
+
+        return store.ApplyAsync(
+            request with { RecordIds = recordIds, Note = RelationshipService.NormalizeNote(request.Note) },
+            timeProvider.GetUtcNow(),
+            cancellationToken);
+    }
+}

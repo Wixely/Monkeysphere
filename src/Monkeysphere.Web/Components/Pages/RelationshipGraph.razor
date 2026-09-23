@@ -9,6 +9,8 @@
 @inject IRecordTagCommandService Tagging
 @inject IRecordTagStore TagVocabulary
 @inject ITagCatalogue TagCatalogue
+@inject IRelationshipService Relationships
+@inject IRecordRelationshipCommandService Relating
 @inject ICurrentDomain CurrentDomain
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -292,6 +294,58 @@
                                     </select>
                                 </label>
                             </div>
+                            <p class="graph-context-menu-section" id="graph-menu-relate">Relate to a record</p>
+                            <div class="graph-context-menu-relate" role="group" aria-labelledby="graph-menu-relate">
+                                <div class="graph-context-menu-list">
+                                    @foreach (RelationshipType type in RecentRelationshipTypes)
+                                    {
+                                        <button type="button" role="menuitem"
+                                                class="graph-context-menu-choice @(type.Id == _relationshipTypeId ? "chosen" : null)"
+                                                aria-pressed="@(type.Id == _relationshipTypeId ? "true" : "false")"
+                                                @onclick="() => ChooseRelationshipTypeAsync(type.Id)">@type.Name</button>
+                                    }
+                                </div>
+                                <label class="graph-context-menu-other">
+                                    Other relationship
+                                    <select value="@(_relationshipTypeId?.ToString("D") ?? string.Empty)"
+                                            @onchange="OtherRelationshipChosenAsync">
+                                        <option value="">Choose a relationship</option>
+                                        @foreach (RelationshipType type in _relationshipTypes)
+                                        {
+                                            <option value="@type.Id.ToString("D")">@type.Name</option>
+                                        }
+                                    </select>
+                                </label>
+                                <label class="graph-context-menu-name">
+                                    Record to relate to
+                                    <input type="text" maxlength="200" placeholder="Search every record"
+                                           value="@_relateQuery" @oninput="RelateSearchAsync" />
+                                </label>
+                                @if (_relateSuggestions.Count > 0)
+                                {
+                                    <div class="graph-context-menu-list" role="group" aria-label="Matching records">
+                                        @foreach (RecordSummary match in _relateSuggestions)
+                                        {
+                                            <button type="button" role="menuitem" class="graph-context-menu-choice"
+                                                    @onclick="() => ChooseRelateTarget(match)">@match.DisplayName <small>@match.RecordTypeName</small></button>
+                                        }
+                                    </div>
+                                }
+                                @if (_relateTarget is not null && _relationshipTypeId is not null)
+                                {
+                                    @* Spelled out as a sentence, because with a directional type the
+                                       difference between the two readings is the whole meaning. *@
+                                    <p class="graph-context-menu-sentence">@RelateSentence</p>
+                                    @if (SelectedRelationshipType?.Directionality == RelationshipDirectionality.Directional)
+                                    {
+                                        <button type="button" role="menuitem" class="graph-context-menu-swap"
+                                                @onclick="() => _selectedAreSource = !_selectedAreSource">Swap direction</button>
+                                    }
+                                    <button type="button" class="button primary graph-context-menu-create"
+                                            @onclick="RelateAsync">@RelateButtonLabel</button>
+                                }
+                            </div>
+
                             <a role="menuitem" class="graph-context-menu-link"
                                href="/records/@_menu.RecordId">Open record</a>
                         }
@@ -495,6 +549,14 @@
     private IReadOnlyDictionary<Guid, IReadOnlyList<string>> _menuRecordTags =
         new Dictionary<Guid, IReadOnlyList<string>>();
     private long _placementRequest;
+    private IReadOnlyList<RelationshipType> _relationshipTypes = [];
+    private IReadOnlyList<string> _recentRelationshipTypeIds = [];
+    private Guid? _relationshipTypeId;
+    private string _relateQuery = string.Empty;
+    private IReadOnlyList<RecordSummary> _relateSuggestions = [];
+    private RecordSummary? _relateTarget;
+    private bool _selectedAreSource = true;
+    private long _relateRevision;
     private RelationshipGraphCanvas.GraphNodePlacement? _placement;
     private Guid? _newRecordTypeId;
     private string _newRecordName = string.Empty;
@@ -625,6 +687,42 @@
             .Take(RecentCount)];
 
     private bool CanCreateRecord => _newRecordTypeId is not null && !string.IsNullOrWhiteSpace(_newRecordName);
+
+    private RelationshipType? SelectedRelationshipType =>
+        _relationshipTypes.FirstOrDefault(type => type.Id == _relationshipTypeId);
+
+    private IReadOnlyList<RelationshipType> RecentRelationshipTypes =>
+        [.. _recentRelationshipTypeIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
+            .Select(id => _relationshipTypes.FirstOrDefault(type => type.Id == id))
+            .Where(type => type is not null)
+            .Concat(_relationshipTypes.Where(type => !_recentRelationshipTypeIds.Contains(type.Id.ToString("D"), StringComparer.Ordinal)))
+            .OfType<RelationshipType>()
+            .Take(RecentCount)];
+
+    /// <summary>
+    /// The assignment as a sentence. A directional type reads one way from each end, so showing
+    /// which one is about to be written is the difference between "works at" and "employs".
+    /// </summary>
+    private string RelateSentence
+    {
+        get
+        {
+            RelationshipType? type = SelectedRelationshipType;
+            if (type is null || _relateTarget is null)
+            {
+                return string.Empty;
+            }
+
+            string label = type.Directionality == RelationshipDirectionality.Symmetric || _selectedAreSource
+                ? type.Name
+                : type.InverseName ?? type.Name;
+            return $"{MenuTargetDescription} — {label} — {_relateTarget.DisplayName}";
+        }
+    }
+
+    private string RelateButtonLabel => MenuTargets.Count > 1
+        ? $"Relate {MenuTargets.Count} records"
+        : "Relate this record";
 
     /// <summary>
     /// The canvas names this through aria-describedby, which is read whether or not the paragraph
@@ -1204,14 +1302,24 @@
 
         // Read when the menu opens rather than carrying tags on every graph query. At 500 nodes
         // that would be a much larger response for something most graph loads never look at.
+        _relateQuery = string.Empty;
+        _relateSuggestions = [];
+        _relateTarget = null;
+        _selectedAreSource = true;
+
         _tagVocabulary = await TagVocabulary.ListVocabularyAsync();
         _menuRecordTags = await TagVocabulary.ListForRecordsAsync(MenuTargets);
+        _relationshipTypes = [.. (await Relationships.ListTypesAsync())
+            .Where(type => type.Lifecycle == RelationshipLifecycle.Active)];
         if (_preferencesModule is not null)
         {
             string domain = CurrentDomain.Id.ToString("D");
             _recentTags = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "tags", domain);
             _recentTypeIds = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "types", domain);
+            _recentRelationshipTypeIds = await _preferencesModule.InvokeAsync<string[]>("loadRecent", "relationships", domain);
         }
+
+        _relationshipTypeId = RecentRelationshipTypes.FirstOrDefault()?.Id;
 
         StateHasChanged();
     }
@@ -1350,6 +1458,104 @@
         }
     }
 
+    private Task ChooseRelationshipTypeAsync(Guid typeId)
+    {
+        _relationshipTypeId = typeId;
+        return Task.CompletedTask;
+    }
+
+    private Task OtherRelationshipChosenAsync(ChangeEventArgs args)
+    {
+        _relationshipTypeId = Guid.TryParse(args.Value?.ToString(), out Guid id) ? id : null;
+        return Task.CompletedTask;
+    }
+
+    private void ChooseRelateTarget(RecordSummary record)
+    {
+        _relateTarget = record;
+        _relateQuery = record.DisplayName;
+        _relateSuggestions = [];
+    }
+
+    /// <summary>
+    /// Searches every record rather than only the types the view is filtered to. The record being
+    /// related to is very often one the graph is not currently showing: a workplace, when what is
+    /// on screen is people.
+    /// </summary>
+    private async Task RelateSearchAsync(ChangeEventArgs args)
+    {
+        long revision = ++_relateRevision;
+        _relateQuery = args.Value?.ToString() ?? string.Empty;
+        _relateTarget = null;
+        string query = _relateQuery.Trim();
+        if (query.Length < 2)
+        {
+            _relateSuggestions = [];
+            return;
+        }
+
+        PagedResult<RecordSummary> matches = await Records.SearchRecordsAsync(new(query));
+        if (revision != _relateRevision)
+        {
+            return;
+        }
+
+        _relateSuggestions = [.. matches.Items.Take(RecentCount)];
+    }
+
+    private async Task RelateAsync()
+    {
+        if (_relateTarget is null || _relationshipTypeId is not Guid typeId)
+        {
+            return;
+        }
+
+        IReadOnlyList<Guid> targets = MenuTargets;
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<RecordRelationshipChange> changes = await Relating.ApplyAsync(new(
+                targets, typeId, _relateTarget.Id, _selectedAreSource));
+            _menuMessage = DescribeRelateResult(changes, _relateTarget.DisplayName);
+            await RememberRecentAsync("relationships", typeId.ToString("D"));
+            await ReloadAsync();
+            _isDirty = true;
+        }
+        catch (DomainValidationException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+        catch (RecordCommandNotFoundException exception)
+        {
+            _menuMessage = exception.Message;
+        }
+    }
+
+    private static string DescribeRelateResult(IReadOnlyList<RecordRelationshipChange> changes, string otherName)
+    {
+        int created = changes.Count(change => change.Outcome == RecordRelationshipOutcome.Created);
+        int already = changes.Count(change => change.Outcome == RecordRelationshipOutcome.AlreadyRelated);
+        int itself = changes.Count(change => change.Outcome == RecordRelationshipOutcome.SameRecord);
+        List<string> parts = [$"Related {created} record{(created == 1 ? string.Empty : "s")} to {otherName}"];
+        if (already > 0)
+        {
+            parts.Add($"{already} already were");
+        }
+
+        // Named rather than counted as done: relating a record to itself is not something that
+        // happened, and an operator who selected the far end should be told.
+        if (itself > 0)
+        {
+            parts.Add($"{itself} is that record");
+        }
+
+        return string.Join("; ", parts) + ".";
+    }
+
     private async Task RememberRecentAsync(string kind, string value)
     {
         if (_preferencesModule is null)
@@ -1359,13 +1565,11 @@
 
         string[] next = await _preferencesModule.InvokeAsync<string[]>(
             "rememberRecent", kind, CurrentDomain.Id.ToString("D"), value, RecentCount);
-        if (kind == "tags")
+        switch (kind)
         {
-            _recentTags = next;
-        }
-        else
-        {
-            _recentTypeIds = next;
+            case "tags": _recentTags = next; break;
+            case "relationships": _recentRelationshipTypeIds = next; break;
+            default: _recentTypeIds = next; break;
         }
     }
 
