@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Monkeysphere.Core;
@@ -169,6 +169,82 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
 
         return await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Created relationship could not be read back.");
+    }
+
+    public async Task<StoredRelationship> UpdateAsync(
+        Guid id,
+        Guid typeId,
+        string? note,
+        DateTimeOffset now,
+        string? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        StoredRelationship existing = await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
+            ?? throw new RecordCommandNotFoundException("Relationship was not found.");
+        if (expectedRevision is not null && expectedRevision != existing.Revision)
+        {
+            throw new ConcurrencyConflictException("The relationship changed. Reload it before saving.");
+        }
+
+        RelationshipTypeRow? typeRow = await connection.QuerySingleOrDefaultAsync<RelationshipTypeRow>(new CommandDefinition("""
+            SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Revision
+            FROM RelationshipTypes WHERE Id = @Id;
+            """, new { Id = Key(typeId) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (typeRow is null)
+        {
+            throw new RecordCommandNotFoundException("Relationship type was not found.");
+        }
+
+        RelationshipType type = MapType(typeRow);
+        if (type.Lifecycle != RelationshipLifecycle.Active)
+        {
+            throw new DomainValidationException("The relationship type is retired.");
+        }
+
+        // A symmetric type keeps its two ends in a fixed order, so that one pair cannot also be
+        // stored the other way round. Moving a relationship onto a symmetric type has to re-apply
+        // that ordering, which is the one case where an edit touches the ends at all.
+        Guid source = existing.SourceRecordId;
+        Guid target = existing.TargetRecordId;
+        if (type.Directionality == RelationshipDirectionality.Symmetric && source.CompareTo(target) > 0)
+        {
+            (source, target) = (target, source);
+        }
+
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE Relationships
+                SET RelationshipTypeId = @TypeId,
+                    SourceRecordId = @SourceId,
+                    TargetRecordId = @TargetId,
+                    Note = @Note,
+                    UpdatedAtUtc = @Now
+                WHERE Id = @Id;
+                """, new
+            {
+                Id = Key(id),
+                TypeId = Key(typeId),
+                SourceId = Key(source),
+                TargetId = Key(target),
+                Note = note,
+                Now = Timestamp(now),
+            }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        }
+        catch (SqliteException exception) when (IsConstraint(exception))
+        {
+            throw new DomainValidationException(
+                "These records are already related by that relationship type.", exception);
+        }
+
+        // Read back inside the transaction, so the revision the trigger has just written is the
+        // one the caller is handed rather than the one they are replacing.
+        StoredRelationship updated = await GetByIdAsync(connection, id, cancellationToken, transaction).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Updated relationship could not be read back.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return updated;
     }
 
     public async Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default)

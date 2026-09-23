@@ -1,11 +1,11 @@
-using DnaX.Data.Migrations;
+﻿using DnaX.Data.Migrations;
 
 namespace Monkeysphere.Data;
 
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 33,
+        currentVersion: 34,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -845,6 +845,17 @@ public static class MonkeysphereSchema
                 -- what the tag used to be called. Null until the catalogue sync backfills it.
                 ALTER TABLE RecordTags ADD COLUMN TagId TEXT NULL;
                 CREATE INDEX IX_RecordTags_TagId ON RecordTags(TagId) WHERE TagId IS NOT NULL;
+                """),
+            DnaXMigration.Sql(34, "configurable-graph-bounds", "Let a deployment raise how much of the graph is drawn", """
+                -- The rendering boundary stops being a constant. It still ships at the figures the
+                -- performance notes cover, so an existing deployment draws exactly what it drew
+                -- before, but an operator who wants to see more of their own data can raise it and
+                -- find out how that behaves on their own hardware. The CHECK bounds mirror the
+                -- ceiling in Core rather than trusting whatever reaches the column.
+                ALTER TABLE GraphSettings ADD COLUMN NodeLimit INTEGER NOT NULL DEFAULT 500
+                    CHECK (NodeLimit BETWEEN 10 AND 2000);
+                ALTER TABLE GraphSettings ADD COLUMN EdgeLimit INTEGER NOT NULL DEFAULT 2000
+                    CHECK (EdgeLimit BETWEEN 10 AND 10000);
                 """),
         ]);
 }

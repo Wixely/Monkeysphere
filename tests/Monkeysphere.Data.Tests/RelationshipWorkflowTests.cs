@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using DnaX.Data.Migrations;
@@ -244,11 +244,13 @@ public sealed class RelationshipWorkflowTests
         RelationshipGraphResult result = await graph.QueryAsync(new(
             FocusRecordId: focusId,
             Depth: 1,
-            NodeLimit: RelationshipGraphService.MaximumNodes,
-            EdgeLimit: RelationshipGraphService.MaximumEdges), deadline.Token);
+            // The shipped default, because that is the boundary this evidence is about. The
+            // ceiling is higher now that the limit is configurable, but nothing has measured it.
+            NodeLimit: RelationshipGraphService.DefaultNodes,
+            EdgeLimit: RelationshipGraphService.DefaultEdges), deadline.Token);
 
-        Assert.Equal(RelationshipGraphService.MaximumNodes, result.Nodes.Count);
-        Assert.Equal(RelationshipGraphService.MaximumEdges, result.Edges.Count);
+        Assert.Equal(RelationshipGraphService.DefaultNodes, result.Nodes.Count);
+        Assert.Equal(RelationshipGraphService.DefaultEdges, result.Edges.Count);
         Assert.True(result.NodesTruncated);
         Assert.True(result.EdgesTruncated);
         Assert.Equal(focusId, result.Nodes[0].RecordId);

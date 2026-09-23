@@ -1,6 +1,6 @@
 # Graph editing surface implementation plan
 
-- Status: M1 delivered 2026-09-22; M0 and M2-M5 remain
+- Status: M1 delivered 2026-09-22; D3 and D6 settled and their groundwork delivered 2026-09-23; M0 tagging work and M2-M5 remain
 - Created and last reviewed: 2026-09-22
 - Plan owner: TBD
 - Next review: 2026-10-05
@@ -58,13 +58,17 @@ Each has a recommendation; none should be implemented before it is agreed, becau
 
 **D2 — Read tags on demand rather than widening the graph payload.** Recommend *not* adding `Tags` and `Revision` to `RelationshipGraphNode`: at 500 nodes that inflates every graph query for data only needed when a menu opens. Instead read the selected records' tags and revisions when the tag editor is opened, bounded by the same 100-record cap. Revisit only if the extra round trip is measurably worse in use.
 
-**D3 — Decide the relationship editing verb set.** Recommend adding a relationship update for the note and the relationship type, with a revision check, so "edit" means edit rather than delete-and-recreate — recreating changes the relationship's identity, which would silently invalidate anything holding its ID. If that is judged too large for a first pass, ship create and delete only and say so in the UI, rather than implementing edit as delete-plus-create.
+**D3 — Decide the relationship editing verb set. Settled 2026-09-23: a proper edit, delivered.** `IRelationshipService.UpdateAsync` changes an existing relationship's type and note in place, with a revision check, so the relationship keeps its identity and anything already holding its ID still refers to the same thing. Moving a relationship onto a symmetric type re-applies the stored end ordering, which is the one case where an edit touches the ends. No UI yet; M5 is where it surfaces.
+
+Original recommendation:  Recommend adding a relationship update for the note and the relationship type, with a revision check, so "edit" means edit rather than delete-and-recreate — recreating changes the relationship's identity, which would silently invalidate anything holding its ID. If that is judged too large for a first pass, ship create and delete only and say so in the UI, rather than implementing edit as delete-plus-create.
 
 **D4 — Decide which record types are creatable from the canvas.** The captured open question. Recommend offering the record types currently selected in the view's type filter first, since that is the context the operator is already working in, with a search over all installed types behind a "more types" affordance. Where exactly one type is selected, default to it and ask only for the name.
 
 **D5 — Fullscreen must include the accessible alternative. Settled and implemented in M1.** Fullscreening `.relationship-graph-shell` would drop the "Centre a displayed record" combobox out of view, because it is a sibling of the canvas component rather than a child. That is an accessibility regression against a documented, test-asserted requirement. Recommend introducing a wrapper element containing the canvas *and* the accessible controls, and requesting fullscreen on that.
 
-**D6 — Decide what happens at the rendering boundary.** A record or relationship created while the view is already truncated at 500 nodes or 2,000 edges may not appear in the re-query. Recommend that creation from the canvas refuses with an explanation while the view is truncated, rather than appearing to succeed and vanishing. The alternative — create anyway and warn — is acceptable but must be an explicit choice.
+**D6 — Decide what happens at the rendering boundary. Settled 2026-09-23, and not with either option offered.** Rather than choosing between refusing and warning, the boundary itself became configurable. It ships at the measured 500 nodes and 2,000 edges, can be raised from graph settings as far as 2,000 and 10,000, and the truncation notice now names the current limit and links to the page that changes it. That turns a hard stop into something an operator can push on and judge on their own hardware, which is a better answer than either refusing or warning about a number nobody could change. What M4 does when creating a record into an already-truncated view is still open, but the question is now smaller: the operator has somewhere to go.
+
+Original recommendation, superseded:  A record or relationship created while the view is already truncated at 500 nodes or 2,000 edges may not appear in the re-query. Recommend that creation from the canvas refuses with an explanation while the view is truncated, rather than appearing to succeed and vanishing. The alternative — create anyway and warn — is acceptable but must be an explicit choice.
 
 **D7 — Decide whether a created record joins the filter or the selection.** A new record may fall outside the active filter and so not appear at all. Recommend adding it to the page's selected-record set, which guarantees it is displayed, and pinning it at the click position so it appears where the operator clicked.
 
@@ -161,8 +165,7 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 
 ## Open questions
 
-- D3: is a relationship update in scope for the first pass, or is create-and-delete acceptable to ship first?
-- D6: refuse creation while truncated, or create with a warning?
+- D6 revisited: with the limit now raisable, what should M4 do when creating a record into a view that is already truncated?
 - Should relationship *type* creation be reachable from the canvas when no suitable type exists, or should that remain a trip to Structures? Recommend the latter, to keep structure changes deliberate.
 - The truncation notice is outside the stage and so is hidden in fullscreen. Move it in before M4, which has to report that boundary.
 - Touch parity is unverified. The canvas `aria-label` tells the operator they can "long-press a record for actions", but the menu is wired only to cytoscape's `cxttap` and no `taphold` handler exists. Whether long-press reaches the menu on a real touch device needs checking before the menu carries destructive actions, and the label corrected if it does not.
@@ -170,4 +173,6 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 ## Next action
 
 - [x] D5 settled and delivered as M1.
-- [ ] Settle D1-D4, D6 and D7 and record the decisions here, then implement M0. Owner: TBD; review by 2026-10-05.
+- [x] D3 settled and delivered: relationships can be edited in place.
+- [x] D6 settled and delivered: the rendering boundary is configurable from graph settings.
+- [ ] Settle D1, D2, D4 and D7 and record the decisions here, then implement the M0 tagging groundwork. Owner: TBD; review by 2026-10-05.

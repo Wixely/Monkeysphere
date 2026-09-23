@@ -1,4 +1,4 @@
-@page "/settings/graph"
+﻿@page "/settings/graph"
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IGraphSettingsService GraphSettingsService
@@ -21,6 +21,11 @@
     <div class="notice success" role="status">@_message</div>
 }
 
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="notice" role="alert">@_error</div>
+}
+
 @if (_loading)
 {
     <p>Loading...</p>
@@ -33,27 +38,67 @@ else
             <span>Warn before leaving a graph with unsaved changes</span>
         </label>
         <p class="muted">This includes changes to filters, selected records, node positions, pan, and zoom. The warning also applies when closing or reloading the browser tab.</p>
+
+        <h2>How much of the graph to draw</h2>
+        <p class="muted">
+            The graph stops at these figures and says so rather than drawing without limit. They ship at
+            @($"{RelationshipGraphService.DefaultNodes:N0}") records and @($"{RelationshipGraphService.DefaultEdges:N0}") relationships,
+            which is the size this release has actually been measured at. Raising them is supported up to
+            @($"{RelationshipGraphService.MaximumNodes:N0}") and @($"{RelationshipGraphService.MaximumEdges:N0}"), and is worth trying
+            if you want to see more at once — but past the shipped figures how well it draws depends on your
+            own machine and browser, so raise it and see rather than take it as a promise.
+        </p>
+        <label>
+            Records drawn at once
+            <input type="number" inputmode="numeric"
+                   min="@RelationshipGraphService.MinimumNodes" max="@RelationshipGraphService.MaximumNodes"
+                   @bind="_nodeLimit" />
+        </label>
+        <label>
+            Relationships drawn at once
+            <input type="number" inputmode="numeric"
+                   min="@RelationshipGraphService.MinimumEdges" max="@RelationshipGraphService.MaximumEdges"
+                   @bind="_edgeLimit" />
+        </label>
+
         <button class="button primary" type="button" @onclick="SaveAsync">Save graph settings</button>
     </section>
 }
 
 @code {
     private bool _warnUnsavedChanges = true;
+    private int _nodeLimit = RelationshipGraphService.DefaultNodes;
+    private int _edgeLimit = RelationshipGraphService.DefaultEdges;
     private bool _loading = true;
     private string? _message;
+    private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
         GraphConfiguration configuration = await GraphSettingsService.GetAsync();
         _warnUnsavedChanges = configuration.WarnUnsavedChanges;
+        _nodeLimit = configuration.NodeLimit;
+        _edgeLimit = configuration.EdgeLimit;
         _loading = false;
     }
 
     private async Task SaveAsync()
     {
-        await GraphSettingsService.SaveAsync(new(_warnUnsavedChanges));
-        _message = _warnUnsavedChanges
-            ? "Graph settings saved. Unsaved-change warnings are enabled."
-            : "Graph settings saved. Unsaved-change warnings are disabled.";
+        _message = null;
+        _error = null;
+        try
+        {
+            GraphConfiguration saved = await GraphSettingsService.SaveAsync(
+                new(_warnUnsavedChanges, _nodeLimit, _edgeLimit));
+            _message = saved.IsRaised
+                ? $"Graph settings saved. The graph will draw up to {saved.NodeLimit:N0} records and {saved.EdgeLimit:N0} relationships, which is above the size this release was measured at."
+                : $"Graph settings saved. The graph will draw up to {saved.NodeLimit:N0} records and {saved.EdgeLimit:N0} relationships.";
+        }
+        catch (DomainValidationException exception)
+        {
+            // The number came from somebody who typed it, so it is worth telling them what was
+            // wrong with it rather than quietly storing something else.
+            _error = exception.Message;
+        }
     }
 }

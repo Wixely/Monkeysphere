@@ -11,7 +11,7 @@ Monkeysphere is designed for one administrator and a personal dataset. Its safeg
 | Record and remote search | 100 records per page | Validation or clamping; deterministic pagination reports total count. |
 | Saved grid view | 25 columns, 10 filters, 100 rows per page in the UI | Definition validation rejects excess fields/filters; results remain paged. |
 | Record relationships | 500 relationships per query | Validation rejects a larger request. |
-| Relationship graph | 500 nodes, 2,000 edges, 3 neighbour hops, 200 search characters | The store reads one extra row and reports node/edge truncation; the UI asks for narrower filters or focused expansion. |
+| Relationship graph | 500 nodes and 2,000 edges by default, raisable in graph settings to 2,000 and 10,000; 3 neighbour hops, 200 search characters | The store reads one extra row and reports node/edge truncation; the UI asks for narrower filters or focused expansion, or offers the settings page. Above the default figures nothing has been measured; see below. |
 | Spatial map | 500 locations per page, 20 selected location fields, page 1–10,000 | Validation rejects larger pages/layer selections; the UI uses 100-row pages and reports the total. |
 | Calendar / iCalendar | 367-day range and 1,000 entries | Validation rejects wider ranges or larger result limits. |
 | vCard import | 5 MiB, 1,000 cards, 2,000 properties per card | Parsing stops with a validation error before apply. |
@@ -30,6 +30,8 @@ The record-command limits were reviewed on 2026-09-07. Tests establish atomic du
 ## Graph scale evidence
 
 The accepted graph storage target is 10,000 records and 50,000 relationships while rendering only the bounded subgraph. `RelationshipGraphEnforcesRenderingBoundsAtAcceptedStorageScale` creates that exact SQLite dataset, gives one focus record more than 500 neighbours, places more than 2,000 relationships among the selected nodes, and queries it through the production Core/Data services. The query must complete within a 10-second cancellation deadline and return exactly 500 nodes and 2,000 edges with both truncation flags set.
+
+The rendering boundary is configurable from 2026-09-23, and the figures above are the shipped defaults rather than the only values the code will accept. A deployment may raise them as far as 2,000 nodes and 10,000 edges, and the ceiling exists only so that one setting cannot ask a browser to draw an entire database. **The evidence below covers the defaults and nothing above them.** Raising the limit is deliberately offered as something an operator can try on their own hardware and judge for themselves; it is not a claim that the graph stays usable there, and the settings page says so. Anything that comes to depend on a raised limit needs its own measurement first.
 
 This is a regression/load-boundary test, not a benchmark or latency promise. The current schema has covering indexes for both relationship endpoints and uses an approximation-aware R-tree for mapped locations. Release-specific latency, concurrency, sustained backup throughput, and memory measurements remain environment-dependent and must be characterized on intended deployment hardware if those become release criteria.
 

@@ -1,4 +1,4 @@
-namespace Monkeysphere.Core;
+﻿namespace Monkeysphere.Core;
 
 public enum RelationshipDirectionality
 {
@@ -77,6 +77,7 @@ public interface IRelationshipStore
     Task RenameTypeAsync(Guid id, string name, string? inverseName, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task RetireTypeAsync(Guid id, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<StoredRelationship> CreateAsync(Guid id, Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<StoredRelationship> UpdateAsync(Guid id, Guid typeId, string? note, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<StoredRelationship>> ListForRecordAsync(Guid recordId, int limit, CancellationToken cancellationToken = default);
     Task<PagedResult<StoredRelationship>> QueryForRecordAsync(Guid recordId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
@@ -89,6 +90,14 @@ public interface IRelationshipService
     Task RenameTypeAsync(Guid id, string name, string? inverseName, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task RetireTypeAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<RelationshipView> CreateAsync(Guid typeId, Guid sourceRecordId, Guid targetRecordId, string? note = null, string? expectedRevision = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes an existing relationship's type or note in place. Deliberately not delete-and-recreate:
+    /// the relationship keeps its identity, so anything already holding its ID still refers to the
+    /// same thing afterwards. <paramref name="perspectiveRecordId"/> only chooses which way round
+    /// the returned view reads.
+    /// </summary>
+    Task<RelationshipView> UpdateAsync(Guid id, Guid typeId, string? note, Guid perspectiveRecordId, string? expectedRevision = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RelationshipView>> ListForRecordAsync(Guid recordId, int limit = 100, CancellationToken cancellationToken = default);
     Task<PagedResult<RelationshipView>> QueryForRecordAsync(Guid recordId, int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, string? expectedRevision = null, CancellationToken cancellationToken = default);
@@ -134,6 +143,22 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
         StoredRelationship created = await store.CreateAsync(
             Guid.CreateVersion7(), typeId, sourceRecordId, targetRecordId, normalizedNote, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
         return Map(created, sourceRecordId);
+    }
+
+    public async Task<RelationshipView> UpdateAsync(
+        Guid id,
+        Guid typeId,
+        string? note,
+        Guid perspectiveRecordId,
+        string? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        string? normalizedNote = NormalizeNote(note);
+        StoredRelationship updated = await store.UpdateAsync(
+            id, typeId, normalizedNote, timeProvider.GetUtcNow(), expectedRevision, cancellationToken).ConfigureAwait(false);
+        // The caller may be looking from either end, or from neither when the change came from
+        // somewhere with no record in hand; mapping from the stored source is then the honest default.
+        return Map(updated, perspectiveRecordId == updated.TargetRecordId ? updated.TargetRecordId : updated.SourceRecordId);
     }
 
     public async Task<IReadOnlyList<RelationshipView>> ListForRecordAsync(Guid recordId, int limit = 100, CancellationToken cancellationToken = default)

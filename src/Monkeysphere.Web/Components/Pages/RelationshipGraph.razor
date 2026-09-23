@@ -108,7 +108,11 @@
 @if (_graph.NodesTruncated || _graph.EdgesTruncated)
 {
     <div class="notice" role="status">
-        This view reached the @(_graph.NodesTruncated ? "500-node" : "2,000-edge") limit. Remove record types or choose a smaller record set to reveal hidden items.
+        This view reached the @(_graph.NodesTruncated
+            ? $"{_graphConfiguration.NodeLimit:N0}-record"
+            : $"{_graphConfiguration.EdgeLimit:N0}-relationship") limit, so some of what matches is not drawn.
+        Remove record types or choose a smaller record set to reveal them, or
+        <a href="/settings/graph">raise the limit in graph settings</a> if you would rather see more at once.
     </div>
 }
 
@@ -349,6 +353,7 @@
     private IReadOnlyList<GraphViewNodePosition> _nodePositions = [];
     private GraphViewViewport? _viewport;
     private bool _warnUnsavedChanges = true;
+    private GraphConfiguration _graphConfiguration = new();
     private bool _isDirty;
     private bool _allowNavigation;
     private RecordDetails? _galleryRecord;
@@ -387,7 +392,8 @@
             .Where(type => type.Lifecycle == RecordTypeLifecycle.Active)
             .ToArray();
         _graphViews = await GraphViews.ListAsync();
-        _warnUnsavedChanges = (await GraphSettings.GetAsync()).WarnUnsavedChanges;
+        _graphConfiguration = await GraphSettings.GetAsync();
+        _warnUnsavedChanges = _graphConfiguration.WarnUnsavedChanges;
         if (ViewId is Guid viewId)
         {
             await LoadGraphViewAsync(viewId);
@@ -769,6 +775,8 @@
     {
         _graph = await GraphService.QueryAsync(new(
             DisplayMode: _displayMode,
+            NodeLimit: _graphConfiguration.NodeLimit,
+            EdgeLimit: _graphConfiguration.EdgeLimit,
             SelectedRecordIds: _selectedRecords.Select(record => record.Id).ToArray(),
             RecordTypeIds: _selectedRecordTypeIds.ToArray()));
         if (_selected is not null)
