@@ -491,6 +491,7 @@ Owner: TBD. Next action: define the minimum upgrade matrix once `0.2.0` exists. 
 Status: Complete and merged to `main`.
 
 - Saved graph views persist bounded coordinates for every displayed record through DnaX migration 19.
+- From 2026-09-23 a view can be saved from the graph itself rather than only from the panel below it, which fullscreen does not show, and a domain can be set to save itself a moment after the graph stops moving. That preference lives in the browser's own storage, scoped to a domain, so it has no MCP surface: there is no server-side state to read or write.
 - Existing nodes retain their saved or current coordinates when filters refresh or new matching records appear.
 - Initial layout, newly introduced nodes, and drag completion enforce deterministic minimum spacing so nodes do not overlap.
 - Later consideration: user-configurable spacing and an explicit automatic relayout action. Owner: TBD; review date: 2026-10-01.

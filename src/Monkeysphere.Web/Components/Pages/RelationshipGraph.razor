@@ -155,6 +155,33 @@
                             aria-label="Reset viewport"
                             title="Reset viewport"
                             @onclick="ResetViewportAsync"><span aria-hidden="true">&#x2316;</span></button>
+
+                    @* Saving used to be reachable only from the panel below the graph, which
+                       fullscreen does not show. A layout arranged in fullscreen then had to be
+                       left before it could be kept. *@
+                    <div class="graph-tool-save">
+                        <button class="graph-tool-button graph-save"
+                                type="button"
+                                disabled="@(!CanSaveFromCanvas)"
+                                data-autosave="@(_autoSave ? "on" : "off")"
+                                aria-label="@SaveButtonLabel"
+                                title="@SaveButtonLabel"
+                                @onclick="SaveFromCanvasAsync"
+                                @oncontextmenu="ToggleAutoSaveMenu"
+                                @oncontextmenu:preventDefault="true"><span aria-hidden="true">&#x1F4BE;</span></button>
+
+                        @if (_autoSaveMenuOpen)
+                        {
+                            <div class="graph-autosave-menu" role="dialog" aria-label="Saving"
+                                 @onkeydown="AutoSaveMenuKeyDown">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" checked="@_autoSave" @onchange="AutoSaveChangedAsync" />
+                                    <span>Autosave this view</span>
+                                </label>
+                                <p class="graph-autosave-note">@AutoSaveNote</p>
+                            </div>
+                        }
+                    </div>
                 </div>
                 <RelationshipGraphCanvas @ref="_graphCanvas"
                                          Graph="_graph"
@@ -168,6 +195,11 @@
                                          OnContextMenuDismissed="CloseMenu"
                                          KeepRecordsApart="_graphConfiguration.KeepRecordsApart"
                                          Placement="_placement" />
+
+                @if (_canvasSaveMessage is not null)
+                {
+                    <p class="graph-save-state @(_saveError ? "failed" : null)" role="status">@_canvasSaveMessage</p>
+                }
 
                 @if (_graph.NodesTruncated || _graph.EdgesTruncated)
                 {
@@ -707,6 +739,11 @@
     private string? _menuMessage;
     private bool _isDirty;
     private bool _allowNavigation;
+    private bool _autoSave;
+    private bool _autoSaveMenuOpen;
+    private string? _canvasSaveMessage;
+    private CancellationTokenSource? _autoSaveDelay;
+    private long _autoSaveRevision;
     private RecordDetails? _galleryRecord;
     private bool _galleryOpen;
     private bool _galleryLoading;
@@ -717,6 +754,30 @@
         [new(string.Empty, "Choose a record"), .. _graph.Nodes.Select(node => new ComboboxOption<string>(node.RecordId.ToString(), $"{node.DisplayName} — {node.RecordTypeName}"))];
 
     private string FullscreenLabel => _fullscreen ? "Exit fullscreen" : "Fullscreen";
+
+    /// <summary>
+    /// How long the graph stays still before autosave writes. Dragging a group of records fires a
+    /// change for every one of them, so saving on each would write dozens of times for one motion.
+    /// </summary>
+    private const int AutoSaveQuietMilliseconds = 1_500;
+
+    /// <summary>
+    /// Only a view that already exists can be saved from here. Creating one needs a name, and the
+    /// canvas is not the place to ask for one — the panel below the graph is, and it says so.
+    /// </summary>
+    private bool CanSaveFromCanvas => _editingGraphViewId is not null;
+
+    private string SaveButtonLabel => _editingGraphViewId is null
+        ? "Name and save this view below before it can be saved from here"
+        : _autoSave
+            ? $"Save {_graphViewName} (autosave on)"
+            : _isDirty
+                ? $"Save {_graphViewName} (unsaved changes)"
+                : $"Save {_graphViewName}";
+
+    private string AutoSaveNote => _editingGraphViewId is null
+        ? "Save this view once with a name below, and autosave can keep it up to date after that."
+        : $"Keeps {_graphViewName} up to date a moment after you stop moving things.";
 
     /// <summary>How many of each the menu offers before falling back to its dropdown.</summary>
     private const int RecentCount = 5;
@@ -1001,7 +1062,16 @@
             // graph does not take the fullscreen element away with it.
             _selfReference = DotNetObjectReference.Create(this);
             _fullscreenAvailable = await _preferencesModule.InvokeAsync<bool>("initFullscreen", _stage, _selfReference);
-            if (_fullscreenAvailable)
+
+            // Read before the branch below, not inside it. Whether this domain saves itself has to
+            // be known whether or not a view is already open — and a view being open is the only
+            // case where it does anything.
+            _autoSave = string.Equals(
+                await _preferencesModule.InvokeAsync<string>(
+                    "loadDomainSetting", "autosave", CurrentDomain.Id.ToString("D"), "off"),
+                "on",
+                StringComparison.Ordinal);
+            if (_fullscreenAvailable || _autoSave)
             {
                 StateHasChanged();
             }
@@ -2276,6 +2346,90 @@
         }
     }
 
+    private async Task SaveFromCanvasAsync()
+    {
+        if (!CanSaveFromCanvas)
+        {
+            return;
+        }
+
+        _autoSaveMenuOpen = false;
+        await SaveGraphViewAsync();
+        _canvasSaveMessage = _saveMessage;
+    }
+
+    private void ToggleAutoSaveMenu() => _autoSaveMenuOpen = !_autoSaveMenuOpen;
+
+    private void AutoSaveMenuKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            _autoSaveMenuOpen = false;
+        }
+    }
+
+    /// <summary>
+    /// Kept per domain rather than per browser or per view: one body of records being tidied wants
+    /// the graph to save itself, and another being explored carefully does not, and one answer for
+    /// both would quietly keep work somebody was only trying out.
+    /// </summary>
+    private async Task AutoSaveChangedAsync(ChangeEventArgs args)
+    {
+        _autoSave = args.Value is true;
+        if (_preferencesModule is not null)
+        {
+            await _preferencesModule.InvokeVoidAsync(
+                "saveDomainSetting", "autosave", CurrentDomain.Id.ToString("D"), _autoSave ? "on" : "off");
+        }
+
+        if (_autoSave && _isDirty)
+        {
+            // Turning it on with changes already made saves them, rather than waiting for the next
+            // nudge to notice work that is already sitting there unsaved.
+            ScheduleAutoSave();
+        }
+    }
+
+    /// <summary>
+    /// Waits for the graph to stop moving before writing. A drag reports a change per record, and
+    /// a pan reports one per frame, so saving on each would be dozens of writes for one gesture.
+    /// </summary>
+    private void ScheduleAutoSave()
+    {
+        if (!_autoSave || !CanSaveFromCanvas)
+        {
+            return;
+        }
+
+        long revision = ++_autoSaveRevision;
+        _autoSaveDelay?.Cancel();
+        _autoSaveDelay?.Dispose();
+        _autoSaveDelay = new CancellationTokenSource();
+        CancellationToken cancellationToken = _autoSaveDelay.Token;
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(AutoSaveQuietMilliseconds, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            // Anything may have changed while waiting: the view closed, autosave turned off, or
+            // the operator saved by hand. Each of those makes this write the wrong one.
+            if (revision != _autoSaveRevision || !_autoSave || !CanSaveFromCanvas || !_isDirty)
+            {
+                return;
+            }
+
+            await SaveGraphViewAsync();
+            _canvasSaveMessage = _saveError ? _saveMessage : $"Saved {_graphViewName} automatically.";
+            StateHasChanged();
+        });
+    }
+
     private Task MarkGraphDirty()
     {
         _isDirty = true;
@@ -2284,6 +2438,7 @@
             _adjustedInFullscreen = true;
         }
 
+        ScheduleAutoSave();
         return Task.CompletedTask;
     }
 
@@ -2343,6 +2498,8 @@
     {
         _searchDelay?.Cancel();
         _searchDelay?.Dispose();
+        _autoSaveDelay?.Cancel();
+        _autoSaveDelay?.Dispose();
         if (_preferencesModule is not null)
         {
             try

@@ -142,6 +142,26 @@ export function saveSetting(key, value) {
     }
 }
 
+// Scoped to a domain, unlike loadSetting above, and the difference is not incidental. Whether the
+// graph saves itself is a decision about one body of records: a domain being tidied wants it on,
+// and another being explored carefully wants it off, and carrying one answer across both would
+// silently save work somebody was only trying out.
+export function loadDomainSetting(key, domainId, fallback) {
+    try {
+        return globalThis.localStorage.getItem(`monkeysphere.graph.${key}.${domainId}`) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+export function saveDomainSetting(key, domainId, value) {
+    try {
+        globalThis.localStorage.setItem(`monkeysphere.graph.${key}.${domainId}`, value);
+    } catch {
+        // Storage may be unavailable in a hardened or private browser context.
+    }
+}
+
 export function loadRecent(kind, domainId) {
     try {
         const value = globalThis.localStorage.getItem(`monkeysphere.graph.recent.${kind}.${domainId}`);

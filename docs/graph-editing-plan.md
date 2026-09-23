@@ -206,6 +206,14 @@ One thing editing deliberately does not do is swap a directional relationship's 
 
 **The truncation notice moved onto the canvas.** It was a block above the panel, which meant that in fullscreen — where an operator is most likely to believe they are seeing everything — the graph silently stopped drawing and said nothing. It is now a small overlay in the corner of the canvas frame, carrying the link to raise the limit, which is the one remedy that does not require leaving fullscreen first. `GraphFullscreenTests` pins it inside the stage.
 
+**Saving reached the graph on 2026-09-23.** Arranging a layout in fullscreen and then having to leave fullscreen to keep it is the same fault the truncation notice had: the only control was in the panel below the graph, which fullscreen does not show. The save button now sits with the other two over the canvas and follows them into fullscreen.
+
+It saves a view that already exists, and is disabled with a label saying so when none is open. Creating one needs a name, and a corner of the canvas is not the place to ask for one — the panel below is, and it says which it is doing.
+
+Autosave hangs off the same button's right-click, which is where the graph already puts a second question about the thing under the pointer. It is remembered per domain rather than per browser or per view, because one body of records being tidied wants the graph to keep itself up to date and another being explored carefully does not; one answer for both would quietly keep work somebody was only trying out. It waits for the graph to stop moving before writing — a drag reports a change per record and a pan one per frame, so saving on each would be dozens of writes for one gesture.
+
+What saving is doing is said over the canvas too, for the same reason the control moved there: the panel that used to report it is off the screen in fullscreen.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.
@@ -225,6 +233,16 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - **Dirty-state honesty.** Edits force a re-query; unsaved positions must survive it, and the `NavigationLock` prompt must not start claiming unsaved changes that were in fact persisted.
 - **Assets stay vendored.** No new CDN reference; the no-CDN build check must keep passing.
 
+## MCP disposition
+
+**Included**, in contract 1.23, for everything here that is a fact about records rather than a way of looking at them.
+
+- Relationship expiry is readable on `get_record_relationships` and writable on `create_relationship`.
+- `update_relationship` changes an existing link's type, note and ending in place, keeping its ID. It deliberately cannot move a link to different records; that is a delete and a create.
+- `get_graph_settings` and `set_graph_settings` read and change a domain's graph bounds and layout flags, reporting the bounds and shipped defaults so a caller can tell a raised limit from the measured one.
+
+**Not applicable** for the rest. Whether the graph saves a view automatically is a per-browser preference in that browser's own storage; there is no server-side state for a tool to touch. Bulk tagging and bulk relationship assignment are canvas interactions rather than new capabilities — a remote caller reaches the same ends with `patch_record` and `create_relationship` per record, under the grants those already require. The tabbed menu, the fullscreen mode and the truncation notice are presentation.
+
 ## Open questions
 
 - Should relationship *type* creation be reachable from the canvas when no suitable type exists, or should that remain a trip to Structures? Recommend the latter, to keep structure changes deliberate.
@@ -240,4 +258,6 @@ Exit criteria: a relationship created from the graph appears on both records' fo
 - [x] M5 in part: relationships can be assigned in bulk from the canvas.
 - [x] The menu is a tabbed panel — Info, Tags, Relationships — with the tab remembered per browser.
 - [x] M5 complete: a relationship can be created, edited and deleted from the canvas.
+- [x] Saving is reachable from the graph, with autosave remembered per domain.
+- [x] The graph's own capabilities are reachable over MCP: relationship editing, expiry, and the graph bounds.
 - [ ] Touch parity: whether long-press reaches the menu, now that the menu carries a destructive action. Owner: TBD; review by 2026-10-05.

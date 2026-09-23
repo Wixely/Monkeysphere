@@ -1748,6 +1748,73 @@ input[type="checkbox"] {
     background: var(--accent-bright);
 }
 
+/* The save control and the menu that hangs off it move together, so the menu opens under the
+   button rather than at a corner of the canvas. */
+.graph-tool-save {
+    position: relative;
+}
+
+/* Autosave shows on the button itself. Not aria-pressed, which would say the button is held down
+   rather than that saving happens on its own; what it is doing is in the label and the title. */
+.graph-tool-button[data-autosave="on"] {
+    border-color: var(--success);
+    box-shadow: var(--shadow-small), inset 0 -3px 0 var(--success);
+}
+
+.graph-tool-button:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+}
+
+.graph-autosave-menu {
+    position: absolute;
+    z-index: 6;
+    top: calc(100% + .4rem);
+    right: 0;
+    display: flex;
+    width: max-content;
+    max-width: min(18rem, 60vw);
+    flex-direction: column;
+    gap: .4rem;
+    padding: .6rem .7rem;
+    border: 1px solid var(--line-strong);
+    border-radius: .55rem;
+    background: var(--panel-translucent-strong);
+    box-shadow: var(--shadow-small);
+    backdrop-filter: blur(10px);
+    text-align: left;
+}
+
+.graph-autosave-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: .75rem;
+}
+
+/* Bottom right, opposite the truncation notice, so the two never collide. Saving is the one thing
+   here with no other way of reporting itself in fullscreen: the panel that used to say it is off
+   the screen. */
+.graph-save-state {
+    position: absolute;
+    z-index: 3;
+    right: .7rem;
+    bottom: .7rem;
+    max-width: min(24rem, calc(100% - 1.4rem));
+    margin: 0;
+    padding: .4rem .65rem;
+    border: 1px solid var(--line);
+    border-radius: .55rem;
+    background: var(--panel-translucent-strong);
+    box-shadow: var(--shadow-small);
+    backdrop-filter: blur(10px);
+    font-size: .78rem;
+}
+
+.graph-save-state.failed {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
 /* Fullscreen is the graph and nothing else: no page chrome, no description, no combobox, and the
    canvas edge-to-edge without the border and rounding that only make sense inside a panel. */
 .graph-stage:fullscreen {

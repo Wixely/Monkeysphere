@@ -47,6 +47,27 @@ public sealed class GraphFullscreenTests
     }
 
     [Fact]
+    public async Task SavingIsReachableFromInsideTheFullscreenStage()
+    {
+        await using MonkeysphereApplicationFactory factory = new();
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            RecordType type = await records.CreateRecordTypeAsync("Arranged type");
+            _ = await records.CreateRecordAsync(type.Id, "Arranged record", []);
+        }
+
+        string stage = Stage(await SignedInGraphPageAsync(factory));
+
+        // A layout arranged in fullscreen had to be left before it could be kept, because the only
+        // save control was in the panel below the graph and fullscreen does not show it.
+        Assert.Contains("graph-save", stage, StringComparison.Ordinal);
+
+        // The panel below is still where a view is named and first created, and stays outside.
+        Assert.DoesNotContain("Reusable graph filter", stage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TheBoundaryTheGraphStoppedDrawingAtIsSaidInsideTheFullscreenStage()
     {
         await using MonkeysphereApplicationFactory factory = new();
