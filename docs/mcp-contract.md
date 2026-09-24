@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.28
+- Contract version: 1.29
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -61,10 +61,16 @@ Accept: application/json, text/event-stream
 | `update_graph_view` | `views.manage` | Required `domainId`, `id`, `name`; the same optional inputs. Replaces the view; an arrangement left out is forgotten |
 | `delete_graph_view` | `views.manage` | Required `domainId`, `id`. Removes the arrangement. **Destructive**; no record or relationship is touched |
 | `query_calendar` | `records.read` | Required `from`, `to`; optional `recordTypeId`, `recordTypeIds`, `fieldDefinitionId`, `limit` (500), `domainId`. Dated values in the range with their repeats |
-| `export_calendar` | `records.read` | Required `from`, `to`; the same narrowing plus `offset` (0), `count` (16384). The iCalendar document in base64 byte ranges with a SHA-256 of the whole |
+| `export_calendar` | `records.read` | Required `from`, `to`; the same narrowing plus `offset` (0), `count` (16384), `generatedAtUtc` (echo it back when paging). The iCalendar document in base64 byte ranges with a SHA-256 of the whole |
 | `list_reminders` | `records.read` | Optional `domainId`. Undismissed reminders with the value each watches and its due date |
 | `create_reminder` | `records.write` | Required `domainId`, `fieldValueId`, `leadDays` (0-3650). A reminder on one dated value |
 | `dismiss_reminder` | `records.write` | Required `domainId`, `id`. Removes it from the list permanently. **Destructive**; no record content is touched |
+| `query_map` | `records.read` | Optional `south`/`west`/`north`/`east` (whole world), `recordTypeId`, `fieldDefinitionId`, `fieldDefinitionIds`, `page` (1), `pageSize` (100), `domainId`. Located records as pins with their precision |
+| `get_map_settings` | `records.read` or `structure.write` | Optional `domainId`. Whether external tiles are on, the one host they reach, and the privacy disclosure |
+| `set_map_settings` | `structure.write` | Required `domainId`, `externalTilesEnabled`; `acknowledgeExternalRequests` required to enable. Turns the external basemap on or off |
+| `get_dashboard_settings` | `records.read` or `structure.write` | Optional `domainId`. Categories, recurring date fields, look-ahead, and the bounds and default |
+| `set_dashboard_settings` | `structure.write` | Required `domainId`; optional `recordTypeIds`, `recurringFieldDefinitionIds`, `upcomingDays`. Merges onto what is stored |
+| `list_upcoming_dates` | `records.read` | Optional `domainId`. Dates within the look-ahead, at their next occurrence, soonest first |
 | `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
@@ -479,6 +485,70 @@ replayed after it reports `retry_conflict` rather than replaying, because the pa
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
 
+## Map, spatial queries and the dashboard in 1.29
+
+Contract 1.29 has 90 tools, adding six, and no new grant. It closes MCP milestone M5's tool surface.
+
+### Enabling an external request has to be said out loud
+
+`set_map_settings` is the only tool in this contract that changes what a viewer's browser contacts. The
+settings page puts a privacy notice in front of the operator above the checkbox; a tool call carries no
+page, so the acknowledgement takes its place. Enabling external tiles requires
+`acknowledgeExternalRequests` true and is otherwise refused **with the disclosure quoted in the error**,
+because a caller that has not acknowledged the notice has by definition not been shown it.
+
+Three details follow from treating it as consent rather than as a flag:
+
+- Disabling needs no acknowledgement. Turning a disclosure off discloses nothing, and requiring one
+  would make the safer direction the harder one.
+- Acknowledging while leaving tiles off is not a way to bank consent for later: the next enabling call
+  must acknowledge again. The test pins that.
+- `get_map_settings` returns the disclosure whether tiles are on or off, so a caller can tell an
+  operator what a change would cost *before* asking for it rather than only after a refusal.
+
+Enabling is per domain, and the deployment's content security policy names the tile host only while the
+setting is on, so a domain with tiles off cannot reach the provider even if something tried.
+
+### An approximate location stays approximate
+
+`query_map` returns pins with `accuracyMetres` and `approximationRadiusKilometres` alongside the
+coordinate. The radius is the operator's own statement that a location is only good to within that
+distance -- "somewhere in Yorkshire" rather than a street address -- and a consumer handed only latitude
+and longitude would plot a forty-kilometre claim as a point and report someone's home far more precisely
+than was ever said. Carrying it is M5's geographic-approximation requirement.
+
+Nothing in `query_map` contacts a tile provider. It returns coordinates; drawing them is the client's
+business, and the external setting governs only what a browser fetches to draw *under* them.
+
+### The dashboard looks forward
+
+`list_upcoming_dates` reports each date at its **next** occurrence, which is what separates it from
+both of its neighbours in this contract: `query_calendar` reports a range including the stored day, and
+a reminder's `dueDate` counts back from the stored date. Comparing an upcoming date with today gives a
+real answer, so this is the tool to reach for when the question is "what is coming up".
+
+`set_dashboard_settings` **merges** onto what is stored, matching `set_graph_settings`: changing the
+look-ahead does not clear the categories. That is the opposite of `update_saved_view`, deliberately -- a
+view's lists *are* the view, while these are independent settings that happen to share a row. An
+explicitly empty list still clears one, so an empty list is a decision and an omitted one is silence.
+
+### Bounds
+
+`get_capabilities` reports `mapLimits`: pages 1-10000, `pageSize` 1-500 defaulting to 100, and at most 20
+location fields per query. Latitude bounds must be ordered south to north and within -90 to 90;
+longitudes within -180 to 180. `get_dashboard_settings` returns its own bounds inline with the values --
+the shipped default, the 366-day maximum look-ahead, 50 recurring fields and 100 projected items -- so a
+caller can tell a chosen look-ahead from the default without knowing this build's numbers. A deployment
+that has never saved a dashboard configuration gets one derived from its own structure rather than an
+empty one.
+
+### M5's tool surface is complete
+
+Saved record views (1.25), graph views and bounded graph queries (1.26), calendar reads and iCalendar
+export (1.27), reminders (1.28), and now spatial queries, map settings and the dashboard. What remains of
+M5 is its exit evidence rather than its tools: the live-client and interactive-browser gates for this
+contract revision.
+
 ## Reminders in 1.28
 
 Contract 1.28 has 84 tools, adding three, and no new grant. It continues M5.
@@ -575,9 +645,18 @@ The document is returned base64 in byte ranges, the same shape `export_contacts`
 `read_contact_import_evidence` use, so a client written against one works against the others:
 `offset` defaults to 0, `count` to 16384 and is bounded there, `nextOffset` is the offset to ask for
 next or null at the end, and the end offset yields an empty final range while anything past it fails.
-`contentDigest` is the SHA-256 of the **whole** document in hex and is identical on every page, so a
-client can prove its reassembly lost and duplicated nothing. The test does exactly that, in 64-byte
-pages, and checks that a name containing a comma and a semicolon survives iCalendar escaping intact.
+`contentDigest` is the SHA-256 of the **whole** document in hex, so a client can prove its reassembly
+lost and duplicated nothing. The test does exactly that, in 64-byte pages, and checks that a name
+containing a comma and a semicolon survives iCalendar escaping intact.
+
+**Pass `generatedAtUtc` from the first response back on every later page.** iCalendar stamps each event
+with when the file was created, so a document generated a second later is a byte-for-byte different
+document with a different digest — a defect this contract's own test caught, having passed by luck while
+every call landed inside the same second. The stamp is part of the document rather than a label on the
+response, which is why it is echoed and accepted rather than hidden: a paged export nobody can reproduce
+is worth nothing. It is truncated to the second the format carries, so the value a client sends back is
+exactly the one the document was built with. A digest that changes even with the stamp pinned means the
+underlying records changed; start again at offset 0.
 
 ### Bounds
 

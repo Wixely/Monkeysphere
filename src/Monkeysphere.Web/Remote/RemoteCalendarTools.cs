@@ -39,6 +39,11 @@ public sealed record RemoteCalendar(
 /// An iCalendar document, paged the same way the contact export is: base64 byte ranges with a digest
 /// of the whole, so a client can reassemble it and prove it did so without any single response
 /// growing past its bound.
+///
+/// <c>GeneratedAtUtc</c> is part of the document rather than metadata about it: iCalendar stamps every
+/// event with when the file was made, so a document generated a second later is a different document
+/// with a different digest. It is echoed here so a client can pass it back for the remaining pages and
+/// get the same bytes each time, which a paged export is worth nothing without.
 /// </summary>
 public sealed record RemoteCalendarExport(
     DateOnly From,
@@ -46,6 +51,7 @@ public sealed record RemoteCalendarExport(
     int EntryCount,
     string MediaType,
     string ContentDigest,
+    DateTimeOffset GeneratedAtUtc,
     int Offset,
     int TotalBytes,
     int? NextOffset,
@@ -107,7 +113,7 @@ public sealed class MonkeysphereCalendarTools
         });
 
     [McpServerTool(Name = "export_calendar", ReadOnly = true)]
-    [Description("Exports a range of the calendar as an iCalendar (.ics) document, the same one the browser downloads. Requires records.read and an explicit from and to, and takes the same optional narrowing as query_calendar. The document is returned base64 in byte ranges: offset defaults to 0 and count to 16384, nextOffset is the offset to ask for next or null when the document is complete, and contentDigest is the SHA-256 of the whole document in hex so a client can prove it reassembled what the server sent. The range covers at most 367 days and exports at most 1000 entries. Each event is a whole day with the record name and field name as its summary and the record type as its category; no field value, tag, note or image is included.")]
+    [Description("Exports a range of the calendar as an iCalendar (.ics) document, the same one the browser downloads. Requires records.read and an explicit from and to, and takes the same optional narrowing as query_calendar. The document is returned base64 in byte ranges: offset defaults to 0 and count to 16384, nextOffset is the offset to ask for next or null when the document is complete, and contentDigest is the SHA-256 of the whole document in hex so a client can prove it reassembled what the server sent. Pass generatedAtUtc from the first response back on every later page: iCalendar stamps each event with when the file was made, so without it a second page is a byte-for-byte different document and the digests will not match. A digest that still changes means the underlying records changed; start again at offset 0. The range covers at most 367 days and exports at most 1000 entries. Each event is a whole day with the record name and field name as its summary and the record type as its category; no field value, tag, note or image is included.")]
     public static Task<CallToolResult> ExportAsync(
         ICalendarService calendar,
         TimeProvider timeProvider,
@@ -120,6 +126,7 @@ public sealed class MonkeysphereCalendarTools
         Guid? fieldDefinitionId = null,
         int offset = 0,
         int count = RemoteCalendarBounds.MaximumChunkBytes,
+        DateTimeOffset? generatedAtUtc = null,
         Guid? domainId = null,
         CancellationToken cancellationToken = default) =>
         RemoteReadResults.RunAsync(accessor, async () =>
@@ -142,7 +149,11 @@ public sealed class MonkeysphereCalendarTools
             IReadOnlyList<CalendarEntry> entries = await ReadAsync(
                 calendar, from, to, recordTypeId, recordTypeIds, fieldDefinitionId,
                 CalendarService.MaximumEntries, cancellationToken).ConfigureAwait(false);
-            byte[] content = ICalendarExport.Create(entries, timeProvider.GetUtcNow());
+
+            // Truncated to the second, because that is the precision iCalendar stamps and a value
+            // carrying more would come back differently from the way it went into the document.
+            DateTimeOffset stamp = Truncate(generatedAtUtc ?? timeProvider.GetUtcNow());
+            byte[] content = ICalendarExport.Create(entries, stamp);
 
             // The end offset yields an empty final range and anything past it fails, matching
             // read_contact_import_evidence so a client written against one works against the other.
@@ -155,10 +166,18 @@ public sealed class MonkeysphereCalendarTools
             int next = offset + length;
             return new RemoteCalendarExport(
                 from, to, entries.Count, "text/calendar; charset=utf-8",
-                Convert.ToHexString(SHA256.HashData(content)), offset, content.Length,
+                Convert.ToHexString(SHA256.HashData(content)), stamp, offset, content.Length,
                 next < content.Length ? next : null,
                 Convert.ToBase64String(content, offset, length));
         });
+
+    /// <summary>
+    /// To the second in UTC, which is what an iCalendar timestamp carries. Anything finer would make a
+    /// value the caller sends back differ from the one the document was built with, which is the exact
+    /// failure this parameter exists to prevent.
+    /// </summary>
+    private static DateTimeOffset Truncate(DateTimeOffset value) =>
+        new(value.UtcDateTime.AddTicks(-(value.UtcDateTime.Ticks % TimeSpan.TicksPerSecond)), TimeSpan.Zero);
 
     private static async Task<IReadOnlyList<CalendarEntry>> ReadAsync(
         ICalendarService calendar,

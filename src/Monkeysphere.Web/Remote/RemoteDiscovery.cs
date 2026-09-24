@@ -35,13 +35,14 @@ public sealed record RemoteCapabilities(
     RemoteDomainWriteLimits? DomainWriteLimits = null, RemoteUploadTransferLimits? UploadLimits = null, RemoteContactPreviewLimits? ContactPreviewLimits = null,
     RemoteContactExportLimits? ContactExportLimits = null, RemoteImageLimits? ImageLimits = null,
     RemoteSavedViewLimits? SavedViewLimits = null, RemoteGraphViewLimits? GraphViewLimits = null,
-    RemoteCalendarLimits? CalendarLimits = null, RemoteReminderLimits? ReminderLimits = null);
+    RemoteCalendarLimits? CalendarLimits = null, RemoteReminderLimits? ReminderLimits = null,
+    RemoteMapLimits? MapLimits = null);
 
 [McpServerToolType]
 [RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "views.manage", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write")]
 public sealed class MonkeysphereDiscoveryTools
 {
-    private const string ContractVersion = "1.28";
+    private const string ContractVersion = "1.29";
 
     private static readonly string[] DiscoveryScopes =
         ["records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "views.manage", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write", "tags.manage"];
@@ -67,7 +68,7 @@ public sealed class MonkeysphereDiscoveryTools
         ClaimsPrincipal principal = DemandDiscoveryScope(accessor);
         string[] scopes = principal.FindAll(DnaXRemoteClaimTypes.Scope)
             .Select(claim => claim.Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereGraphSettingsTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools), typeof(MonkeysphereContactPreviewTools), typeof(MonkeysphereContactExportTools), typeof(MonkeysphereImageTools), typeof(MonkeysphereRecordSourceTools), typeof(MonkeysphereTagReadTools), typeof(MonkeysphereTagWriteTools), typeof(MonkeysphereSavedViewReadTools), typeof(MonkeysphereSavedViewWriteTools), typeof(MonkeysphereGraphViewReadTools), typeof(MonkeysphereGraphViewWriteTools), typeof(MonkeysphereCalendarTools), typeof(MonkeysphereReminderTools) }
+        RemoteToolCapability[] capabilities = new[] { typeof(MonkeysphereRemoteTools), typeof(MonkeysphereDiscoveryTools), typeof(MonkeysphereSchemaTools), typeof(MonkeysphereRecordWriteTools), typeof(MonkeysphereRecordBatchTools), typeof(MonkeysphereRecordDeletionTools), typeof(MonkeysphereRelationshipWriteTools), typeof(MonkeysphereGraphSettingsTools), typeof(MonkeysphereStructureWriteTools), typeof(MonkeyspherePresetReadTools), typeof(MonkeyspherePresetWriteTools), typeof(MonkeysphereDomainWriteTools), typeof(MonkeysphereRecordQueryTools), typeof(MonkeysphereUploadTools), typeof(MonkeysphereContactPreviewTools), typeof(MonkeysphereContactExportTools), typeof(MonkeysphereImageTools), typeof(MonkeysphereRecordSourceTools), typeof(MonkeysphereTagReadTools), typeof(MonkeysphereTagWriteTools), typeof(MonkeysphereSavedViewReadTools), typeof(MonkeysphereSavedViewWriteTools), typeof(MonkeysphereGraphViewReadTools), typeof(MonkeysphereGraphViewWriteTools), typeof(MonkeysphereCalendarTools), typeof(MonkeysphereReminderTools), typeof(MonkeysphereMapTools), typeof(MonkeysphereDashboardTools) }
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static))
             .Select(method => (Method: method, Tool: method.GetCustomAttribute<McpServerToolAttribute>()))
             .Where(item => item.Tool is not null)
@@ -93,7 +94,7 @@ public sealed class MonkeysphereDiscoveryTools
             new(DomainCommandLimits.MaximumRetainedCommands, RecordCommandLimits.MaximumReceiptBytes,
                 RecordCommandLimits.RetryWindowHours, RecordCommandLimits.TombstoneRetentionDays),
             RemoteUploadTransferLimits.For(limits.MaximumRequestBodyBytes), new RemoteContactPreviewLimits(), new RemoteContactExportLimits(), new RemoteImageLimits(),
-            new RemoteSavedViewLimits(), new RemoteGraphViewLimits(), new RemoteCalendarLimits(), new RemoteReminderLimits());
+            new RemoteSavedViewLimits(), new RemoteGraphViewLimits(), new RemoteCalendarLimits(), new RemoteReminderLimits(), new RemoteMapLimits());
     }
 
     private static ClaimsPrincipal DemandDiscoveryScope(IHttpContextAccessor accessor)

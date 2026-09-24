@@ -107,16 +107,20 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal("text/calendar; charset=utf-8", first.MediaType);
         Assert.NotNull(first.NextOffset);
 
-        // Walked to the end the way a client must, one bounded range at a time.
+        // Walked to the end the way a client must, one bounded range at a time, passing back the
+        // generation stamp. iCalendar puts the file's creation time into every event, so without that
+        // the second page would be a byte-for-byte different document from the first and no amount of
+        // careful reassembly would produce either one.
         List<byte> assembled = [.. Convert.FromBase64String(first.ContentBase64)];
         int? next = first.NextOffset;
         while (next is int offset)
         {
             using JsonDocument pageResult = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "export_calendar",
-                new { domainId, from = $"{year}-06-01", to = $"{year}-06-30", offset, count = 64 });
+                new { domainId, from = $"{year}-06-01", to = $"{year}-06-30", offset, count = 64, generatedAtUtc = first.GeneratedAtUtc });
             RemoteCalendarExport page = Structured(pageResult).Deserialize<RemoteCalendarExport>(JsonOptions)!;
             Assert.Equal(first.TotalBytes, page.TotalBytes);
             Assert.Equal(first.ContentDigest, page.ContentDigest);
+            Assert.Equal(first.GeneratedAtUtc, page.GeneratedAtUtc);
             assembled.AddRange(Convert.FromBase64String(page.ContentBase64));
             next = page.NextOffset;
         }
@@ -138,10 +142,21 @@ public sealed partial class RemoteDiscoveryTests
         // occasion rather than the record.
         Assert.DoesNotContain("about then", document, StringComparison.Ordinal);
 
+        // The stamp is truncated to the second the document carries, so a client passing back what it
+        // was given gets that same value rather than one that quietly fails to reproduce the bytes.
+        Assert.Equal(first.GeneratedAtUtc, first.GeneratedAtUtc.UtcDateTime.AddTicks(
+            -(first.GeneratedAtUtc.UtcDateTime.Ticks % TimeSpan.TicksPerSecond)));
+
+        // A stamp of somebody else's choosing makes a different document, which is the honest answer:
+        // the timestamp is part of the file, not a label on the response.
+        using JsonDocument restamped = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "export_calendar",
+            new { domainId, from = $"{year}-06-01", to = $"{year}-06-30", count = 64, generatedAtUtc = first.GeneratedAtUtc.AddMinutes(1) });
+        Assert.NotEqual(first.ContentDigest, Structured(restamped).Deserialize<RemoteCalendarExport>(JsonOptions)!.ContentDigest);
+
         // The end offset is an empty final range rather than an error, matching the contact export so
         // a client written against one works against the other. Past it fails.
         using JsonDocument atEnd = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "export_calendar",
-            new { domainId, from = $"{year}-06-01", to = $"{year}-06-30", offset = first.TotalBytes });
+            new { domainId, from = $"{year}-06-01", to = $"{year}-06-30", offset = first.TotalBytes, generatedAtUtc = first.GeneratedAtUtc });
         RemoteCalendarExport empty = Structured(atEnd).Deserialize<RemoteCalendarExport>(JsonOptions)!;
         Assert.Equal(string.Empty, empty.ContentBase64);
         Assert.Null(empty.NextOffset);

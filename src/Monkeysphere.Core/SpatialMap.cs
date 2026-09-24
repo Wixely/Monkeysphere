@@ -8,7 +8,7 @@ public sealed record SpatialMapQuery(
     Guid? RecordTypeId = null,
     Guid? FieldDefinitionId = null,
     int Page = 1,
-    int PageSize = 100,
+    int PageSize = SpatialMapService.DefaultPageSize,
     IReadOnlyList<Guid>? FieldDefinitionIds = null);
 
 public sealed record SpatialMapEntry(
@@ -48,6 +48,19 @@ public interface ISpatialMapService
 
 public sealed class SpatialMapService(ISpatialMapStore store) : ISpatialMapService
 {
+    /// <summary>
+    /// How far a caller may page through pins, and how many location fields one query may select
+    /// across. Named because a remote caller is told them by get_capabilities, and a bound a client
+    /// plans against should not be a literal that exists only inside the check enforcing it.
+    /// </summary>
+    public const int MaximumPage = 10_000;
+
+    public const int MaximumPageSize = 500;
+
+    public const int DefaultPageSize = 100;
+
+    public const int MaximumLocationFields = 20;
+
     public Task<PagedResult<SpatialMapEntry>> QueryAsync(
         SpatialMapQuery query,
         CancellationToken cancellationToken = default)
@@ -65,19 +78,19 @@ public sealed class SpatialMapService(ISpatialMapStore store) : ISpatialMapServi
             throw new DomainValidationException("Map longitude bounds must be finite and between -180 and 180 degrees.");
         }
 
-        if (query.Page is < 1 or > 10_000)
+        if (query.Page < 1 || query.Page > MaximumPage)
         {
-            throw new DomainValidationException("Map page must be between 1 and 10,000.");
+            throw new DomainValidationException($"Map page must be between 1 and {MaximumPage:N0}.");
         }
 
-        if (query.PageSize is < 1 or > 500)
+        if (query.PageSize < 1 || query.PageSize > MaximumPageSize)
         {
-            throw new DomainValidationException("Map page size must be between 1 and 500.");
+            throw new DomainValidationException($"Map page size must be between 1 and {MaximumPageSize:N0}.");
         }
 
-        if (query.FieldDefinitionIds is { Count: > 20 })
+        if (query.FieldDefinitionIds is not null && query.FieldDefinitionIds.Count > MaximumLocationFields)
         {
-            throw new DomainValidationException("Map queries cannot select more than 20 location fields.");
+            throw new DomainValidationException($"Map queries cannot select more than {MaximumLocationFields} location fields.");
         }
 
         return store.QueryAsync(query, cancellationToken);
