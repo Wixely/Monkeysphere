@@ -274,6 +274,11 @@
                         }
                         else if (_menu.RecordId is null)
                         {
+                            @* Wrapped like every other body here. The menu itself stopped scrolling
+                               when the title and tabs were pinned, and this branch was left without
+                               the panel that took the scrolling over, so its Create button fell off
+                               the bottom with no way to reach it. *@
+                            <div class="graph-context-menu-panel">
                             <p class="graph-context-menu-section" id="graph-menu-types">New record type</p>
                             <div class="graph-context-menu-list" role="group" aria-labelledby="graph-menu-types">
                                 @foreach (RecordType type in RecentTypes)
@@ -302,6 +307,7 @@
                             </label>
                             <button type="button" class="button primary graph-context-menu-create"
                                     disabled="@(!CanCreateRecord)" @onclick="CreateRecordAsync">Create record</button>
+                            </div>
                         }
                         else
                         {
