@@ -54,15 +54,19 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         Assert.Equal("strict-origin-when-cross-origin", Assert.Single(live.Headers.GetValues("Referrer-Policy")));
         Assert.Equal("DENY", Assert.Single(live.Headers.GetValues("X-Frame-Options")));
         Assert.Equal("camera=(), microphone=(), geolocation=()", Assert.Single(live.Headers.GetValues("Permissions-Policy")));
-        Assert.Equal(
-            "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
-            Assert.Single(live.Headers.GetValues("Content-Security-Policy")));
+        // A health probe is not a document, so it gets the fixed policy with no nonce minted into
+        // it and no database read behind it. ContentSecurityPolicyTests covers the rest.
+        Assert.Contains(
+            "default-src 'self'; ",
+            Assert.Single(live.Headers.GetValues("Content-Security-Policy")),
+            StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
         Assert.Equal("strict-origin-when-cross-origin", Assert.Single(missing.Headers.GetValues("Referrer-Policy")));
         Assert.Equal("DENY", Assert.Single(missing.Headers.GetValues("X-Frame-Options")));
-        Assert.Equal(
-            "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
-            Assert.Single(missing.Headers.GetValues("Content-Security-Policy")));
+        Assert.Contains(
+            "default-src 'self'; ",
+            Assert.Single(missing.Headers.GetValues("Content-Security-Policy")),
+            StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, mapLibrary.StatusCode);
         Assert.True((await mapLibrary.Content.ReadAsByteArrayAsync()).Length > 1_000_000);
         Assert.Equal(HttpStatusCode.OK, graphLibrary.StatusCode);

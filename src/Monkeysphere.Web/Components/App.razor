@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["vendor/openlayers/10.10.0/ol.css"]" />
     <link rel="stylesheet" href="@Assets["Monkeysphere.Web.styles.css"]" />
-    <ImportMap />
+    <ImportMap nonce="@ScriptNonce" />
     <HeadOutlet />
 </head>
 
@@ -26,3 +26,17 @@
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    /// <summary>
+    /// The nonce the response header has already allowed. The import map is the one script this
+    /// application does not serve as a file of its own, so it is the one that needs it.
+    /// </summary>
+    private string? ScriptNonce =>
+        HttpContext?.Items.TryGetValue(Security.SecurityHeaders.NonceItemKey, out object? value) == true
+            ? value as string
+            : null;
+}

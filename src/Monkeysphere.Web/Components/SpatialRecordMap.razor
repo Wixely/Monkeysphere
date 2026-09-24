@@ -57,7 +57,11 @@
     [Parameter]
     public bool ExternalTilesEnabled { get; set; }
 
-    private const string OpenStreetMapTileUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    /// <summary>
+    /// Built from the host the Content Security Policy opens, so the two cannot disagree. A tile
+    /// address the policy does not name is not a wrong picture, it is no picture at all.
+    /// </summary>
+    private const string OpenStreetMapTileUrl = Security.SecurityHeaders.TileHost + "/{z}/{x}/{y}.png";
 
     private ElementReference _element;
     private IJSObjectReference? _module;

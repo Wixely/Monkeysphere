@@ -41,7 +41,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Mechanism verified alpha.3 to alpha.4 on both platforms; a schema-changing upgrade is still untested | TBD | 2026-12-01 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
-| Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Planned | Agent | 2026-10-01 |
+| Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
 | Preset upgrade workflow | [Preset upgrade workflow](#preset-upgrade-workflow) | Planned | Agent | 2026-10-01 |
 | Accessibility conformance verification | [Accessibility conformance](#accessibility-conformance) | Planned | TBD | 2026-10-01 |
 | DnaX stable dependency | [Dependency and supply-chain maintenance](#dependency-and-supply-chain-maintenance) | Later | Wixely | 2026-11-01 |
@@ -267,15 +267,32 @@ Owner: Wixely / Agent. Remaining: nothing; `v0.1.0-alpha.3` supersedes both affe
 
 ## Content Security Policy completion
 
-Status: Planned. Currently an accepted residual risk (TM-10) blocking any claim of a hardened public-browser deployment.
+Status: Done. TM-10's residual risk is closed for the browser surface.
 
-Responses already deny framing and object embedding, restrict cross-site referrers to the site origin, prevent MIME sniffing, restrict powerful browser features, and constrain base URI. A complete script and style policy is not enforced because Blazor emits a generated import map and framework boot resources that need a nonce or hash design.
+### What a Release publish actually emits
 
-The work is to determine what the current Blazor host actually emits, choose nonce or hash enforcement per resource kind, apply it to first-party scripts, vendored assets, and inline style, and add response-header tests alongside the existing header assertions. The optional OpenStreetMap tile path must be covered by an explicit connect and image source rule that stays closed while tiles are disabled.
+The inventory came first, because the design follows from it rather than the other way round. A Release publish serves **one** inline script and **one** inline stylesheet, and nothing else needs an exception:
+
+- Every script is a file with a fingerprinted `src` — `theme.js`, `combobox.js`, the two vendored libraries, the reconnect modal's module, and `blazor.web.js` — except the framework's generated import map, which has no file to be. Blazor Server carries component state in an HTML comment rather than a script, so there is no second inline script to account for.
+- Every stylesheet is a file too, except one rule Cytoscape inserts for its own container on first use (`.__________cytoscape_container { position: relative; }`). Without it the graph container stays statically positioned and the library says so in the console — which is exactly how the violation was found.
+- OpenLayers contains three `new Worker` sites built from blob URLs, but all three belong to the WebGL vector renderer and the raster source. This application constructs only `ol.layer.Vector`, `ol.layer.Tile` and `ol.layer.Graticule`, all canvas-rendered, so no worker is ever created and `worker-src 'self'` stays closed. A future WebGL layer would be blocked, which is the correct direction for the failure.
+- No first-party script creates a style element, assigns `cssText`, calls `insertRule`, or generates a `blob:`/`data:` URL.
+
+### The enforcement design
+
+Nonce for the script, hash for the stylesheet. The import map's content varies per publish because it names fingerprinted files, so a hash would have to be recomputed on every build; a nonce of 16 random bytes minted per response costs nothing and is worth nothing once that response is over. The Cytoscape rule is the opposite case — fixed text that a nonce cannot reach, because the library inserts the element itself — so it is allowed by its SHA-256 and by nothing wider.
+
+`default-src 'self'` is stated rather than left absent, so a directive nobody thought of narrows what the browser may do instead of leaving it open. Style *attributes* are their own directive and are allowed: several components position or colour one element from data, which no stylesheet can express.
+
+The tile path is decided per response. `img-src` and `connect-src` name the OpenStreetMap host only while the map settings say external tiles are enabled — both, because a tile arrives as an image but is requested with `crossOrigin` set — and the lookup happens for documents alone, because only a document can ask for a tile. It fails closed: a settings read that throws yields the strict policy.
+
+### Verification
+
+`ContentSecurityPolicyTests` covers the nonce being present, fresh per response, and carried by every inline script; the inline-script count staying at the one known script, so a second has to be argued for; the tile host being absent while tiles are off and named in both directives when on; and the Cytoscape hash, **recomputed from the served vendored file** rather than copied from a browser's suggestion, so an upgrade that changes the rule fails the suite by name instead of the graph quietly losing its positioning context. The tile conditional was confirmed to fail the suite when removed.
 
 MCP disposition: **Not applicable.** This is a browser-transport control with no MCP surface. The remote surfaces are unaffected.
 
-Owner: Agent. Next action: inventory the emitted script and style resources in a Release publish, then choose the enforcement design. Review: 2026-10-01. Update [security](security.md) and [threat model](threat-model.md) TM-10 in the same change.
+Owner: Agent. Remaining: the nonce-to-import-map match cannot be asserted in the test host, because an unfingerprinted host emits no import map to carry it; it was verified against a Release publish by response inspection instead. A test that renders the document with fingerprinting on would close that gap. Review: 2026-12-01.
 
 ## Accessibility conformance
 
