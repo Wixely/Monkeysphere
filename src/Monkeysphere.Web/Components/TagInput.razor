@@ -4,11 +4,23 @@
    Suggestions use the same listbox contract as SearchableSelect rather than a native <datalist>,
    whose screen-reader support is uneven and which cannot render a colour or an icon. *@
 
+@* Both lists are read once per render rather than through their properties, which rebuild on
+   every access: the loop below would otherwise construct its list again for the bound, again for
+   each index, and again for the input's aria attributes. *@
+@{
+    IReadOnlyList<TagPill> pills = Pills;
+    IReadOnlyList<TagPill> matches = Matches;
+}
+
 <div class="tag-input @(Disabled ? "disabled" : null)">
+    @* Keyed by the tag they stand for. These two lists are siblings, and the suggestions
+       disappear in the same render that the pills grow — committing a tag both adds a pill and
+       empties the query. Unkeyed, the diff matches list items by position across that change and
+       can retire the wrong one, which showed up as a pill vanishing as another arrived. *@
     <ul class="tag-pills" aria-label="Selected tags">
-        @foreach (TagPill pill in Pills)
+        @foreach (TagPill pill in pills)
         {
-            <li class="tag-pill" style="--tag-colour: @pill.Colour">
+            <li class="tag-pill" style="--tag-colour: @pill.Colour" @key="@("pill:" + pill.Name)">
                 <span class="tag-pill-icon" aria-hidden="true">@pill.Icon</span>
                 <span class="tag-pill-name">@pill.Name</span>
                 @if (!Disabled)
@@ -26,28 +38,29 @@
         <input type="text"
                class="tag-input-field"
                role="combobox"
-               aria-expanded="@(Matches.Count > 0 ? "true" : "false")"
+               aria-expanded="@(matches.Count > 0 ? "true" : "false")"
                aria-controls="@ListboxId"
                aria-autocomplete="list"
-               aria-activedescendant="@(_active >= 0 && _active < Matches.Count ? OptionId(_active) : null)"
+               aria-activedescendant="@(_active >= 0 && _active < matches.Count ? OptionId(_active) : null)"
                aria-label="@AriaLabel"
                placeholder="@Placeholder"
                value="@_query"
                @oninput="QueryChanged"
                @onkeydown="KeyDownAsync" />
 
-        @if (Matches.Count > 0)
+        @if (matches.Count > 0)
         {
             <ul class="tag-suggestions" role="listbox" id="@ListboxId">
-                @for (int index = 0; index < Matches.Count; index++)
+                @for (int index = 0; index < matches.Count; index++)
                 {
-                    int captured = index;
-                    TagPill match = Matches[index];
+                    int position = index;
+                    TagPill match = matches[index];
                     <li role="option"
-                        id="@OptionId(index)"
-                        class="@(index == _active ? "active" : null)"
-                        aria-selected="@(index == _active ? "true" : "false")"
+                        id="@OptionId(position)"
+                        class="@(position == _active ? "active" : null)"
+                        aria-selected="@(position == _active ? "true" : "false")"
                         style="--tag-colour: @match.Colour"
+                        @key="@("match:" + match.Name)"
                         @onclick="() => CommitAsync(match.Name)">
                         <span class="tag-pill-icon" aria-hidden="true">@match.Icon</span>
                         <span>@match.Name</span>
