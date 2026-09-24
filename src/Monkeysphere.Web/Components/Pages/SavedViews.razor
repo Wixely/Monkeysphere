@@ -149,7 +149,7 @@
             </div>
         }
 
-        <div class="action-row wrap">
+        <div class="action-row wrap sticky">
             <button class="button primary" type="button" @onclick="SaveAsync">@(_editingId.HasValue ? "Save changes" : "Create view")</button>
             @if (_editingId.HasValue)
             {

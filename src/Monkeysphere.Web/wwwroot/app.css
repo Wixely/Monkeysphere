@@ -118,6 +118,9 @@
 }
 
 html {
+    /* Enough that tabbing into the last field of a form does not land it behind a sticky commit
+       row, which scrolls a control only just into view. */
+    scroll-padding-bottom: 6rem;
     min-height: 100%;
     background: var(--paper);
 }
@@ -1373,6 +1376,25 @@ input[type="checkbox"] {
 
 .action-row.wrap {
     flex-wrap: wrap;
+}
+
+/* A form's commit row, kept in reach while that form is on screen.
+
+   Sticky rather than fixed, and deliberately so: the row only leaves its place while its own form
+   is scrolling past, which means a short form keeps the row exactly where it always sat, and no
+   page ever ends up with a bar floating over a section it has nothing to do with. A fixed bar
+   would have to be added and removed by script to behave that well.
+
+   Opaque rather than translucent, because the form scrolls underneath it. The panels here are
+   translucent by design and this cannot be, or the fields would read through the buttons. */
+.action-row.sticky {
+    position: sticky;
+    z-index: 4;
+    bottom: 0;
+    margin-top: 1.25rem;
+    padding: .8rem 0;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
 }
 
 .notice {

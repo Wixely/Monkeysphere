@@ -177,7 +177,9 @@ else
                 </div>
             }
 
-            <div class="action-row">
+            @* Sticky: this form runs to fields, aliases, tags and images, so its commit row
+               is often a long way below whatever is being edited. *@
+            <div class="action-row sticky">
                 <button class="button primary" type="submit">@(RecordId.HasValue ? "Save changes" : "Create record")</button>
                 <a class="button" href="/records">Cancel</a>
             </div>

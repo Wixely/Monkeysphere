@@ -77,7 +77,9 @@ else
                 </div>
             }
 
-            <div class="action-row wrap">
+            @* Sticky: the preset list above this can run for pages, and the button that acts on
+               the selection should not be somewhere the operator has to go looking for. *@
+            <div class="action-row wrap sticky">
                 <button class="button primary" type="button" disabled="@_busy" @onclick="RequestCompletionAsync">
                     @(_busy ? "Setting up…" : "Use this setup")
                 </button>
