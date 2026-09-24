@@ -42,6 +42,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
+| Reminders on repeating dates are due immediately | [Reminders on repeating dates](#reminders-on-repeating-dates-are-due-the-moment-they-are-set) | Found 2026-09-24; not fixed | Agent | 2026-10-15 |
 | Preset upgrade workflow | [Preset upgrade workflow](#preset-upgrade-workflow) | Planned | Agent | 2026-10-01 |
 | Accessibility conformance verification | [Accessibility conformance](#accessibility-conformance) | Planned | TBD | 2026-10-01 |
 | DnaX stable dependency | [Dependency and supply-chain maintenance](#dependency-and-supply-chain-maintenance) | Later | Wixely | 2026-11-01 |
@@ -99,11 +100,11 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
-| M5 | Saved views, graph/map queries, calendar, reminders, and settings | In progress; saved record views shipped as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar reads and iCalendar export as 1.27. Spatial queries, reminders, the dashboard projection and map settings remain | Agent | 2026-10-15 |
+| M5 | Saved views, graph/map queries, calendar, reminders, and settings | In progress; saved record views shipped as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar reads and iCalendar export as 1.27, reminders as 1.28. Spatial queries, the dashboard projection and map settings remain | Agent | 2026-10-15 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: continue M5 with reminders, then the dashboard projection and map settings. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: continue M5 with the dashboard projection and configuration, then map settings and spatial queries. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 
@@ -198,6 +199,34 @@ The first pass also dropped the generated `outputSchema` from the converted tool
 MCP disposition: **Included**; this is the error contract of the tools themselves.
 
 Owner: Agent. Review: 2026-09-21.
+
+## Reminders on repeating dates are due the moment they are set
+
+Status: Found 2026-09-24 while exposing reminders over MCP. Not a regression; present since reminders
+shipped. Not fixed, because correcting it is a behaviour change to the calendar page rather than to
+the remote surface, and doing it only for MCP would make the two disagree about the same reminder.
+
+`ReminderItem.DueDate` is the **stored** date less the lead time. For a value that repeats every year
+-- which is what almost every reminder is set on, since birthdays and anniversaries are the cases
+that want one -- the stored date is in the past, so the due date is too, and the calendar page shows
+the reminder as `Due` from the moment it is created. Dismissal is permanent (`DismissedAtUtc`), so the
+reminder then never returns, including for the next occurrence it was presumably meant to warn about.
+
+The effect is that a reminder on a birthday is useful exactly once, immediately, and for the wrong
+occurrence.
+
+The fix is to compute the due date from the **next** occurrence of the value under its field's
+recurrence -- `FieldRecurrences.Occurrences` already projects those, and the calendar itself uses it --
+and to make dismissal apply to an occurrence rather than to the reminder, so next year's warning
+still arrives. That is a schema question as well as a projection one: `Reminders` has no column for
+which occurrence was dismissed.
+
+MCP disposition: **Included, already.** `list_reminders` reports the same `dueDate` the page does, so
+whatever this becomes, both surfaces move together. The contract documents the current behaviour
+plainly rather than implying a countdown that does not happen.
+
+Owner: Agent. Next action: decide whether dismissal is per-occurrence or whether a reminder simply
+re-arms after its date passes, since that decision drives the schema. Review: 2026-10-15.
 
 ## Preset upgrade workflow
 

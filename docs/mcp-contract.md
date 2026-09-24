@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.27
+- Contract version: 1.28
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -62,6 +62,9 @@ Accept: application/json, text/event-stream
 | `delete_graph_view` | `views.manage` | Required `domainId`, `id`. Removes the arrangement. **Destructive**; no record or relationship is touched |
 | `query_calendar` | `records.read` | Required `from`, `to`; optional `recordTypeId`, `recordTypeIds`, `fieldDefinitionId`, `limit` (500), `domainId`. Dated values in the range with their repeats |
 | `export_calendar` | `records.read` | Required `from`, `to`; the same narrowing plus `offset` (0), `count` (16384). The iCalendar document in base64 byte ranges with a SHA-256 of the whole |
+| `list_reminders` | `records.read` | Optional `domainId`. Undismissed reminders with the value each watches and its due date |
+| `create_reminder` | `records.write` | Required `domainId`, `fieldValueId`, `leadDays` (0-3650). A reminder on one dated value |
+| `dismiss_reminder` | `records.write` | Required `domainId`, `id`. Removes it from the list permanently. **Destructive**; no record content is touched |
 | `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
@@ -475,6 +478,59 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Reminders in 1.28
+
+Contract 1.28 has 84 tools, adding three, and no new grant. It continues M5.
+
+A reminder was the one thing on the calendar page an operator had to be present to set. The loop a
+client walks is: `query_calendar` for a value's `fieldValueId`, `create_reminder` on it with a lead
+time, `list_reminders` to see it, `dismiss_reminder` to be done with it. Nothing else exposes a
+`fieldValueId`, which is deliberate -- a reminder has nothing else to attach to.
+
+- `list_reminders` takes `records.read` and returns the undismissed reminders, each carrying the
+  calendar entry it watches and its due date. The entry travels with the reminder because one
+  identified by its own id says nothing about what it is for, and a caller would otherwise have to
+  read the whole calendar back to find out.
+- `create_reminder` and `dismiss_reminder` take `records.write`.
+
+### Why not a reminders grant
+
+One was considered and rejected. It would never be useful alone -- the `fieldValueId` can only come
+from reading the calendar -- and it would confer strictly less than `records.write` already implies: a
+credential that may rewrite the date itself is not escalated by being able to set a reminder about it.
+A permission checkbox that adds no control is worse than no checkbox. Listing still takes
+`records.read`, so a read-only credential can see reminders and cannot create them.
+
+### Eligibility is the calendar's rule, not a second one
+
+Only a day-precision, non-approximate value can carry a reminder. A birth recorded as "some time in
+1815" has no day to count back from, and one somebody has guessed at would fire on a day nobody
+claimed. The calendar excludes both, and so does this: a client cannot set a reminder on something the
+calendar would never have shown it. That agreement is what the test pins, alongside a value id that
+does not exist at all.
+
+### No idempotency key, because a repeat cannot happen
+
+The same value and lead time cannot be scheduled twice: a retry reports `validation_failed` saying it
+is already scheduled rather than creating a second reminder. A different lead time on the same value
+*is* a different reminder, since somebody may want a month's warning and a day's. The cost of this
+shape is that a client which lost the response cannot tell its own successful retry from a conflict;
+`list_reminders` answers that, and a receipt could be added later without changing the tool.
+
+### A known limitation, stated rather than papered over
+
+`dueDate` is the **stored** date less the lead time. For a value that repeats every year that is a day
+long past, so such a reminder reads as due immediately, and dismissal is permanent rather than
+per-occurrence. This is exactly what the calendar page shows, and the two surfaces agreeing matters
+more here than the remote answer being the one a client might prefer. The underlying behaviour is
+recorded as a gap on the roadmap rather than corrected only for MCP, which would have made the page
+and the tool disagree about the same reminder.
+
+### What stays out
+
+Spatial queries, the dashboard projection and configuration, and map settings remain M5 scope and are
+not in this contract.
 
 ## Calendar reads and iCalendar export in 1.27
 

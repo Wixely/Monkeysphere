@@ -38,6 +38,13 @@ public interface IReminderService
 
 public sealed class ReminderService(IReminderStore store, TimeProvider timeProvider) : IReminderService
 {
+    /// <summary>
+    /// How far ahead a reminder may look. Ten years, which is long enough for anything worth
+    /// remembering and short enough that a mistyped value is refused rather than stored. Named
+    /// because a remote caller is told it by get_capabilities.
+    /// </summary>
+    public const int MaximumLeadDays = 3_650;
+
     public Task<Reminder> CreateAsync(
         Guid fieldValueId,
         int leadDays,
@@ -48,9 +55,9 @@ public sealed class ReminderService(IReminderStore store, TimeProvider timeProvi
             throw new DomainValidationException("A calendar value is required for a reminder.");
         }
 
-        if (leadDays is < 0 or > 3_650)
+        if (leadDays < 0 || leadDays > MaximumLeadDays)
         {
-            throw new DomainValidationException("Reminder lead time must be between 0 and 3,650 days.");
+            throw new DomainValidationException($"Reminder lead time must be between 0 and {MaximumLeadDays:N0} days.");
         }
 
         return store.CreateAsync(Guid.CreateVersion7(), fieldValueId, leadDays, timeProvider.GetUtcNow(), cancellationToken);
