@@ -93,19 +93,28 @@ public sealed class RelationshipGraphService(IRelationshipGraphStore store) : IR
     public const int MaximumSelectedRecords = 100;
     public const int MaximumRecordTypes = 100;
 
+    /// <summary>
+    /// How far a focus record's neighbours are followed, and how long its search text may be. Named
+    /// because a remote caller is told both by get_capabilities, and a bound a client plans against
+    /// should not be a literal that exists only inside the check that enforces it.
+    /// </summary>
+    public const int MaximumDepth = 3;
+
+    public const int MaximumSearchLength = 200;
+
     public Task<RelationshipGraphResult> QueryAsync(
         RelationshipGraphQuery query,
         CancellationToken cancellationToken = default)
     {
         string? search = string.IsNullOrWhiteSpace(query.Search) ? null : query.Search.Trim();
-        if (search?.Length > 200)
+        if (search?.Length > MaximumSearchLength)
         {
-            throw new DomainValidationException("Graph search cannot exceed 200 characters.");
+            throw new DomainValidationException($"Graph search cannot exceed {MaximumSearchLength} characters.");
         }
 
-        if (query.Depth is < 0 or > 3)
+        if (query.Depth < 0 || query.Depth > MaximumDepth)
         {
-            throw new DomainValidationException("Graph neighbour depth must be between 0 and 3.");
+            throw new DomainValidationException($"Graph neighbour depth must be between 0 and {MaximumDepth}.");
         }
 
         if (query.NodeLimit is < 1 || query.NodeLimit > MaximumNodes)

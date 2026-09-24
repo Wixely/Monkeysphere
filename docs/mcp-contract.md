@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.25
+- Contract version: 1.26
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -54,6 +54,12 @@ Accept: application/json, text/event-stream
 | `update_saved_view` | `views.manage` | Required `domainId`, `id`, `name`, `recordTypeId`; the same optional inputs. Replaces the definition; omitted lists are stored empty |
 | `duplicate_saved_view` | `views.manage` | Required `domainId`, `id`, `name`. A copy under a new name |
 | `delete_saved_view` | `views.manage` | Required `domainId`, `id`. Removes the definition. **Destructive**; no record content is touched |
+| `list_graph_views` | `records.read` or `views.manage` | Optional `domainId`. One domain's graph views without their arrangement |
+| `get_graph_view` | `records.read` or `views.manage` | Required `id`, optional `domainId`. One view with its node positions and viewport, or null |
+| `query_graph` | `records.read` | Optional `graphViewId` or explicit `displayMode`/`selectedRecordIds`/`recordTypeIds`; `search`, `relationshipTypeId`, `focusRecordId`, `depth` (1), `nodeLimit`, `edgeLimit`, `domainId`. Nodes, edges, truncation flags and the limits applied |
+| `create_graph_view` | `views.manage` | Required `domainId`, `name`; optional `displayMode`, `selectedRecordIds`, `recordTypeIds`, `nodePositions`, `viewport`. A new graph view |
+| `update_graph_view` | `views.manage` | Required `domainId`, `id`, `name`; the same optional inputs. Replaces the view; an arrangement left out is forgotten |
+| `delete_graph_view` | `views.manage` | Required `domainId`, `id`. Removes the arrangement. **Destructive**; no record or relationship is touched |
 | `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
@@ -467,6 +473,82 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Graph views and bounded graph queries in 1.26
+
+Contract 1.26 has 79 tools, adding six, and no new grant: the graph views sit under the
+`views.manage` introduced in 1.25. It continues M5.
+
+A graph view is the one saved thing in this application that cannot be reconstructed from its
+inputs. Everything else a view stores is a rule -- a filter, a sort, a tag -- but a layout somebody
+arranged by hand has no rule behind it, so a caller able to filter the graph and not read the
+arrangement could never reopen the view that was saved. `get_graph_view` therefore returns the node
+positions and viewport exactly as stored, fractions and negatives included.
+
+Reads take `records.read` or `views.manage`:
+
+- `list_graph_views` returns each view's display mode and the records and record types it draws, and
+  omits the arrangement, which is the bulk of a view and of no use when listing rather than
+  reopening.
+- `get_graph_view` returns one view in full, or null when it is absent from the selected domain.
+
+Drawing takes `records.read` alone:
+
+- `query_graph` returns nodes and edges, each edge saying whether the relationship has ended.
+  `graphViewId` draws a saved view's selection; alternatively `displayMode` with
+  `selectedRecordIds` and `recordTypeIds` draws one composed in the call. Sending both is refused
+  rather than letting one quietly win, because a caller that sent two selections has two different
+  pictures in mind and no answer would be the one it expected.
+
+Writes take `views.manage`:
+
+- `create_graph_view` and `update_graph_view` store a view; update replaces rather than merges, so an
+  arrangement left out is forgotten, which is the only way a caller can reset one. There is no
+  `duplicate_graph_view`, because the application has no duplicate command for a graph view and
+  inventing one for the remote surface alone would make the two disagree.
+- `delete_graph_view` removes the arrangement. **Destructive** of the layout only: no record,
+  relationship or record type is touched.
+
+### Two defaults that were wrong until the tests said so
+
+Both were found by the tests in this change rather than by review, and both had the same shape -- a
+request that looked reasonable and came back with an empty graph.
+
+- **Omitting `recordTypeIds` draws every active type.** The store distinguishes no filter from a
+  filter matching nothing, and passing an empty list for an absent one meant the plainest possible
+  call, `query_graph` with just a domain, drew nothing at all. An *explicitly* empty list is now
+  refused and says what to do instead, because such a list is nearly always a selection that came
+  out empty rather than a deliberate request for an empty picture.
+- **`connected` and `isolated` need something to be relative to.** Without a `selectedRecordIds` or
+  a `focusRecordId` the seed set is empty and the graph comes back empty. This is the rule
+  `GraphViewService` already applies when saving a view, so it is applied to the query too rather
+  than invented: the two surfaces now agree about the same request.
+
+A saved view is reproduced verbatim, an empty record-type list included, because that is what the
+operator chose and a view that draws nothing should not be silently widened into one that draws
+everything.
+
+### The operator's boundary, not this build's ceiling
+
+`nodeLimit` and `edgeLimit` default to the domain's configured limits from `get_graph_settings` and
+are **capped** by them. Asking for more does not get more; the way to draw more is to raise the
+setting, which is a different grant. Without that cap the settings page would be advice rather than a
+boundary. Asking for less is honoured, since that narrows. The result reports `appliedNodeLimit` and
+`appliedEdgeLimit` alongside `nodesTruncated` and `edgesTruncated`, because a graph that stopped early
+looks exactly like a complete one and a caller given only the nodes would conclude it had everything.
+
+### Bounds
+
+`get_capabilities` reports `graphViewLimits`: a 200-character name, at most 100 selected records, 100
+record types, 2,000 node positions, coordinates within a million of the origin, zoom between 0.15 and
+3, neighbour depth 0-3 and a 200-character search. Every record type must be active, and every
+selected or positioned record must belong to one of the types the view lists, so a view cannot
+remember a node it would never draw.
+
+### What stays out
+
+Spatial queries, calendar and upcoming-date queries with iCalendar export, reminders, the dashboard
+projection and map settings remain M5 scope and are not in this contract.
 
 ## Saved views in 1.25
 

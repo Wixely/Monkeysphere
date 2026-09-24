@@ -99,11 +99,11 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
-| M5 | Saved views, graph/map queries, calendar, reminders, and settings | In progress; saved views shipped as contract 1.25 with the `views.manage` grant. Graph view lifecycle and saved coordinates, bounded graph and spatial queries, calendar and iCalendar export, reminders, the dashboard projection and map settings remain | Agent | 2026-10-15 |
+| M5 | Saved views, graph/map queries, calendar, reminders, and settings | In progress; saved record views shipped as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26. Spatial queries, calendar and iCalendar export, reminders, the dashboard projection and map settings remain | Agent | 2026-10-15 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: continue M5 with graph view lifecycle and saved coordinates, the surface nearest to the saved views just shipped. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: continue M5 with calendar and upcoming-date queries plus iCalendar export, then reminders. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 

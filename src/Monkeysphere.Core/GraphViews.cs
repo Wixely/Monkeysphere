@@ -46,6 +46,20 @@ public sealed class GraphViewService(
     IMonkeysphereStore records,
     TimeProvider timeProvider) : IGraphViewService
 {
+    public const int MaximumNameLength = 200;
+
+    /// <summary>
+    /// How far from the origin a remembered node may sit, and how far the remembered viewport may be
+    /// zoomed. These are the canvas's own limits rather than opinions: a coordinate further out than
+    /// this is a layout nobody arranged, and a zoom outside the range is one the canvas will not
+    /// adopt. Named because get_capabilities reports them to a caller that has no canvas to ask.
+    /// </summary>
+    public const double MaximumCoordinateMagnitude = 1_000_000;
+
+    public const double MinimumZoom = 0.15;
+
+    public const double MaximumZoom = 3;
+
     public Task<IReadOnlyList<GraphView>> ListAsync(CancellationToken cancellationToken = default) =>
         store.ListAsync(cancellationToken);
 
@@ -71,7 +85,7 @@ public sealed class GraphViewService(
         SaveGraphViewRequest request,
         CancellationToken cancellationToken)
     {
-        string name = FieldTypes.Required(request.Name, "Graph view name", 200);
+        string name = FieldTypes.Required(request.Name, "Graph view name", MaximumNameLength);
         if (!Enum.IsDefined(request.DisplayMode))
         {
             throw new DomainValidationException("Graph display mode is invalid.");
@@ -97,15 +111,15 @@ public sealed class GraphViewService(
 
         if (positions.Select(position => position.RecordId).Distinct().Count() != positions.Length ||
             positions.Any(position => !double.IsFinite(position.X) || !double.IsFinite(position.Y) ||
-                Math.Abs(position.X) > 1_000_000 || Math.Abs(position.Y) > 1_000_000))
+                Math.Abs(position.X) > MaximumCoordinateMagnitude || Math.Abs(position.Y) > MaximumCoordinateMagnitude))
         {
             throw new DomainValidationException("Graph view node positions are invalid.");
         }
 
         if (request.Viewport is { } viewport &&
             (!double.IsFinite(viewport.PanX) || !double.IsFinite(viewport.PanY) ||
-             Math.Abs(viewport.PanX) > 1_000_000 || Math.Abs(viewport.PanY) > 1_000_000 ||
-             !double.IsFinite(viewport.Zoom) || viewport.Zoom is < 0.15 or > 3))
+             Math.Abs(viewport.PanX) > MaximumCoordinateMagnitude || Math.Abs(viewport.PanY) > MaximumCoordinateMagnitude ||
+             !double.IsFinite(viewport.Zoom) || viewport.Zoom < MinimumZoom || viewport.Zoom > MaximumZoom))
         {
             throw new DomainValidationException("Graph view viewport is invalid.");
         }
