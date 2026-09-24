@@ -537,6 +537,10 @@ h3 {
     align-items: flex-start;
     justify-content: space-between;
     gap: 1.5rem;
+    /* A heading with a control beside it has to be allowed to break. In a narrow column — the
+       saved-view list beside its editor, say — the two cannot sit side by side, and without this
+       the control is pushed through the panel's edge instead of dropping below the heading. */
+    flex-wrap: wrap;
 }
 
 .page-heading {
@@ -551,6 +555,15 @@ h3 {
 
 .section-heading {
     align-items: center;
+    /* Unlike the page heading above, this had none, so a month name with its two arrows sat
+       directly on top of the calendar it belongs to. */
+    margin-bottom: .9rem;
+}
+
+/* Except where the panel is only a heading and its content follows in its own element, which
+   already carries the gap. */
+.section-heading:last-child {
+    margin-bottom: 0;
 }
 
 .panel,
@@ -1187,6 +1200,29 @@ input[type="checkbox"] {
     gap: .8rem;
 }
 
+/* Four settings pages already asked for this class and nothing defined it, so their labels, their
+   checkbox and the button underneath stacked flush against one another. A single column with a gap
+   is what the markup was written expecting. */
+.settings-form {
+    display: grid;
+    gap: .9rem;
+    justify-items: start;
+}
+
+/* The fields of a settings form are as wide as the panel; only the button is its own size, and
+   justify-items above already keeps it that way. */
+.settings-form > label,
+.settings-form > p,
+.settings-form > .notice {
+    justify-self: stretch;
+}
+
+/* A commit button directly after a field grid. The grid has no bottom margin and the button no top
+   one, so the two met with nothing between them. */
+.form-grid + .button {
+    margin-top: 1rem;
+}
+
 .form-wide {
     grid-column: 1 / -1;
 }
@@ -1414,6 +1450,15 @@ input[type="checkbox"] {
     color: var(--success);
     border-color: var(--success);
     background: var(--success-soft);
+}
+
+/* Used on five pages — the sign-in warning, the map privacy notices and two import ones — and
+   defined nowhere, so each rendered with an uncoloured border and no background and read as a
+   plain paragraph in a box. The warm tokens for exactly this already existed. */
+.notice.warning {
+    color: var(--ink);
+    border-color: var(--warning-line);
+    background: var(--warning-background);
 }
 
 .empty-state {
