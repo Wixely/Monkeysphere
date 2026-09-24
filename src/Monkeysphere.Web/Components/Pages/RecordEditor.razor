@@ -70,15 +70,21 @@ else
                 </label>
                 @if (_selectedType?.RecordType.TagsEnabled != false)
                 {
-                    <label class="form-wide">
-                        Tags
+                    @* Deliberately not a <label>. A label with no "for" forwards a click anywhere
+                       inside it to its first labelable descendant, and the tags control is made of
+                       several elements: the first labelable one is a pill's remove button, not the
+                       text box. So clicking a suggestion, the caption or this help text removed the
+                       first tag, and assistive technology announced that remove button as "Tags".
+                       The control carries its own accessible name instead. *@
+                    <div class="field form-wide">
+                        <span>Tags</span>
                         <TagInput Value="_tags" ValueChanged="TagsChanged" Available="_tagSuggestions"
                                   AriaLabel="Tags" />
                         <span class="muted">
                             Freeform labels that cut across record types. Searchable like names and field values.
                             A label already used in another domain becomes that same tag rather than a new one.
                         </span>
-                    </label>
+                    </div>
                 }
             </div>
 

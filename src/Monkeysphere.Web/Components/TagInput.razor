@@ -2,7 +2,12 @@
    Enter or comma commits what is typed, and Backspace on an empty box removes the last pill.
 
    Suggestions use the same listbox contract as SearchableSelect rather than a native <datalist>,
-   whose screen-reader support is uneven and which cannot render a colour or an icon. *@
+   whose screen-reader support is uneven and which cannot render a colour or an icon.
+
+   Picking a suggestion cancels the click's default action. This control is several elements, the
+   first labelable of which is a pill's remove button, so a caller who wraps it in a <label> would
+   otherwise have every suggestion click forwarded there — taking a tag away as one was added. The
+   caller should not wrap it, and this makes it harmless when one does. *@
 
 @* Both lists are read once per render rather than through their properties, which rebuild on
    every access: the loop below would otherwise construct its list again for the bound, again for
@@ -61,7 +66,8 @@
                         aria-selected="@(position == _active ? "true" : "false")"
                         style="--tag-colour: @match.Colour"
                         @key="@("match:" + match.Name)"
-                        @onclick="() => CommitAsync(match.Name)">
+                        @onclick="() => CommitAsync(match.Name)"
+                        @onclick:preventDefault="true">
                         <span class="tag-pill-icon" aria-hidden="true">@match.Icon</span>
                         <span>@match.Name</span>
                     </li>

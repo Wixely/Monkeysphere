@@ -1017,6 +1017,17 @@ label {
     font-weight: 700;
 }
 
+/* A captioned field that is not a <label>, for a control made of several elements. A label with no
+   "for" forwards clicks to its first labelable descendant, which in such a control is whichever
+   button happens to come first rather than the thing the caption names. */
+.field {
+    display: grid;
+    gap: .42rem;
+    color: var(--ink-soft);
+    font-size: .93rem;
+    font-weight: 700;
+}
+
 input,
 textarea,
 select {
