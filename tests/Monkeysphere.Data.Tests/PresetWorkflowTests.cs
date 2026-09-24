@@ -296,4 +296,70 @@ public sealed class PresetWorkflowTests
         Assert.Equal(VCardImportAction.MergeNonConflicting, normalizedContact.RecommendedAction);
         Assert.Equal(2, (await records.SearchRecordsAsync(new("Sam Example", preview.RecordTypeId))).TotalCount);
     }
+
+    /// <summary>
+    /// A relationship definition can be installed on its own, without the record types a setup
+    /// selection would have brought it along with. That is the whole point of the catalogue having
+    /// its own page: noticing halfway through a domain that you want "studied at" should not mean
+    /// typing both its labels, nor installing a record type you did not ask for.
+    /// </summary>
+    [Fact]
+    public async Task ARelationshipPresetInstallsOnItsOwnAndOnlyOnce()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IPresetService presets = application.Services.GetRequiredService<IPresetService>();
+        IRelationshipService relationships = application.Services.GetRequiredService<IRelationshipService>();
+
+        Assert.Empty(await presets.ListInstalledRelationshipPresetKeysAsync());
+
+        RelationshipTypePreset preset = presets.RelationshipTypes
+            .Single(item => item.Key == "monkeysphere.relationship.studied-at");
+        await presets.InstallRelationshipPresetAsync(preset.Key);
+
+        // A real relationship type, carrying both labels and the key it came from.
+        RelationshipType installed = Assert.Single(await relationships.ListTypesAsync());
+        Assert.Equal("studied at", installed.Name);
+        Assert.Equal("taught", installed.InverseName);
+        Assert.Equal(preset.Key, installed.PresetKey);
+        Assert.Equal(RelationshipDirectionality.Directional, installed.Directionality);
+
+        // No record type came with it. The gates decide what accompanies a starter pack, and a
+        // relationship type constrains no record type, so asking for one by name needs nothing.
+        Assert.Empty(await application.Services.GetRequiredService<IMonkeysphereService>().ListRecordTypesAsync());
+
+        Assert.Contains(preset.Key, await presets.ListInstalledRelationshipPresetKeysAsync());
+
+        // Refused rather than quietly making a second type with the same labels, which is what the
+        // page needs in order to show it as installed.
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            presets.InstallRelationshipPresetAsync(preset.Key));
+        Assert.Single(await relationships.ListTypesAsync());
+
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            presets.InstallRelationshipPresetAsync("monkeysphere.relationship.nonexistent"));
+    }
+
+    /// <summary>
+    /// Every packaged relationship reads in the present tense, because a relationship that is over
+    /// is said with its expiry. A past-tense twin would give the graph two types meaning one thing.
+    /// </summary>
+    [Fact]
+    public void ThePackagedRelationshipsAreDistinctAndPresentTense()
+    {
+        IReadOnlyList<RelationshipTypePreset> catalogue = PresetCatalog.RelationshipTypes;
+
+        Assert.Equal(catalogue.Count, catalogue.Select(preset => preset.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(catalogue.Count, catalogue.Select(preset => preset.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+
+        Assert.All(catalogue, preset =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(preset.Name));
+            Assert.False(string.IsNullOrWhiteSpace(preset.InverseName));
+            Assert.False(string.IsNullOrWhiteSpace(preset.Description));
+
+            // A forward label equal to its own inverse would be a symmetric relationship wearing a
+            // directional one's clothes, and these all install as directional.
+            Assert.NotEqual(preset.Name, preset.InverseName, StringComparer.OrdinalIgnoreCase);
+        });
+    }
 }

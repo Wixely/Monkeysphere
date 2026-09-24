@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.23
+- Contract version: 1.24
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-11
 - Owner: Agent
@@ -103,7 +103,7 @@ Accept: application/json, text/event-stream
 | `list_installed_presets` | `records.read` | Optional `domainId`, `page`, `pageSize`. Local type IDs, preset keys/versions, names and lifecycle |
 | `list_presets` | `records.read` | `page`, `pageSize`. Packaged record-type definitions with fields, versions and examples; result contains catalog revision and page |
 | `list_starter_packs` | `records.read` | `page`, `pageSize`. Onboarding levels and selectable keys, including the blank option; result contains catalog revision and page |
-| `list_relationship_presets` | `records.read` | `page`, `pageSize`. Packaged relationship definitions and prerequisite selection rules; result contains catalog revision and page |
+| `list_relationship_presets` | `records.read` | `page`, `pageSize`. Packaged relationship definitions and prerequisite selection rules; result contains catalog revision and page, each with a `description` |
 | `install_preset` | `structure.write` | Required `domainId`, `presetKey`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`. Atomic single-preset installation with receipt |
 | `complete_setup` | `structure.write` | Required `domainId`, `starterPackKey`, `selectedPresetKeys`, `expectedRevision`, `expectedCatalogRevision`, UUID `idempotencyKey`; `acknowledgeBlank` defaults false. Atomic selected installation and setup completion |
 
@@ -460,6 +460,33 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Packaged relationships gain a description in 1.24
+
+Contract 1.24 adds no tools and no grant.
+
+`list_relationship_presets` returns a `description` on each entry, and the catalogue holds five
+more of them: employed by, studied at, member of, parent of and founded. Both are additive — a
+1.23 client ignores the field and sees the longer list as a longer list.
+
+The catalogue revision is computed from the catalogue's contents, so it has changed. That is the
+mechanism working as designed: a caller holding the old revision is refused by `install_preset`
+until it reads the catalogue again, rather than installing against a list it has not seen.
+
+Every packaged relationship reads in the present tense. A relationship that is over is said with
+its expiry, added in 1.23, rather than with a second past-tense definition — there is no "lived at"
+beside "lives at", because two types meaning one thing is two things for the graph to draw.
+
+### Installing one
+
+Installing a single relationship definition is a browser action, reached from the relationship
+types page. It is **not** on this surface, and the nearest equivalent is `create_relationship_type`
+with the preset's own labels, which produces the same working definition under `structure.write`.
+
+The difference is bookkeeping rather than capability: a type created that way carries no preset key,
+so the browser will still offer to install the packaged one beside it. A caller that wants the two
+to agree should install from the browser. Worth revisiting if a remote caller needs to reproduce a
+domain's structure exactly.
 
 ## Relationship editing and graph settings in 1.23
 

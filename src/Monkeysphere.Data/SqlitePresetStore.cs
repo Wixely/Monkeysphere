@@ -69,6 +69,20 @@ public sealed class SqlitePresetStore(MonkeysphereConnectionFactory connections,
         return keys.ToHashSet(StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// Read from the relationship rows rather than the record-type rows, which is what the
+    /// record-type equivalent above reports: a relationship preset leaves its key on the
+    /// relationship it created and nowhere else.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> ListInstalledRelationshipPresetKeysAsync(CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        IEnumerable<string> keys = await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT PresetKey FROM RelationshipTypes WHERE PresetKey IS NOT NULL ORDER BY PresetKey;",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return keys.ToHashSet(StringComparer.Ordinal);
+    }
+
     public async Task InstallAsync(PresetInstallation installation, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

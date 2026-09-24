@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject IRelationshipService Service
+@inject IPresetService Presets
 
 <PageTitle>Relationship types · Monkeysphere</PageTitle>
 
@@ -20,6 +21,49 @@
 {
     <div class="notice error" role="alert">@_message</div>
 }
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <h2>Premade relationships</h2>
+            <p class="muted">
+                Install a packaged definition rather than typing both its labels. Each one is a
+                forward label and its inverse, editable afterwards like any other.
+            </p>
+            <p class="muted">
+                All of them read in the present tense. A relationship that is over is said by
+                giving it an expiry, so "lives at" with an end date is what used to need a separate
+                "lived at".
+            </p>
+        </div>
+        <span class="pill">@Presets.RelationshipTypes.Count presets</span>
+    </div>
+
+    <div class="preset-grid">
+        @foreach (RelationshipTypePreset preset in Presets.RelationshipTypes)
+        {
+            bool installed = _installedPresetKeys.Contains(preset.Key);
+            <article class="preset-card">
+                <div>
+                    <h3>@preset.Name</h3>
+                    <p class="preset-examples"><strong>Reads back as:</strong> @preset.InverseName</p>
+                    @if (!string.IsNullOrWhiteSpace(preset.Description))
+                    {
+                        <p>@preset.Description</p>
+                    }
+                </div>
+                <div class="preset-card-footer">
+                    <span class="muted">@($"directional · v{preset.Version}")</span>
+                    <button class="button @(installed ? "" : "primary")" type="button"
+                            disabled="@(installed || _busy)"
+                            @onclick="() => InstallPresetAsync(preset)">
+                        @(installed ? "Installed" : "Install preset")
+                    </button>
+                </div>
+            </article>
+        }
+    </div>
+</section>
 
 <section class="panel">
     <h2>Add a relationship type</h2>
@@ -100,6 +144,8 @@
 
 @code {
     private IReadOnlyList<RelationshipType> _types = [];
+    private IReadOnlySet<string> _installedPresetKeys = new HashSet<string>();
+    private bool _busy;
     private string _name = string.Empty;
     private string _inverseName = string.Empty;
     private RelationshipDirectionality _directionality = RelationshipDirectionality.Directional;
@@ -125,6 +171,25 @@
         catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
         {
             _message = exception.Message;
+        }
+    }
+
+    private async Task InstallPresetAsync(RelationshipTypePreset preset)
+    {
+        _busy = true;
+        try
+        {
+            await Presets.InstallRelationshipPresetAsync(preset.Key);
+            _message = null;
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is DomainValidationException or InvalidOperationException)
+        {
+            _message = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
@@ -159,6 +224,7 @@
     private async Task ReloadAsync()
     {
         _types = await Service.ListTypesAsync();
+        _installedPresetKeys = await Presets.ListInstalledRelationshipPresetKeysAsync();
         foreach (RelationshipType type in _types)
         {
             _names[type.Id] = type.Name;

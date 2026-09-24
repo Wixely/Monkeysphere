@@ -19,13 +19,20 @@ public sealed record RecordTypePreset(
     IReadOnlyList<PresetField> Fields,
     string? Symbol = null);
 
+/// <summary>
+/// A packaged relationship definition. <paramref name="RequiredPresetKeys"/> and
+/// <paramref name="AnyPresetKeys"/> decide only whether it comes along with a record-type
+/// selection during setup; installing one by name ignores them, because a relationship type is a
+/// pair of labels and constrains no record type, so there is nothing for a gate to protect.
+/// </summary>
 public sealed record RelationshipTypePreset(
     string Key,
     int Version,
     string Name,
     string InverseName,
     IReadOnlyList<string> RequiredPresetKeys,
-    IReadOnlyList<string> AnyPresetKeys);
+    IReadOnlyList<string> AnyPresetKeys,
+    string Description = "");
 
 public sealed record StarterPack(
     string Key,
@@ -55,6 +62,7 @@ public interface IPresetStore
 {
     Task<SetupStatus> GetSetupStatusAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlySet<string>> ListInstalledPresetKeysAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlySet<string>> ListInstalledRelationshipPresetKeysAsync(CancellationToken cancellationToken = default);
     Task InstallAsync(PresetInstallation installation, CancellationToken cancellationToken = default);
     Task<PresetInspection> InspectAsync(CancellationToken cancellationToken = default);
 }
@@ -66,6 +74,9 @@ public interface IPresetService
     Task<SetupStatus> GetSetupStatusAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlySet<string>> ListInstalledPresetKeysAsync(CancellationToken cancellationToken = default);
     Task InstallPresetAsync(string presetKey, CancellationToken cancellationToken = default);
+    IReadOnlyList<RelationshipTypePreset> RelationshipTypes { get; }
+    Task<IReadOnlySet<string>> ListInstalledRelationshipPresetKeysAsync(CancellationToken cancellationToken = default);
+    Task InstallRelationshipPresetAsync(string presetKey, CancellationToken cancellationToken = default);
     Task CompleteSetupAsync(string starterPackKey, IReadOnlyCollection<string> selectedPresetKeys, CancellationToken cancellationToken = default);
 }
 
@@ -73,6 +84,7 @@ public sealed class PresetService(IPresetStore store, TimeProvider timeProvider)
 {
     public IReadOnlyList<RecordTypePreset> RecordTypes => PresetCatalog.RecordTypes;
     public IReadOnlyList<StarterPack> StarterPacks => PresetCatalog.StarterPacks;
+    public IReadOnlyList<RelationshipTypePreset> RelationshipTypes => PresetCatalog.RelationshipTypes;
 
     public Task<SetupStatus> GetSetupStatusAsync(CancellationToken cancellationToken = default) =>
         store.GetSetupStatusAsync(cancellationToken);
@@ -90,6 +102,34 @@ public sealed class PresetService(IPresetStore store, TimeProvider timeProvider)
         }
 
         await store.InstallAsync(CreateInstallation(null, [preset]), cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<IReadOnlySet<string>> ListInstalledRelationshipPresetKeysAsync(CancellationToken cancellationToken = default) =>
+        store.ListInstalledRelationshipPresetKeysAsync(cancellationToken);
+
+    /// <summary>
+    /// Installs one relationship definition by name, without the record types a setup selection
+    /// would have brought it along with. The gates are deliberately not consulted: they exist to
+    /// decide what accompanies a starter pack, and somebody asking for this relationship by name
+    /// has already decided. A relationship type restricts no record type, so installing one before
+    /// the types it describes costs nothing.
+    /// </summary>
+    public async Task InstallRelationshipPresetAsync(string presetKey, CancellationToken cancellationToken = default)
+    {
+        RelationshipTypePreset preset = PresetCatalog.RelationshipTypes
+            .FirstOrDefault(item => string.Equals(item.Key, presetKey, StringComparison.Ordinal))
+            ?? throw new DomainValidationException("Relationship-type preset was not found.");
+
+        IReadOnlySet<string> installed = await store
+            .ListInstalledRelationshipPresetKeysAsync(cancellationToken).ConfigureAwait(false);
+        if (installed.Contains(preset.Key))
+        {
+            throw new DomainValidationException($"The {preset.Name} relationship is already installed.");
+        }
+
+        await store.InstallAsync(
+            new(null, [], [new RelationshipTypePresetInstallation(Guid.CreateVersion7(), preset)], timeProvider.GetUtcNow()),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CompleteSetupAsync(
@@ -216,18 +256,43 @@ public static class PresetCatalog
             Temporal(Event, "start", "Start"), Temporal(Event, "end", "End"), Location(Event), Field(Event, "website", "Website", FieldTypes.WebLink), Notes(Event)),
     ];
 
+    /// <summary>
+    /// Packaged relationship definitions. Every one is written in the present tense: a relationship
+    /// that is over is said with its expiry rather than with a second past-tense type, so there is
+    /// no "lived at" beside "lives at" for the graph to draw as two different things.
+    /// </summary>
     public static IReadOnlyList<RelationshipTypePreset> RelationshipTypes { get; } =
     [
-        Relation("monkeysphere.relationship.owns", "owns", "owned by", [Person], [Vehicle, VideoGame, BoardGame, Book, FilmSeries]),
-        Relation("monkeysphere.relationship.cares-for", "cares for", "cared for by", [Person], [Cat, Dog, SmallPet, Plant]),
-        Relation("monkeysphere.relationship.played", "played", "played by", [Person], [VideoGame, BoardGame]),
-        Relation("monkeysphere.relationship.completed", "completed", "completed by", [Person, VideoGame], []),
-        Relation("monkeysphere.relationship.read", "read", "read by", [Person, Book], []),
-        Relation("monkeysphere.relationship.watched", "watched", "watched by", [Person, FilmSeries], []),
-        Relation("monkeysphere.relationship.lives-at", "lives at", "home of", [Person, Home], []),
-        Relation("monkeysphere.relationship.works-at", "works at", "workplace of", [Person, Workplace], []),
-        Relation("monkeysphere.relationship.visited", "visited", "visited by", [Person, FavouritePlace], []),
-        Relation("monkeysphere.relationship.attended", "attended", "attended by", [Person, Event], []),
+        Relation("monkeysphere.relationship.owns", "owns", "owned by", [Person], [Vehicle, VideoGame, BoardGame, Book, FilmSeries],
+            "Something a person has. Set an expiry when they part with it."),
+        Relation("monkeysphere.relationship.cares-for", "cares for", "cared for by", [Person], [Cat, Dog, SmallPet, Plant],
+            "Who looks after an animal or a plant."),
+        Relation("monkeysphere.relationship.played", "played", "played by", [Person], [VideoGame, BoardGame],
+            "A game somebody has played."),
+        Relation("monkeysphere.relationship.completed", "completed", "completed by", [Person, VideoGame], [],
+            "Finished rather than merely started."),
+        Relation("monkeysphere.relationship.read", "read", "read by", [Person, Book], [],
+            "A book somebody has read."),
+        Relation("monkeysphere.relationship.watched", "watched", "watched by", [Person, FilmSeries], [],
+            "A film or series somebody has watched."),
+        Relation("monkeysphere.relationship.lives-at", "lives at", "home of", [Person, Home], [],
+            "Where somebody lives. Set an expiry for a former address."),
+        Relation("monkeysphere.relationship.works-at", "works at", "workplace of", [Person, Workplace], [],
+            "The place somebody works, as a place."),
+        Relation("monkeysphere.relationship.visited", "visited", "visited by", [Person, FavouritePlace], [],
+            "Somewhere somebody has been."),
+        Relation("monkeysphere.relationship.attended", "attended", "attended by", [Person, Event], [],
+            "An occasion somebody was at."),
+        Relation("monkeysphere.relationship.employed-by", "employed by", "employs", [Person, Workplace], [],
+            "Who somebody works for, as an organisation rather than a building. Set an expiry when the job ends."),
+        Relation("monkeysphere.relationship.studied-at", "studied at", "taught", [Person], [],
+            "A school, university or course. Set an expiry for when they left."),
+        Relation("monkeysphere.relationship.member-of", "member of", "has member", [Person], [],
+            "A club, team, society or any other body somebody belongs to."),
+        Relation("monkeysphere.relationship.parent-of", "parent of", "child of", [Person], [],
+            "A parent and their child, in whichever sense of the word applies."),
+        Relation("monkeysphere.relationship.founded", "founded", "founded by", [Person], [],
+            "Who started something, which stays true after they leave it."),
     ];
 
     public static IReadOnlyList<StarterPack> StarterPacks { get; } =
@@ -278,6 +343,7 @@ public static class PresetCatalog
     private static PresetField Choice(string preset, string key, string name, IReadOnlyList<string> options) => Field(preset, key, name, FieldTypes.Choice, options: options);
     private static PresetField Notes(string preset) => Field(preset, "notes", "Notes", FieldTypes.MultilineText);
     private static PresetField Location(string preset) => Field(preset, "location", "Location", FieldTypes.Location);
-    private static RelationshipTypePreset Relation(string key, string name, string inverse, IReadOnlyList<string> required, IReadOnlyList<string> any) =>
-        new(key, 1, name, inverse, required, any);
+    private static RelationshipTypePreset Relation(
+        string key, string name, string inverse, IReadOnlyList<string> required, IReadOnlyList<string> any, string description) =>
+        new(key, 1, name, inverse, required, any, description);
 }
