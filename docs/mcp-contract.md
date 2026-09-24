@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.26
+- Contract version: 1.27
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -60,6 +60,8 @@ Accept: application/json, text/event-stream
 | `create_graph_view` | `views.manage` | Required `domainId`, `name`; optional `displayMode`, `selectedRecordIds`, `recordTypeIds`, `nodePositions`, `viewport`. A new graph view |
 | `update_graph_view` | `views.manage` | Required `domainId`, `id`, `name`; the same optional inputs. Replaces the view; an arrangement left out is forgotten |
 | `delete_graph_view` | `views.manage` | Required `domainId`, `id`. Removes the arrangement. **Destructive**; no record or relationship is touched |
+| `query_calendar` | `records.read` | Required `from`, `to`; optional `recordTypeId`, `recordTypeIds`, `fieldDefinitionId`, `limit` (500), `domainId`. Dated values in the range with their repeats |
+| `export_calendar` | `records.read` | Required `from`, `to`; the same narrowing plus `offset` (0), `count` (16384). The iCalendar document in base64 byte ranges with a SHA-256 of the whole |
 | `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
@@ -473,6 +475,67 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Calendar reads and iCalendar export in 1.27
+
+Contract 1.27 has 81 tools, adding two, and no new grant. It continues M5.
+
+The calendar's whole point is that a date recorded decades ago still comes round, and its whole
+discipline is that a date nobody is sure of does not. Both are properties of the application rather
+than of the page, and both hold here.
+
+- `query_calendar` returns the dated values falling in a range, each naming the record it belongs to
+  and the field it came from. A stored date appears on the day it names and again on each repeat its
+  field declares, so a birthday recorded in 1990 appears this year with `isRepeat` true and
+  `yearsSince` saying how many whole years have passed. A client cannot work that out from the date
+  alone and would be wrong every leap year if it tried. A 29 February moved to a year without one
+  says `rolledFromLeapDay`, since the field rather than the application decides which way it rolls.
+- `export_calendar` returns the same range as the iCalendar document the browser downloads.
+
+### Only dates that are actually dates
+
+Only day-precision, non-approximate values appear. A birth recorded as "some time in 1815" has no day
+to put it on and inventing one would be a lie with a date on it; a day somebody has guessed at has a
+day but not a reliable one. The store already excludes both, and the tests pin that the exclusion
+survives the trip out — this is M5's date-precision requirement and it needed no new code, only
+evidence.
+
+### One grant, whatever the format
+
+Both tools take `records.read` and nothing else. A calendar entry names a record and one of its
+dates, which is record content in any format, so an export permission of its own would look like a
+control and be none: the document says exactly what `query_calendar` already returns. This is the
+opposite case to `contacts.export`, which exists precisely so a credential can export contacts
+*without* holding a general read.
+
+The document itself carries less than the query does: each event is a whole day with the record name
+and field name as its summary and the record type as its category. No field value, tag, note or image
+goes into it, because a calendar handed to another application should disclose the occasion rather
+than the record.
+
+### Paging, and proving it
+
+The document is returned base64 in byte ranges, the same shape `export_contacts` and
+`read_contact_import_evidence` use, so a client written against one works against the others:
+`offset` defaults to 0, `count` to 16384 and is bounded there, `nextOffset` is the offset to ask for
+next or null at the end, and the end offset yields an empty final range while anything past it fails.
+`contentDigest` is the SHA-256 of the **whole** document in hex and is identical on every page, so a
+client can prove its reassembly lost and duplicated nothing. The test does exactly that, in 64-byte
+pages, and checks that a name containing a comma and a semicolon survives iCalendar escaping intact.
+
+### Bounds
+
+`get_capabilities` reports `calendarLimits`: a range of at most 367 days counting both ends — a year
+and a day, so that "this date next year" is one call rather than two — `limit` 1-1000 defaulting to
+500, at most 100 record types, and the 16384-byte export chunk. `limitReached` is stated rather than
+left to be inferred from the count matching the limit, which is the one case where a complete answer
+and a truncated one look identical. The widest accepted range is tested at the boundary itself rather
+than comfortably inside it.
+
+### What stays out
+
+Spatial queries, reminders, the dashboard projection and configuration, and map settings remain M5
+scope and are not in this contract.
 
 ## Graph views and bounded graph queries in 1.26
 

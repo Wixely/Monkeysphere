@@ -5,7 +5,7 @@ public sealed record CalendarQuery(
     DateOnly To,
     Guid? RecordTypeId = null,
     Guid? FieldDefinitionId = null,
-    int Limit = 500)
+    int Limit = CalendarService.DefaultEntries)
 {
     /// <summary>
     /// Record types to include, when more than one is wanted. Empty means every type, which is what
@@ -70,6 +70,21 @@ public interface ICalendarService
 /// </summary>
 public sealed class CalendarService(ICalendarStore store, IMonkeysphereService records) : ICalendarService
 {
+    /// <summary>
+    /// The widest range a single read may cover, counting both ends. A year and a day rather than a
+    /// year, so that asking for "this date next year" is one call rather than two.
+    /// </summary>
+    public const int MaximumDaysInRange = 367;
+
+    /// <summary>
+    /// How many entries one read may return, and how many it returns when nobody says. Named because
+    /// a remote caller is told both by get_capabilities, and because a limit a client plans against
+    /// should not be a literal that exists only inside the check enforcing it.
+    /// </summary>
+    public const int MaximumEntries = 1_000;
+
+    public const int DefaultEntries = 500;
+
     public async Task<IReadOnlyList<CalendarEntry>> QueryAsync(
         CalendarQuery query,
         CancellationToken cancellationToken = default)
@@ -80,14 +95,14 @@ public sealed class CalendarService(ICalendarStore store, IMonkeysphereService r
             throw new DomainValidationException("Calendar end date must be on or after its start date.");
         }
 
-        if (query.To.DayNumber - query.From.DayNumber > 366)
+        if (query.To.DayNumber - query.From.DayNumber >= MaximumDaysInRange)
         {
-            throw new DomainValidationException("Calendar queries cannot cover more than 367 days.");
+            throw new DomainValidationException($"Calendar queries cannot cover more than {MaximumDaysInRange} days.");
         }
 
-        if (query.Limit is < 1 or > 1_000)
+        if (query.Limit < 1 || query.Limit > MaximumEntries)
         {
-            throw new DomainValidationException("Calendar result limit must be between 1 and 1,000.");
+            throw new DomainValidationException($"Calendar result limit must be between 1 and {MaximumEntries:N0}.");
         }
 
         IReadOnlyList<CalendarEntry> onTheDay = await store.QueryAsync(query, cancellationToken).ConfigureAwait(false);
