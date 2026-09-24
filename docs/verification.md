@@ -1,5 +1,17 @@
 # Verification status
 
+2026-09-24 saved-view tags verification, and the interactive check the previous release could not make: browser automation came back, so this covers both the new work and the 0.6.0-alpha.1 release that shipped on automated evidence alone. Exercised against a separately launched Release process on a fresh data root, driven through first-run setup and the real sign-in.
+
+**The tag defect is fixed, observed rather than reasoned.** The reported reproduction now behaves: on a record already carrying a pill, typing a second tag and picking it from the suggestion list leaves both, on the keyboard path and on the click path that was the actual report. Removing a pill takes the one named. The tag box and its suggestion list have solid backgrounds — the list reads `rgb(255, 250, 240)` where it previously had none — and the control is no longer inside a `<label>`, which is what had been forwarding each suggestion click to a pill's remove button. The sticky commit row is live too: `position: sticky` with an opaque background, watched holding "Use this setup" in place while the preset list scrolled under it.
+
+Saved-view tags were then verified end to end. A view was created with a required tag and the tags column turned on; reopening it for edit brought both back from storage; applying it on the records grid drew a Tags column reading "work, london" for the only matching record; and adding a second required tag the record does not carry emptied the view to "No records match." That last step is the one that proves the list narrows rather than merely being stored.
+
+Application migration 37 adds the column flag and the view's tag list. `eng/Build.ps1` passed all 458 tests (84 Core, 185 Data, 189 Web) with a zero-warning Release build, supply-chain verification of 12 vendored files and the text-encoding check. MCP contract is unchanged at 1.24: `query_records` already filtered on the same tags, and saved views have no remote surface.
+
+One papercut was found and not fixed: pressing Enter in the tag box commits the tag and also submits the surrounding form, so a record saves earlier than expected. Nothing is lost — the tag is committed first — but Enter should only add the tag. A clean fix needs the keydown default suppressed for Enter alone, which Blazor cannot express declaratively, so it wants a small decision rather than a quick change.
+
+Owner: Agent; next action: the Enter-submits papercut, then multi-record graph selection and touch long-press, both still carried from 0.5.0-alpha.1; review: 2026-10-08.
+
 2026-09-24 tag editing, form spacing and packaged relationships verification: `eng/Build.ps1` passed all 456 tests (84 Core, 183 Data, 189 Web) with a zero-warning Release build, supply-chain verification of 12 vendored files with a clean NuGet vulnerability audit, and the text-encoding check. No migration changed; the database schema is unchanged from 0.5.0-alpha.1. MCP contract is 1.24, adding a description to each packaged relationship and five more of them, both additive.
 
 **This release has automated evidence only.** The browser automation this repository has used for interactive checks was unreachable for the whole of the work, across many attempts and two different drivers, so nothing here was watched running. That matters more than usual, because most of what changed is presentation: three of the four fixes are CSS, and CSS is not exercised by any test in this suite. Treat the interactive evidence as outstanding rather than negative.

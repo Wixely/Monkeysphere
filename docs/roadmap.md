@@ -48,7 +48,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Interaction timeline | [Interaction timeline](#interaction-timeline) | Later; design required | TBD | 2026-11-01 |
 | Android contact importer | [Android contact importer](#android-contact-importer) | Later; blocked on M3 | TBD | 2026-10-01 |
 | Configurable map tile provider | [Map tile provider configuration](#map-tile-provider-configuration) | Later | TBD | 2026-11-01 |
-| Universal tags on every record | [Universal tags](universal-tags.md) | Complete, including the deployment-wide catalogue with colours, icons and domain membership; saved-view columns and filters outstanding | Agent | 2026-10-01 |
+| Universal tags on every record | [Universal tags](universal-tags.md) | Complete, including the deployment-wide catalogue and saved-view tag columns and filters | Agent | 2026-10-01 |
 | Hidden domains gated by backstage | [Record mobility](record-mobility.md) | Complete; registry migration 6, TM-16/TM-17 updated | Agent | 2026-10-01 |
 | Record transfer and linked twins between domains | [Record mobility](record-mobility.md) | Designed; conditions stated in TM-20, not built | Agent | 2026-10-01 |
 | Domain deletion/archive | [Domain-separated spheres](#domain-separated-spheres) | Later; design required | TBD | 2026-10-01 |
@@ -155,7 +155,7 @@ Domains let one deployment hold independent spheres such as Personal friends, On
 | Domain deletion/archive | Later; design required | TBD | 2026-10-01 |
 | Hidden domains gated by backstage ([design](record-mobility.md)) | Complete; registry migration 6, TM-16/TM-17 updated | Agent | 2026-10-01 |
 | Previewed record transfer/copy and linked twins | Designed in [record mobility](record-mobility.md); conditions stated in TM-20 | Agent | 2026-10-01 |
-| Universal tags on every record ([design](universal-tags.md)) | Migrations 32-33, registry 7 and contract 1.21 complete; saved-view columns and filters outstanding | Agent | 2026-10-01 |
+| Universal tags on every record ([design](universal-tags.md)) | Complete: migrations 32-33 and 37, registry 7, contract 1.21, and saved-view tag columns and filters | Agent | 2026-10-01 |
 | Per-domain visual identity and optional structure-template duplication | Later; user research | TBD | 2026-10-01 |
 
 Domain deletion and record transfer both weaken assumptions the current isolation tests rely on and require a new threat review under TM-16 before implementation. Deletion must state what happens to media, backups already taken, and MCP credentials scoped to that domain. Transfer must create independent destination records behind an explicit preview rather than introducing a cross-domain reference.

@@ -54,7 +54,8 @@ public sealed class MigrationTests
             "sha256:7ebf99dd32458c60d5118c7361ec5c5054024d23e5d7ddaef3dd76bf0af35bf6",
             "sha256:6d8940275f49852f9806f24a7c63213ad0d35e930be407097fff9b227e0f2e69",
             "sha256:08e22ee444da6ba2f77c987018963144a9b8551a839975a4bf2bf822b75b6f26",
-            "sha256:f7983b9990002edefd0e22105a9ee90688767c0e632232bfe1bbfcfc2278962b");
+            "sha256:f7983b9990002edefd0e22105a9ee90688767c0e632232bfe1bbfcfc2278962b",
+            "sha256:4f079054a475cc01b0234d9099021149f13437b0fee608a52678b357c35d943a");
 
         AssertChecksums(RemoteUploadSchema.Manifest,
             "sha256:48112d7f6ce66e6dfa27e2042f0f72eae944e13fad96403c39676b631d5b8175",

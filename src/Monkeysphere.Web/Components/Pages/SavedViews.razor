@@ -5,6 +5,8 @@
 @inject IMonkeysphereService Records
 @inject ISavedViewService Views
 @inject IGraphViewService GraphViews
+@inject ITagCatalogue Catalogue
+@inject ICurrentDomain CurrentDomain
 
 <PageTitle>Saved views · Monkeysphere</PageTitle>
 
@@ -98,6 +100,26 @@
         </div>
 
         <fieldset class="field-picker">
+            <legend>Tags</legend>
+            @* Its own section rather than an entry under Columns, because a universal tag is a
+               property of the record and not of the type, so there is no field to tick. *@
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_showTags" />
+                Show a tags column
+            </label>
+            <div class="field">
+                <span>Only records carrying these tags</span>
+                <TagInput Value="_tags" ValueChanged="TagsChanged" Available="_tagSuggestions"
+                          AriaLabel="Tags this view requires"
+                          Placeholder="Add a tag and press Enter" />
+                <span class="muted">
+                    Every tag listed must be on the record, so each one narrows the view further.
+                    Leave it empty to include records whatever they carry.
+                </span>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-picker">
             <legend>Columns</legend>
             @if (_fields.Count == 0)
             {
@@ -174,6 +196,9 @@
     private IReadOnlyList<GraphView> _graphViews = [];
     private IReadOnlyList<RecordTypeField> _fields = [];
     private readonly List<Guid> _selectedColumns = [];
+    private IReadOnlyList<string> _tags = [];
+    private IReadOnlyList<TagInput.TagPill> _tagSuggestions = [];
+    private bool _showTags;
     private readonly List<FilterEditor> _filters = [];
     private Guid? _editingId;
     private string _name = string.Empty;
@@ -204,6 +229,11 @@
     protected override async Task OnInitializedAsync()
     {
         _types = await Records.ListRecordTypesAsync();
+        _tagSuggestions =
+        [
+            .. (await Catalogue.ListAsync(CurrentDomain.Id))
+                .Select(tag => new TagInput.TagPill(tag.Name, tag.Colour, tag.Icon)),
+        ];
         await ReloadViewsAsync();
     }
 
@@ -287,6 +317,8 @@
         _groupFieldValue = details.View.GroupByFieldDefinitionId?.ToString() ?? string.Empty;
         _sortFieldValue = details.View.SortFieldDefinitionId?.ToString() ?? string.Empty;
         _sortDescending = details.View.SortDescending;
+        _tags = details.Tags;
+        _showTags = details.View.ShowTags;
         _confirmDelete = false;
         await LoadFieldsAsync();
         _selectedColumns.Clear();
@@ -358,14 +390,20 @@
             filters,
             ParseOptionalGuid(_groupFieldValue),
             ParseOptionalGuid(_sortFieldValue),
-            _sortDescending);
+            _sortDescending,
+            _tags,
+            _showTags);
     }
+
+    private void TagsChanged(IReadOnlyList<string> tags) => _tags = tags;
 
     private void NewView()
     {
         _editingId = null;
         _name = string.Empty;
         _recordTypeValue = string.Empty;
+        _tags = [];
+        _showTags = false;
         _query = string.Empty;
         _groupFieldValue = string.Empty;
         _sortFieldValue = string.Empty;

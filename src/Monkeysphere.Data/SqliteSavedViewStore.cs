@@ -12,7 +12,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<SavedViewRow> rows = await connection.QueryAsync<SavedViewRow>(new CommandDefinition("""
             SELECT Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                   SortDescending, CreatedAtUtc, UpdatedAtUtc
+                   SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc
             FROM SavedViews
             ORDER BY Name COLLATE NOCASE, Id;
             """, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -24,7 +24,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         SavedViewRow? row = await connection.QuerySingleOrDefaultAsync<SavedViewRow>(new CommandDefinition("""
             SELECT Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                   SortDescending, CreatedAtUtc, UpdatedAtUtc
+                   SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc
             FROM SavedViews
             WHERE Id = @Id;
             """,
@@ -52,13 +52,25 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
             new { Id = Key(id) },
             cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
 
+        string[] tags = (await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT Value
+            FROM SavedViewTags
+            WHERE SavedViewId = @Id
+            ORDER BY Ordinal;
+            """,
+            new { Id = Key(id) },
+            cancellationToken: cancellationToken)).ConfigureAwait(false)).ToArray();
+
         return new SavedViewDetails(
             Map(row),
             columns.Select(ParseGuid).ToArray(),
             filters.Select(filter => new RecordFilter(
                 ParseGuid(filter.FieldDefinitionId),
                 (FieldFilterOperator)filter.Operator,
-                filter.Value)).ToArray());
+                filter.Value)).ToArray())
+        {
+            Tags = tags,
+        };
     }
 
     public Task<SavedViewDetails> CreateAsync(
@@ -107,6 +119,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                         GroupByFieldDefinitionId = @GroupByFieldDefinitionId,
                         SortFieldDefinitionId = @SortFieldDefinitionId,
                         SortDescending = @SortDescending,
+                        ShowTags = @ShowTags,
                         UpdatedAtUtc = @Now
                     WHERE Id = @Id;
                     """, Parameters(id, request, timestamp), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -116,7 +129,11 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                 }
 
                 await connection.ExecuteAsync(new CommandDefinition(
-                    "DELETE FROM SavedViewColumns WHERE SavedViewId = @Id; DELETE FROM SavedViewFilters WHERE SavedViewId = @Id;",
+                    """
+                    DELETE FROM SavedViewColumns WHERE SavedViewId = @Id;
+                    DELETE FROM SavedViewFilters WHERE SavedViewId = @Id;
+                    DELETE FROM SavedViewTags WHERE SavedViewId = @Id;
+                    """,
                     new { Id = Key(id) },
                     transaction,
                     cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -126,10 +143,10 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                 await connection.ExecuteAsync(new CommandDefinition("""
                     INSERT INTO SavedViews
                         (Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                         SortDescending, CreatedAtUtc, UpdatedAtUtc)
+                         SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc)
                     VALUES
                         (@Id, @Name, @RecordTypeId, @Query, @GroupByFieldDefinitionId, @SortFieldDefinitionId,
-                         @SortDescending, @Now, @Now);
+                         @SortDescending, @ShowTags, @Now, @Now);
                     """, Parameters(id, request, timestamp), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
@@ -168,6 +185,18 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                     cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
+            IReadOnlyList<string> tags = request.Tags ?? [];
+            for (int index = 0; index < tags.Count; index++)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO SavedViewTags (SavedViewId, Ordinal, Value)
+                    VALUES (@SavedViewId, @Ordinal, @Value);
+                    """,
+                    new { SavedViewId = Key(id), Ordinal = index, Value = tags[index] },
+                    transaction,
+                    cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
@@ -192,6 +221,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         GroupByFieldDefinitionId = request.GroupByFieldDefinitionId is Guid group ? Key(group) : null,
         SortFieldDefinitionId = request.SortFieldDefinitionId is Guid sort ? Key(sort) : null,
         SortDescending = request.SortDescending ? 1 : 0,
+        ShowTags = request.ShowTags ? 1 : 0,
         Now = timestamp,
     };
 
@@ -204,7 +234,10 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         ParseNullableGuid(row.SortFieldDefinitionId),
         row.SortDescending != 0,
         ParseTimestamp(row.CreatedAtUtc),
-        ParseTimestamp(row.UpdatedAtUtc));
+        ParseTimestamp(row.UpdatedAtUtc))
+    {
+        ShowTags = row.ShowTags != 0,
+    };
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
     private static Guid ParseGuid(string value) => Guid.ParseExact(value, "D");
@@ -215,6 +248,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
     private sealed class SavedViewRow
     {
         public required string Id { get; init; }
+        public long ShowTags { get; init; }
         public required string Name { get; init; }
         public required string RecordTypeId { get; init; }
         public string? Query { get; init; }

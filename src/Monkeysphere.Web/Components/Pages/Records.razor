@@ -89,6 +89,12 @@
                             {
                                 <th>@column.Definition.Name</th>
                             }
+                            @if (_activeView.View.ShowTags)
+                            {
+                                @* Last of the content columns, because tags belong to the record
+                                   rather than to any of its fields. *@
+                                <th>Tags</th>
+                            }
                             <th>Updated</th>
                         </tr>
                     </thead>
@@ -100,6 +106,19 @@
                                 @foreach (RecordTypeField column in _columns)
                                 {
                                     <td>@row.Values.GetValueOrDefault(column.Definition.Id, "—")</td>
+                                }
+                                @if (_activeView.View.ShowTags)
+                                {
+                                    <td>
+                                        @if (row.Tags.Count == 0)
+                                        {
+                                            <span class="muted">—</span>
+                                        }
+                                        else
+                                        {
+                                            @string.Join(", ", row.Tags)
+                                        }
+                                    </td>
                                 }
                                 <td class="muted">
                                     @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g")
@@ -281,7 +300,9 @@
                 .Where(value => includedFields.Contains(value.FieldDefinitionId))
                 .GroupBy(value => value.FieldDefinitionId)
                 .ToDictionary(group => group.Key, group => string.Join(", ", group.Select(FormatValue))) ?? [];
-            _gridRows.Add(new GridRow(summary, values));
+            // The details were already fetched for the field columns, and they carry the record's
+            // universal tags, so showing them costs no further read.
+            _gridRows.Add(new GridRow(summary, values, details?.Tags ?? []));
         }
     }
 
@@ -319,6 +340,9 @@
         return value.TextValue ?? value.NumberValue ?? value.DateValue ?? string.Empty;
     }
 
-    private sealed record GridRow(RecordSummary Record, IReadOnlyDictionary<Guid, string> Values);
+    private sealed record GridRow(
+        RecordSummary Record,
+        IReadOnlyDictionary<Guid, string> Values,
+        IReadOnlyList<string> Tags);
     private sealed record GridGroup(string Name, IReadOnlyList<GridRow> Rows);
 }

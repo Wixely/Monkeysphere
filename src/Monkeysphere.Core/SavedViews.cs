@@ -9,12 +9,27 @@ public sealed record SavedView(
     Guid? SortFieldDefinitionId,
     bool SortDescending,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc)
+{
+    /// <summary>
+    /// Whether the grid carries a column of the record's universal tags. Its own flag rather than
+    /// an entry among the field columns, because tags belong to the record rather than to its type:
+    /// there is no field definition to name, and every record in the view has them.
+    /// </summary>
+    public bool ShowTags { get; init; }
+}
 
 public sealed record SavedViewDetails(
     SavedView View,
     IReadOnlyList<Guid> ColumnFieldDefinitionIds,
-    IReadOnlyList<RecordFilter> Filters);
+    IReadOnlyList<RecordFilter> Filters)
+{
+    /// <summary>
+    /// Universal tags every record in this view must carry, with the same meaning an ad-hoc search
+    /// gives them: each one narrows the result, and matching ignores case as tag storage does.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; init; } = [];
+}
 
 public sealed record SaveViewRequest(
     string Name,
@@ -24,7 +39,9 @@ public sealed record SaveViewRequest(
     IReadOnlyList<RecordFilter> Filters,
     Guid? GroupByFieldDefinitionId = null,
     Guid? SortFieldDefinitionId = null,
-    bool SortDescending = false);
+    bool SortDescending = false,
+    IReadOnlyList<string>? Tags = null,
+    bool ShowTags = false);
 
 public interface ISavedViewStore
 {
@@ -69,6 +86,9 @@ public sealed class SavedViewService(
     IMonkeysphereStore records,
     TimeProvider timeProvider) : ISavedViewService
 {
+    /// <summary>The same bound the remote record query puts on the same list, so the two agree.</summary>
+    public const int MaximumTags = 10;
+
     public Task<IReadOnlyList<SavedView>> ListAsync(CancellationToken cancellationToken = default) =>
         store.ListAsync(cancellationToken);
 
@@ -107,7 +127,9 @@ public sealed class SavedViewService(
             source.Filters,
             source.View.GroupByFieldDefinitionId,
             source.View.SortFieldDefinitionId,
-            source.View.SortDescending);
+            source.View.SortDescending,
+            source.Tags,
+            source.View.ShowTags);
         return await CreateAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
@@ -120,7 +142,8 @@ public sealed class SavedViewService(
         Page: page,
         PageSize: pageSize,
         Filters: view.Filters,
-        Sort: new RecordSort(view.View.SortFieldDefinitionId, view.View.SortDescending));
+        Sort: new RecordSort(view.View.SortFieldDefinitionId, view.View.SortDescending),
+        Tags: view.Tags);
 
     private async Task<SaveViewRequest> NormalizeAsync(
         SaveViewRequest request,
@@ -164,12 +187,22 @@ public sealed class SavedViewService(
             return filter with { Value = value };
         }).ToArray();
 
+        // Trimmed, de-duplicated and length-checked by the same rules that govern a record's own
+        // tags, so a view cannot be saved asking for a tag no record could ever carry. The bound
+        // matches the one query_records already applies to the same list.
+        IReadOnlyList<string> tags = RecordTagRules.Normalize(request.Tags);
+        if (tags.Count > MaximumTags)
+        {
+            throw new DomainValidationException($"A saved view cannot filter on more than {MaximumTags} tags.");
+        }
+
         return request with
         {
             Name = name,
             Query = query,
             ColumnFieldDefinitionIds = columns,
             Filters = filters,
+            Tags = tags,
         };
     }
 }

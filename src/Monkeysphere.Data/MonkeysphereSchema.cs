@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 36,
+        currentVersion: 37,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -884,6 +884,30 @@ public static class MonkeysphereSchema
                 ON Relationships BEGIN
                     UPDATE Relationships SET Revision = lower(hex(randomblob(16))) WHERE Id = NEW.Id;
                 END;
+                """),
+            DnaXMigration.Sql(37, "saved-view-tags", "Let a saved view filter on tags and show them", """
+                -- Tags were made universal in 32-33 and an ad-hoc search could already narrow by
+                -- them, but a saved view could not carry that narrowing: everything it stored was
+                -- keyed to a field definition, and a universal tag has none.
+
+                -- Its own flag rather than an entry among the field columns, for the same reason.
+                ALTER TABLE SavedViews ADD COLUMN ShowTags INTEGER NOT NULL DEFAULT 0
+                    CHECK (ShowTags IN (0, 1));
+
+                -- One row per tag, in the order the view lists them, matching how a record stores
+                -- its own. NOCASE here too, so a view and the records it selects agree about what
+                -- counts as the same tag. Every listed tag must be present, which is the meaning
+                -- the search already gives this list.
+                CREATE TABLE SavedViewTags (
+                    SavedViewId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                    Value TEXT NOT NULL COLLATE NOCASE,
+                    PRIMARY KEY (SavedViewId, Ordinal),
+                    UNIQUE (SavedViewId, Value),
+                    FOREIGN KEY (SavedViewId) REFERENCES SavedViews(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IX_SavedViewTags_Value ON SavedViewTags(Value, SavedViewId);
                 """),
         ]);
 }

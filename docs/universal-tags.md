@@ -1,7 +1,13 @@
 # Universal tags
 
-Status: Implemented. Application migrations 32-33, registry migration 7, MCP contract 1.21.
-Saved-view tag columns and filters remain outstanding.
+Status: Implemented, and complete from 2026-09-24. Application migrations 32-33 and 37, registry
+migration 7, MCP contract 1.21.
+
+A saved view can now narrow by tags and show them as a column, which was the last outstanding
+piece. Both are their own thing on the view rather than entries among its field columns and
+filters, because everything a view stored was keyed to a field definition and a universal tag has
+none. The tags it lists carry the meaning an ad-hoc search already gave them: every one must be on
+the record, so each narrows the view further, and matching ignores case as tag storage does.
 
 Tags are a property of a record, not of its type. Every record carries tags unless an
 administrator has deliberately removed tags from that record type. This replaces the current
