@@ -100,11 +100,11 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
-| M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Remaining: the live-client and interactive-browser gates for 1.29 | Agent | 2026-10-15 |
+| M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Live-client gate for 1.29 passed 2026-09-24 against a published process; the interactive browser gate remains, blocked on browser automation | Agent | 2026-10-15 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: run M5's live-client and interactive-browser gates against contract 1.29 to close the milestone, then begin M4. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: the interactive browser gate for contract 1.29, which is all that is left of M5, then begin M4. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 
