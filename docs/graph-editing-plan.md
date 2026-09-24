@@ -214,6 +214,12 @@ Autosave hangs off the same button's right-click, which is where the graph alrea
 
 What saving is doing is said over the canvas too, for the same reason the control moved there: the panel that used to report it is off the screen in fullscreen.
 
+**The tag menu can name a tag that does not exist yet, from 2026-09-24.** Every row it offered was a tag the catalogue already held — what the records carry, what was recently used, and a dropdown of the rest — so noticing that a set of records wants a label nobody has used meant leaving the graph to make it first.
+
+There is no separate create call behind it. The catalogue resolves a name it does not hold by adding it and one it does by returning that tag, which is the same path every other tag write takes, so the menu cannot mint a second tag with a label somebody else already chose. That is also why the row says so before the button is pressed rather than after: a name already in the catalogue adds that tag, and the operator should know which of the two is about to happen.
+
+Creating a tag attached to nothing stays in Structures / Tags. Here a tag comes into being by being put on something, which is the only reason the graph has to make one.
+
 ### M5 — Relationship editing
 
 Dependencies: M0 (D3), and M4 for the shared creation interaction.

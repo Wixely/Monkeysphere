@@ -172,6 +172,38 @@ public sealed class RecordTagCommandTests
     }
 
     [Fact]
+    public async Task ATagNobodyHasUsedIsCreatedByBeingApplied()
+    {
+        await using TestApplication application = await TestApplication.CreateAsync();
+        IMonkeysphereService records = application.Services.GetRequiredService<IMonkeysphereService>();
+        IRecordTagCommandService tagging = application.Services.GetRequiredService<IRecordTagCommandService>();
+        IRecordTagStore tags = application.Services.GetRequiredService<IRecordTagStore>();
+        ITagCatalogue catalogue = application.Services.GetRequiredService<ITagCatalogue>();
+
+        RecordType type = await records.CreateRecordTypeAsync("Newly tagged person");
+        RecordDetails ada = await records.CreateRecordAsync(type.Id, "Ada", []);
+        RecordDetails grace = await records.CreateRecordAsync(type.Id, "Grace", []);
+
+        Assert.DoesNotContain("Bletchley", await tags.ListVocabularyAsync(), StringComparer.OrdinalIgnoreCase);
+
+        // This is what the graph menu's new-tag row does. There is no separate create call: a name
+        // the catalogue does not hold is added by being used, which is also why the menu cannot
+        // mint a second tag with a label somebody else already chose.
+        _ = await tagging.ApplyAsync(new([new(ada.Record.Id)], Add: ["Bletchley"]));
+
+        Assert.Equal(["Bletchley"], (await records.GetRecordAsync(ada.Record.Id))!.Tags);
+        Assert.Contains("Bletchley", await tags.ListVocabularyAsync(), StringComparer.OrdinalIgnoreCase);
+
+        // It is a catalogue entry like any other from that moment, so the next record typing it
+        // any which way joins that tag rather than making a second one beside it.
+        _ = await tagging.ApplyAsync(new([new(grace.Record.Id)], Add: ["  bletchley  "]));
+
+        Assert.Equal(["Bletchley"], (await records.GetRecordAsync(grace.Record.Id))!.Tags);
+        Assert.Single(await catalogue.ListAsync(), tag =>
+            string.Equals(tag.Name, "Bletchley", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task AnEditThatCannotMeanOneThingIsRefusedBeforeAnythingIsWritten()
     {
         await using TestApplication application = await TestApplication.CreateAsync();

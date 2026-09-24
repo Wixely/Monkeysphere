@@ -416,6 +416,37 @@
                                     </select>
                                 </label>
                             </div>
+
+                            @* Every row above offers a tag that already exists. Without this one
+                               the menu could only reach the catalogue as it stands, so noticing
+                               that a set of records wants a label nobody has used yet meant
+                               leaving the graph to make it first. *@
+                            <p class="graph-context-menu-section" id="graph-menu-new-tag">New tag</p>
+                            <div class="graph-context-menu-tag new" role="group" aria-labelledby="graph-menu-new-tag">
+                                <button type="button" class="tag-apply add"
+                                        disabled="@(!CanAddNewTag)"
+                                        aria-label="@($"Add {NewTagDescription} to {MenuTargetDescription}")"
+                                        title="@($"Add {NewTagDescription}")"
+                                        @onclick="AddNewTagAsync">+</button>
+                                <label class="graph-context-menu-name">
+                                    <span class="visually-hidden">New tag name</span>
+                                    <input type="text" maxlength="@RecordTagRules.MaximumLength"
+                                           placeholder="Name a tag nobody has used yet"
+                                           value="@_newTag"
+                                           @oninput="NewTagChanged"
+                                           @onkeydown="NewTagKeyDownAsync" />
+                                </label>
+                            </div>
+                            @if (NewTagAlreadyExists)
+                            {
+                                @* Said before the button is pressed rather than after. The
+                                   catalogue is deployment-wide, so a name already in it resolves
+                                   to that tag rather than making a second one with the same
+                                   label, and somebody typing it deserves to know which. *@
+                                <p class="graph-context-menu-empty">
+                                    @NewTagDescription is already in the catalogue, so this adds that tag.
+                                </p>
+                            }
                             }
 
                             @if (_menuTab == MenuTab.Relationships)
@@ -688,6 +719,8 @@
     private IReadOnlyList<string> _recentTags = [];
     private IReadOnlyList<string> _recentTypeIds = [];
     private string _otherTag = string.Empty;
+    private string _newTag = string.Empty;
+    private bool _tagEditRefused;
     private IReadOnlyDictionary<Guid, IReadOnlyList<string>> _menuRecordTags =
         new Dictionary<Guid, IReadOnlyList<string>>();
     private long _placementRequest;
@@ -910,6 +943,24 @@
         [.. _tagVocabulary
             .Where(tag => !RecentTags.Contains(tag, StringComparer.OrdinalIgnoreCase))
             .Where(tag => !AttachedTags.Contains(tag, StringComparer.OrdinalIgnoreCase))];
+
+    private bool CanAddNewTag => !string.IsNullOrWhiteSpace(_newTag);
+
+    /// <summary>The spelling the catalogue already holds, when it holds one, rather than the typing.</summary>
+    private string NewTagDescription
+    {
+        get
+        {
+            string typed = _newTag.Trim();
+            return typed.Length == 0
+                ? "a new tag"
+                : _tagVocabulary.FirstOrDefault(tag => string.Equals(tag, typed, StringComparison.OrdinalIgnoreCase))
+                    ?? typed;
+        }
+    }
+
+    private bool NewTagAlreadyExists =>
+        CanAddNewTag && _tagVocabulary.Contains(_newTag.Trim(), StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<RecordType> RecentTypes =>
         [.. _recentTypeIds.Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
@@ -1601,6 +1652,7 @@
         _menu = request;
         _menuMessage = null;
         _otherTag = string.Empty;
+        _newTag = string.Empty;
         _newRecordName = string.Empty;
         _newRecordTypeId = RecentTypes.FirstOrDefault()?.Id;
 
@@ -2025,6 +2077,40 @@
 
     private void OtherTagChosen(ChangeEventArgs args) => _otherTag = args.Value?.ToString() ?? string.Empty;
 
+    private void NewTagChanged(ChangeEventArgs args) => _newTag = args.Value?.ToString() ?? string.Empty;
+
+    /// <summary>Enter applies it, because typing a name and pressing Enter is the whole gesture.</summary>
+    private async Task NewTagKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or "NumpadEnter")
+        {
+            await AddNewTagAsync();
+        }
+    }
+
+    /// <summary>
+    /// Creating happens by using. The catalogue resolves a name it does not hold by adding it, and
+    /// one it does by returning that tag, so this needs no separate create call and cannot mint a
+    /// second tag with a label somebody else already chose. A tag made in the abstract, belonging
+    /// to no record, is what Structures / Tags is for.
+    /// </summary>
+    private async Task AddNewTagAsync()
+    {
+        if (!CanAddNewTag)
+        {
+            return;
+        }
+
+        await ApplyTagAsync(_newTag.Trim(), add: true);
+
+        // Cleared only if it went through. Left in place after a refusal the operator has to read
+        // and correct, which is the case where retyping it would be most annoying.
+        if (!_tagEditRefused)
+        {
+            _newTag = string.Empty;
+        }
+    }
+
     private void NewRecordNameChanged(ChangeEventArgs args) => _newRecordName = args.Value?.ToString() ?? string.Empty;
 
     private Task ChooseTypeAsync(Guid typeId)
@@ -2047,6 +2133,7 @@
     /// </summary>
     private async Task ApplyTagAsync(string tag, bool add)
     {
+        _tagEditRefused = false;
         if (_menu is null || string.IsNullOrWhiteSpace(tag))
         {
             return;
@@ -2077,6 +2164,7 @@
         catch (DomainValidationException exception)
         {
             _menuMessage = exception.Message;
+            _tagEditRefused = true;
         }
     }
 
