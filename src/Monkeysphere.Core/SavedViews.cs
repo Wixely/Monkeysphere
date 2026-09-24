@@ -89,6 +89,19 @@ public sealed class SavedViewService(
     /// <summary>The same bound the remote record query puts on the same list, so the two agree.</summary>
     public const int MaximumTags = 10;
 
+    /// <summary>
+    /// The rest of the bounds a view is held to. Named rather than written into the checks below
+    /// because a remote caller is told them by get_capabilities, and a number a client plans
+    /// against should not be a literal that only exists inside one validation method.
+    /// </summary>
+    public const int MaximumColumns = 25;
+
+    public const int MaximumFilters = 10;
+
+    public const int MaximumNameLength = 200;
+
+    public const int MaximumQueryLength = 500;
+
     public Task<IReadOnlyList<SavedView>> ListAsync(CancellationToken cancellationToken = default) =>
         store.ListAsync(cancellationToken);
 
@@ -149,11 +162,11 @@ public sealed class SavedViewService(
         SaveViewRequest request,
         CancellationToken cancellationToken)
     {
-        string name = FieldTypes.Required(request.Name, "Saved view name", 200);
+        string name = FieldTypes.Required(request.Name, "Saved view name", MaximumNameLength);
         string? query = string.IsNullOrWhiteSpace(request.Query) ? null : request.Query.Trim();
-        if (query?.Length > 500)
+        if (query?.Length > MaximumQueryLength)
         {
-            throw new DomainValidationException("Saved view search text cannot exceed 500 characters.");
+            throw new DomainValidationException($"Saved view search text cannot exceed {MaximumQueryLength} characters.");
         }
 
         RecordTypeDetails type = await records.GetRecordTypeAsync(request.RecordTypeId, cancellationToken).ConfigureAwait(false)
@@ -161,9 +174,9 @@ public sealed class SavedViewService(
         HashSet<Guid> attached = type.Fields.Select(field => field.Definition.Id).ToHashSet();
 
         Guid[] columns = request.ColumnFieldDefinitionIds.Distinct().ToArray();
-        if (columns.Length > 25)
+        if (columns.Length > MaximumColumns)
         {
-            throw new DomainValidationException("A saved view cannot contain more than 25 columns.");
+            throw new DomainValidationException($"A saved view cannot contain more than {MaximumColumns} columns.");
         }
 
         Guid[] referenced = columns
@@ -176,9 +189,9 @@ public sealed class SavedViewService(
             throw new DomainValidationException("Saved view fields must belong to the selected record type.");
         }
 
-        if (request.Filters.Count > 10)
+        if (request.Filters.Count > MaximumFilters)
         {
-            throw new DomainValidationException("A saved view cannot contain more than 10 filters.");
+            throw new DomainValidationException($"A saved view cannot contain more than {MaximumFilters} filters.");
         }
 
         RecordFilter[] filters = request.Filters.Select(filter =>

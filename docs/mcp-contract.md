@@ -1,10 +1,10 @@
 # MCP contract
 
-- Contract version: 1.24
+- Contract version: 1.25
 - Status: Local implementation; live deployment not verified
-- Reviewed: 2026-09-11
+- Reviewed: 2026-09-24
 - Owner: Agent
-- Next review: 2026-09-25
+- Next review: 2026-10-24
 
 ## Transport requirements for clients
 
@@ -40,13 +40,20 @@ Accept: application/json, text/event-stream
 
 | Tool | Required grant | Inputs / result |
 | --- | --- | --- |
-| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Application name, release version without build metadata, database schema version, contract version |
-| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
+| `get_instance_info` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `views.manage`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Application name, release version without build metadata, database schema version, contract version |
+| `get_capabilities` | Any of `records.read`, `instance.read`, `records.write`, `records.delete`, `relationships.write`, `structure.write`, `views.manage`, `domains.manage`, `contacts.import`, `contacts.export`, `media.read`, `media.write` | No inputs. Granted scopes, implemented tool names and any-of scope requirements, allowed flags, Default domain ID, domain-selection support, write/file support and effective transport and record-write limits |
 | `create_domain` | `domains.manage` | Required new non-Default `domainId` UUID, `name`, UUID `idempotencyKey`. Creates an isolated blank domain using a durable reservation |
 | `rename_domain` | `domains.manage` | Required `domainId`, `name`, `expectedRevision`, UUID `idempotencyKey`. Revision-checked rename with durable receipt |
 | `list_domains` | `records.read` | No inputs. Existing isolated domain catalog |
 | `list_record_types` | `records.read` | Optional `domainId`. Up to 100 record types with their field definitions |
 | `get_record_type` | `records.read` | Required `id`, optional `domainId`. One type or null |
+| `list_saved_views` | `records.read` or `views.manage` | Optional `domainId`. One domain's saved views without their columns and filters |
+| `get_saved_view` | `records.read` or `views.manage` | Required `id`, optional `domainId`. One view's full definition, or null |
+| `run_saved_view` | `records.read` | Required `id`; `page` (1), `pageSize` (25), `includeValues` (true), optional `domainId`. The view's rows with the values of the fields it lists as columns |
+| `create_saved_view` | `views.manage` | Required `domainId`, `name`, `recordTypeId`; optional `query`, `columnFieldDefinitionIds`, `filters`, `tags`, `groupByFieldDefinitionId`, `sortFieldDefinitionId`, `sortDescending`, `showTags`. A new view |
+| `update_saved_view` | `views.manage` | Required `domainId`, `id`, `name`, `recordTypeId`; the same optional inputs. Replaces the definition; omitted lists are stored empty |
+| `duplicate_saved_view` | `views.manage` | Required `domainId`, `id`, `name`. A copy under a new name |
+| `delete_saved_view` | `views.manage` | Required `domainId`, `id`. Removes the definition. **Destructive**; no record content is touched |
 | `begin_upload` | `contacts.import` or `media.write` | Required `domainId`, `purpose` (`contact_import` or `record_image`), `byteLength`, `sha256`, `contentType`, UUID `idempotencyKey`. Bounded owned staging session; the grant required depends on the purpose |
 | `write_upload_chunk` | `contacts.import` | Required `domainId`, `uploadId`, sequential `offset`, `contentBase64`, chunk `sha256`. Atomic bytes/offset with safe retry |
 | `get_upload_status` | `contacts.import` | Required `domainId`, `uploadId`. State, accepted bytes, expiry and current chunk limit |
@@ -460,6 +467,83 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Saved views in 1.25
+
+Contract 1.25 has 73 tools, adding seven, and one grant, `views.manage`. It begins MCP milestone
+M5.
+
+A saved view is a stored question: a record type, optional search text, up to ten AND-combined field
+filters, up to ten universal tags every record must carry, a grouping, a sort, the fields to show as
+columns, and whether to show a tags column. Until now it existed only in the browser, so a remote
+caller wanting the same answer had to rebuild all of that and hope it had rebuilt it identically.
+
+Reads take `records.read` or `views.manage`:
+
+- `list_saved_views` returns one domain's views with their record type, search text, grouping and
+  sort. It deliberately omits columns and filters, because assembling those for every view is a
+  read per view for detail a caller listing them has not asked for.
+- `get_saved_view` returns one view's full definition, or null when it is absent from the selected
+  domain — the shape `get_record` and `get_record_type` already use.
+
+Running a view takes `records.read` and nothing else:
+
+- `run_saved_view` returns the matching records with the values of the fields the view lists as
+  columns, plus its group-by field, and the record's universal tags when the view shows them. Rows
+  are the same projection `get_record` returns, so a column and a value are the same thing seen
+  twice rather than two shapes that agree today.
+
+Writes take `views.manage` alone:
+
+- `create_saved_view` stores a new view. Not idempotent and taking no `idempotencyKey`: a view has
+  no natural identity beyond its name, and two views may legitimately share one, so calling twice
+  creates two rather than resolving to the first.
+- `update_saved_view` **replaces** the definition rather than merging into it. A list left out is
+  stored empty, because a caller clearing a view's filters has no other way to say so. Read the
+  view first and send back what you intend to keep.
+- `duplicate_saved_view` copies a view under a new name, original untouched.
+- `delete_saved_view` removes the definition. **Destructive**, but only of the question: no record,
+  value or tag is touched. Deleting a view that is already gone reports `not_found`, so a caller can
+  tell a completed delete from a mistaken identifier.
+
+### Why its own grant
+
+`views.manage` is separate from `structure.write`, which creates record types, creates and attaches
+reusable fields and installs presets — changes that alter what every record in a domain can hold. A
+saved view alters nothing about the records, so requiring the schema grant to tidy a list of views
+would hand out far more authority than the task needs.
+
+It is equally separate from reading. `run_saved_view` returns record content and therefore demands
+`records.read`; a credential holding only `views.manage` can compose and store a question and cannot
+read its answer. That separation is the one this contract is most careful about, because a grant that
+looked like configuration and quietly read records would be the worst kind of mistake to make here.
+Existing credentials never acquire `views.manage` automatically.
+
+### No revision, and why that is not an omission
+
+A saved view carries no revision and no `expectedRevision` input: the last write wins. Unlike a tag
+or a record type, there is no application command behind a view and the browser's own editor has no
+concurrency check either. Introducing a remote-only revision rule would make the two surfaces
+disagree about the same operation, which the management plan explicitly rules out. The exposure is
+small and bounded — two callers editing one view means one of them loses an edit to a stored
+question, with no record content at stake.
+
+### Bounds
+
+`get_capabilities` reports `savedViewLimits`, so a client plans within the bounds rather than
+discovering them by being refused: at most 25 columns, 10 filters, 10 tags, a 200-character name and
+a 500-character query. A field named as a column, filter, grouping or sort must be attached to the
+view's record type; one belonging to another type is refused rather than dropped, because a view
+quietly missing the column somebody asked for is worse than one that failed to save.
+
+`run_saved_view` bounds a page of rows carrying values at 50 rather than the 100 the plain record
+query allows, because each such row costs a record read exactly as the browser's grid does. Pass
+`includeValues` false for a page of up to 100 records without them.
+
+### What stays out
+
+Graph view lifecycle, saved coordinates, bounded graph and spatial queries, calendar and reminder
+tools, the dashboard projection and map settings are all M5 scope and are not in this contract.
 
 ## Packaged relationships gain a description in 1.24
 

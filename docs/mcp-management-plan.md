@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M3 complete as of 2026-09-10; M4-M7 remain and belong to beta
+- Status: M0-M3 complete as of 2026-09-10; M4-M7 remain and belong to beta, with M5 begun on 2026-09-24
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -112,6 +112,8 @@ Dependencies: M2; file export depends on M3. Owner: Agent.
 - Classify browser-only preferences and interactions in the capability matrix; persisted layouts and configuration remain in scope even if gestures/theme controls do not need tools.
 
 Exit criteria: a client can save/reopen a filtered view and graph layout, query map/calendar data, manage reminders, and update dashboard settings. Tests cover bounds, truncation, invalid references, date precision, and default-off external requests.
+
+Progress 2026-09-24: saved record view list/get/create/update/duplicate/delete and execution ship as contract 1.25 under a new `views.manage` grant, with running a view kept on `records.read` so managing views is not a way to read records. Bounds, foreign-field rejection, per-page row limits, domain isolation and the grant separation are tested, and `get_capabilities` reports the bounds. Remaining in M5: graph view lifecycle and saved coordinates, bounded graph/neighbour and spatial queries, calendar and upcoming-date queries with iCalendar export, reminder create/list/dismiss, the dashboard projection and configuration, and map settings with the tile disclosure acknowledgement. Saved views carry no revision and the last write wins, matching the browser rather than introducing a remote-only concurrency rule.
 
 ## M6 - Runtime administration and backups
 

@@ -242,6 +242,31 @@ public sealed partial class MonkeysphereRemoteQueries(
     private static RemoteRecordSummary MapSummary(RecordSummary record) =>
         new(record.Id, record.RecordTypeId, record.RecordTypeName, record.DisplayName, record.UpdatedAtUtc);
 
+    /// <summary>
+    /// One stored value as a remote caller sees it. Lifted out of <see cref="MapRecord"/> so a saved
+    /// view's grid can project the same shape: a column of a view and a value of a record are the
+    /// same thing seen twice, and two spellings of it would drift.
+    /// </summary>
+    internal static RemoteRecordValue MapValue(RecordValue value) => new(
+        value.FieldDefinitionId,
+        value.FieldName,
+        value.TypeId,
+        FormatValue(value),
+        value.Tags,
+        value.Location is null
+            ? null
+            : new RemoteLocationValue(
+                value.Location.DisplayContext,
+                value.Location.Latitude,
+                value.Location.Longitude,
+                value.Location.AccuracyMetres,
+                value.Location.ApproximationRadiusKilometres),
+        value.Ordinal,
+        value.TextValue ?? value.NumberValue ?? value.DateValue,
+        value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision
+            ? new RemoteTemporalValue(value.TemporalValue, precision.ToString().ToLowerInvariant(), value.IsApproximate, value.ApproximationNote)
+            : null);
+
     private static RemoteRecord MapRecord(RecordDetails details, IReadOnlyList<RemoteRelationship> relationships) =>
         new(
             MapSummary(details.Record),
@@ -258,25 +283,7 @@ public sealed partial class MonkeysphereRemoteQueries(
                 image.Caption,
                 image.IsCover,
                 image.Correction)).ToArray(),
-            details.Values.Select(value => new RemoteRecordValue(
-                value.FieldDefinitionId,
-                value.FieldName,
-                value.TypeId,
-                FormatValue(value),
-                value.Tags,
-                value.Location is null
-                    ? null
-                    : new RemoteLocationValue(
-                        value.Location.DisplayContext,
-                        value.Location.Latitude,
-                        value.Location.Longitude,
-                        value.Location.AccuracyMetres,
-                        value.Location.ApproximationRadiusKilometres),
-                value.Ordinal,
-                value.TextValue ?? value.NumberValue ?? value.DateValue,
-                value.TemporalValue is not null && value.TemporalPrecision is TemporalPrecision precision
-                    ? new RemoteTemporalValue(value.TemporalValue, precision.ToString().ToLowerInvariant(), value.IsApproximate, value.ApproximationNote)
-                    : null)).ToArray(),
+            details.Values.Select(MapValue).ToArray(),
             relationships,
             details.Revision,
             details.Tags);
