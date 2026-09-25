@@ -97,7 +97,10 @@ public sealed partial class ApplicationTests : IClassFixture<MonkeysphereApplica
         Assert.Contains("ResizeObserver", graphScript, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, graphPreferences.StatusCode);
         string preferencesScript = await graphPreferences.Content.ReadAsStringAsync();
-        Assert.Contains("monkeysphere.graph.record-types", preferencesScript, StringComparison.Ordinal);
+        // The live key stores what a viewer has hidden. Asserting the superseded chosen-set key
+        // would pass on the removal code alone, which is the opposite of what it should prove.
+        Assert.Contains("monkeysphere.graph.hidden-record-types", preferencesScript, StringComparison.Ordinal);
+        Assert.Contains("loadHiddenRecordTypeIds", preferencesScript, StringComparison.Ordinal);
         Assert.Contains("monkeysphere.graph.recent.", preferencesScript, StringComparison.Ordinal);
         Assert.Contains(".relationship-graph", css, StringComparison.Ordinal);
         Assert.Contains(".graph-type-badges", css, StringComparison.Ordinal);

@@ -1,4 +1,14 @@
-function recordTypeKey(domainId) {
+// What the operator has hidden, not what they have chosen. A record type created after this was
+// last written is named by neither list, and the difference matters: absent from a chosen set means
+// hidden, while absent from a hidden set means shown. Storing the chosen set made every new record
+// type invisible in the graph until somebody went and ticked it.
+function hiddenRecordTypeKey(domainId) {
+    return `monkeysphere.graph.hidden-record-types.${domainId}`;
+}
+
+// The chosen-set key this replaces. Read by nothing; removed when the new one is written so a later
+// reader cannot mistake a stale list for a live preference.
+function supersededRecordTypeKey(domainId) {
     return `monkeysphere.graph.record-types.${domainId}`;
 }
 
@@ -183,9 +193,9 @@ export function rememberRecent(kind, domainId, value, keep) {
     }
 }
 
-export function loadRecordTypeIds(domainId) {
+export function loadHiddenRecordTypeIds(domainId) {
     try {
-        const value = globalThis.localStorage.getItem(recordTypeKey(domainId));
+        const value = globalThis.localStorage.getItem(hiddenRecordTypeKey(domainId));
         const parsed = value ? JSON.parse(value) : null;
         return Array.isArray(parsed) && parsed.every(item => typeof item === 'string') ? parsed : null;
     } catch {
@@ -193,9 +203,14 @@ export function loadRecordTypeIds(domainId) {
     }
 }
 
-export function saveRecordTypeIds(domainId, ids) {
+export function saveHiddenRecordTypeIds(domainId, ids) {
     try {
-        globalThis.localStorage.setItem(recordTypeKey(domainId), JSON.stringify(ids));
+        globalThis.localStorage.setItem(hiddenRecordTypeKey(domainId), JSON.stringify(ids));
+        // Deliberately not migrated into the new key. The old list cannot say whether a type it
+        // omits was hidden on purpose or created since it was written, and reading it as "hidden"
+        // would preserve the very defect this replaces. So it is dropped: a viewer sees every type
+        // once, which is the default, and hides again whatever they do not want.
+        globalThis.localStorage.removeItem(supersededRecordTypeKey(domainId));
     } catch {
         // Storage may be unavailable in a hardened or private browser context.
     }

@@ -42,6 +42,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
+| New record types missing from the dashboard | [A new record type is absent from the dashboard](#a-new-record-type-is-absent-from-the-dashboard-until-somebody-adds-it) | Graph fixed 2026-09-25; dashboard needs a schema decision | Agent | 2026-10-15 |
 | Reminders on repeating dates are due immediately | [Reminders on repeating dates](#reminders-on-repeating-dates-are-due-the-moment-they-are-set) | Found 2026-09-24; not fixed | Agent | 2026-10-15 |
 | Preset upgrade workflow | [Preset upgrade workflow](#preset-upgrade-workflow) | Planned | Agent | 2026-10-01 |
 | Accessibility conformance verification | [Accessibility conformance](#accessibility-conformance) | Planned | TBD | 2026-10-01 |
@@ -199,6 +200,45 @@ The first pass also dropped the generated `outputSchema` from the converted tool
 MCP disposition: **Included**; this is the error contract of the tools themselves.
 
 Owner: Agent. Review: 2026-09-21.
+
+## A new record type is absent from the dashboard until somebody adds it
+
+Status: Found 2026-09-25 alongside the graph's version of the same problem, which is fixed. Not
+fixed here, because the cure needs a schema decision rather than a rule change.
+
+The graph had the defect and no longer does: its type filter stored the types a viewer had **chosen**,
+and a record type created after that was written is named by that list no more than one somebody had
+deliberately unticked, so a new type was read as unwanted and silently left out of every graph. It now
+stores what has been **hidden**, so a type nobody has hidden is drawn.
+
+The dashboard has the same shape and cannot take the same cure. `DashboardCategories` is an ordered,
+curated list: the settings page lets an administrator choose categories *and arrange them*, and the
+stored rows carry a `SortOrder`. Inverting it to "hidden" would throw the arrangement away, and
+appending new types to the stored list cannot be told apart from undoing a removal — exactly the
+ambiguity the graph had, but here the list means two things at once.
+
+So it needs a decision before code. Either the table gains a column recording which types have been
+dismissed, so an unmentioned type is new and an unwanted one is marked; or categories become
+"everything, in this order, minus these", which keeps the ordering and makes absence mean new. Both
+want a migration.
+
+Until then a new record type appears on the graph, the calendar and the map without being asked for,
+and on the dashboard only once an administrator adds it at `/settings/dashboard`.
+
+The calendar and the map were checked and are already right for the opposite reason: neither persists
+its filter, and both read an empty selection as every type — the calendar through
+`RecordTypePicker` with `EmptyMeansAll`, the map through a query whose store treats an empty field list
+as no filter at all. Saved record views and saved graph views deliberately name the types they select
+and should not acquire new ones: a saved view is a stored question, and answering a different one
+because the structure grew would be worse than leaving it alone.
+
+MCP disposition: **Not applicable to the graph fix**, which is a per-viewer browser preference with no
+remote surface — `query_graph` already draws every active type when a caller names none. Applies to the
+dashboard change when it happens: `set_dashboard_settings` merges onto the stored list today, so
+whatever absence comes to mean, both surfaces must agree about it.
+
+Owner: Agent. Next action: decide between a dismissal column and an ordered-minus-hidden list, since
+that decision drives the migration. Review: 2026-10-15.
 
 ## Reminders on repeating dates are due the moment they are set
 

@@ -1139,14 +1139,13 @@
             }
             else
             {
-                string[]? savedIds = await _preferencesModule.InvokeAsync<string[]?>("loadRecordTypeIds", CurrentDomain.Id.ToString("D"));
-                if (savedIds is not null)
+                string[]? hiddenIds = await _preferencesModule.InvokeAsync<string[]?>(
+                    "loadHiddenRecordTypeIds", CurrentDomain.Id.ToString("D"));
+                if (hiddenIds is not null)
                 {
-                    HashSet<Guid> available = _recordTypes.Select(type => type.Id).ToHashSet();
                     _selectedRecordTypeIds.Clear();
-                    _selectedRecordTypeIds.UnionWith(savedIds
-                        .Select(value => Guid.TryParse(value, out Guid id) ? id : Guid.Empty)
-                        .Where(available.Contains));
+                    _selectedRecordTypeIds.UnionWith(
+                        GraphRecordTypeVisibility.Shown(_recordTypes.Select(type => type.Id), hiddenIds));
                     await ReloadAsync();
                     StateHasChanged();
                 }
@@ -2560,10 +2559,11 @@
     {
         if (_preferencesModule is not null)
         {
-            string[] ids = _selectedRecordTypeIds.Select(id => id.ToString("D")).ToArray();
+            string[] hidden = [.. GraphRecordTypeVisibility.Hidden(
+                _recordTypes.Select(type => type.Id), _selectedRecordTypeIds)];
             await _preferencesModule.InvokeVoidAsync(
-                "saveRecordTypeIds",
-                new object?[] { CurrentDomain.Id.ToString("D"), ids });
+                "saveHiddenRecordTypeIds",
+                new object?[] { CurrentDomain.Id.ToString("D"), hidden });
         }
     }
 
