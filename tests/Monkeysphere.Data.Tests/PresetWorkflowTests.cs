@@ -53,7 +53,14 @@ public sealed class PresetWorkflowTests
         FieldDefinition birthday = Assert.Single(personDetails.Fields, field =>
             field.Definition.CanonicalKey == "monkeysphere.person.birthday").Definition;
         DashboardConfiguration dashboardDefaults = await dashboard.GetConfigurationAsync();
-        Assert.Equal([person.Id], dashboardDefaults.RecordTypeIds);
+
+        // People first, then everything else the starter pack installed. This used to be people alone,
+        // which read a record type nobody had mentioned as one somebody had removed -- so an operator
+        // who never opened the dashboard settings never saw a type they created afterwards either.
+        Assert.Equal(person.Id, dashboardDefaults.RecordTypeIds[0]);
+        Assert.Equal(
+            installed.Where(item => item.Lifecycle == RecordTypeLifecycle.Active).Select(item => item.Id).Order(),
+            dashboardDefaults.RecordTypeIds.Order());
         Assert.Equal([birthday.Id], dashboardDefaults.RecurringFieldDefinitionIds);
 
         IReadOnlyList<RelationshipType> relationshipTypes = await relationships.ListTypesAsync();

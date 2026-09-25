@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 37,
+        currentVersion: 38,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -908,6 +908,30 @@ public static class MonkeysphereSchema
                 );
 
                 CREATE INDEX IX_SavedViewTags_Value ON SavedViewTags(Value, SavedViewId);
+                """),
+            DnaXMigration.Sql(38, "dismissed-dashboard-categories", "Let a new record type reach the dashboard on its own", """
+                -- DashboardCategories is an ordered chosen list, so a record type created after it
+                -- was written was named by it no more than one somebody had deliberately removed.
+                -- Absence meant "unwanted", and every new type stayed off the dashboard until an
+                -- administrator went and added it. Recording the removals separately makes absence
+                -- mean "new", which is the only reading under which a new type appears by itself.
+                CREATE TABLE DashboardDismissedCategories (
+                    RecordTypeId TEXT NOT NULL PRIMARY KEY,
+                    FOREIGN KEY (RecordTypeId) REFERENCES RecordTypes(Id) ON DELETE CASCADE
+                );
+
+                -- An existing curated dashboard is preserved exactly: every active type the operator
+                -- had not chosen becomes a dismissal, so their page looks the same afterwards and
+                -- only types created from now on arrive on their own. Seeded only where a
+                -- configuration was actually saved -- a deployment that never opened the settings
+                -- page has curated nothing, and inventing dismissals for it would hide types its
+                -- operator has never been asked about.
+                INSERT INTO DashboardDismissedCategories (RecordTypeId)
+                SELECT types.Id
+                FROM RecordTypes types
+                WHERE EXISTS (SELECT 1 FROM DashboardSettings WHERE Singleton = 1)
+                  AND types.Lifecycle = 0
+                  AND types.Id NOT IN (SELECT RecordTypeId FROM DashboardCategories);
                 """),
         ]);
 }

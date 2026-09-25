@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.29
+- Contract version: 1.30
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -484,6 +484,35 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## A new record type reaches the dashboard in 1.30
+
+Contract 1.30 adds no tools and no grant. `get_dashboard_settings` reports one more bound,
+`maximumCategories`, and both dashboard tools mean something slightly different.
+
+`recordTypeIds` is now **what the dashboard shows** rather than only what was saved. A record type
+created after the configuration was written appears in it, because a type nobody has taken off the
+dashboard belongs on it. Previously the stored list was read literally, and since a type that did not
+exist when it was written is absent from it exactly as a removed one is, every new type was treated as
+unwanted and never appeared.
+
+`set_dashboard_settings` records every other active type as taken off the dashboard. That is what makes
+a choice stick: without it the next read would see an unlisted type as newly created and put it back.
+The tool still merges, so a caller changing only `upcomingDays` keeps the categories it did not mention.
+
+The list is bounded at `maximumCategories`, which is new and is not arbitrary. Each category costs a
+search and a read per row it shows, so once types arrive on their own the page's work is a function of
+how many types a deployment has rather than how many somebody chose. Saved categories keep their places;
+the automatically-appended ones fill what is left.
+
+A deployment that has never saved a configuration now gets every active type with people first, where
+it used to get people alone — which meant an operator who never opened the settings page never saw
+anything they created afterwards either.
+
+Application migration 38 adds `DashboardDismissedCategories` and, for a deployment that had saved a
+configuration, seeds it with every active type that was not chosen. So an existing curated dashboard
+looks the same after the upgrade and only types created from then on arrive by themselves. A deployment
+that never arranged its dashboard is seeded with nothing, because it has curated nothing.
 
 ## Map, spatial queries and the dashboard in 1.29
 

@@ -42,7 +42,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
-| New record types missing from the dashboard | [A new record type is absent from the dashboard](#a-new-record-type-is-absent-from-the-dashboard-until-somebody-adds-it) | Graph fixed 2026-09-25; dashboard needs a schema decision | Agent | 2026-10-15 |
+| New record types missing from the graph and dashboard | [A new record type is absent from the dashboard](#a-new-record-type-is-absent-from-the-dashboard-until-somebody-adds-it) | Done 2026-09-25; migration 38, contract 1.30 | Agent | 2026-10-15 |
 | Reminders on repeating dates are due immediately | [Reminders on repeating dates](#reminders-on-repeating-dates-are-due-the-moment-they-are-set) | Found 2026-09-24; not fixed | Agent | 2026-10-15 |
 | Preset upgrade workflow | [Preset upgrade workflow](#preset-upgrade-workflow) | Planned | Agent | 2026-10-01 |
 | Accessibility conformance verification | [Accessibility conformance](#accessibility-conformance) | Planned | TBD | 2026-10-01 |
@@ -203,8 +203,8 @@ Owner: Agent. Review: 2026-09-21.
 
 ## A new record type is absent from the dashboard until somebody adds it
 
-Status: Found 2026-09-25 alongside the graph's version of the same problem, which is fixed. Not
-fixed here, because the cure needs a schema decision rather than a rule change.
+Status: Done 2026-09-25, in the same change that fixed the graph. Application migration 38 and MCP
+contract 1.30.
 
 The graph had the defect and no longer does: its type filter stored the types a viewer had **chosen**,
 and a record type created after that was written is named by that list no more than one somebody had
@@ -217,13 +217,29 @@ stored rows carry a `SortOrder`. Inverting it to "hidden" would throw the arrang
 appending new types to the stored list cannot be told apart from undoing a removal — exactly the
 ambiguity the graph had, but here the list means two things at once.
 
-So it needs a decision before code. Either the table gains a column recording which types have been
-dismissed, so an unmentioned type is new and an unwanted one is marked; or categories become
-"everything, in this order, minus these", which keeps the ordering and makes absence mean new. Both
-want a migration.
+The dismissal table was chosen over "everything in this order, minus these", because the two readings
+are equivalent for what the dashboard shows and the first keeps `DashboardCategories` meaning exactly
+one thing: the arrangement. `DashboardDismissedCategories` holds what an operator took off, so absence
+from both lists means new, and the resolution is the arrangement followed by every active type named by
+neither.
 
-Until then a new record type appears on the graph, the calendar and the map without being asked for,
-and on the dashboard only once an administrator adds it at `/settings/dashboard`.
+Two consequences were accepted deliberately:
+
+- **A bound.** Categories used to be as many as somebody chose; they are now as many as a deployment
+  has types, and each one costs a search plus a read per row. `DashboardService.MaximumCategories` caps
+  the resolved list at 12, with saved categories keeping their places and the appended ones filling
+  what is left. A save above the cap is refused rather than silently trimmed.
+- **A busier first run.** A deployment that has never opened the settings page used to get one
+  category, People. It now gets every active type with people first, because the alternative is that an
+  operator who never configured the dashboard never sees anything they create afterwards either.
+
+The migration seeds a dismissal for every active type an existing curated dashboard had not chosen, so
+that upgrade preserves the arrangement exactly and only types created afterwards arrive on their own. A
+deployment with no saved configuration is seeded with nothing, since it has curated nothing. The seed is
+driven over a populated version-37 database in `DashboardCategoryMigrationTests`, which was confirmed to
+fail when the statement is broken; the resulting rows are not readable from that harness, so the
+preservation property itself is reasoned from the statement and every reading after the upgrade is
+covered by `DashboardCategoryVisibilityTests`.
 
 The calendar and the map were checked and are already right for the opposite reason: neither persists
 its filter, and both read an empty selection as every type — the calendar through
@@ -233,12 +249,13 @@ and should not acquire new ones: a saved view is a stored question, and answerin
 because the structure grew would be worse than leaving it alone.
 
 MCP disposition: **Not applicable to the graph fix**, which is a per-viewer browser preference with no
-remote surface — `query_graph` already draws every active type when a caller names none. Applies to the
-dashboard change when it happens: `set_dashboard_settings` merges onto the stored list today, so
-whatever absence comes to mean, both surfaces must agree about it.
+remote surface — `query_graph` already draws every active type when a caller names none. **Included** for
+the dashboard: contract 1.30 reports `maximumCategories`, `get_dashboard_settings` returns what the
+dashboard shows rather than only what was saved, and `set_dashboard_settings` records the dismissals, so
+the browser and the tools agree about what an absent category means.
 
-Owner: Agent. Next action: decide between a dismissal column and an ordered-minus-hidden list, since
-that decision drives the migration. Review: 2026-10-15.
+Owner: Agent. Remaining: nothing. The interactive browser check of the new first-run dashboard is
+outstanding along with the rest of M5's browser gate, blocked on browser automation. Review: 2026-10-15.
 
 ## Reminders on repeating dates are due the moment they are set
 

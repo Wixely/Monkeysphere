@@ -37,6 +37,12 @@ else
 
         <fieldset class="field-picker dashboard-date-fields">
             <legend>Dashboard categories</legend>
+            @* Worth saying, because the behaviour is otherwise invisible: unticking is remembered,
+               so a record type created later is not quietly treated as one somebody removed. *@
+            <p class="muted">
+                A record type you create later appears here on its own, up to @DashboardService.MaximumCategories
+                categories. Unticking one keeps it off the dashboard for good.
+            </p>
             @foreach (RecordType type in _types)
             {
                 <label class="checkbox-label">

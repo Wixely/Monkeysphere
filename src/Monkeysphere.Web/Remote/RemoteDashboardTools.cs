@@ -17,7 +17,8 @@ public sealed record RemoteDashboardSettings(
     int DefaultUpcomingDays,
     int MaximumUpcomingDays,
     int MaximumRecurringFields,
-    int MaximumUpcomingItems);
+    int MaximumUpcomingItems,
+    int MaximumCategories);
 
 /// <summary>
 /// One date the dashboard is looking forward to. <c>occursAt</c> is the <em>next</em> occurrence
@@ -48,7 +49,7 @@ public sealed class MonkeysphereDashboardTools
 {
     [RemoteToolScopes("records.read", "structure.write")]
     [McpServerTool(Name = "get_dashboard_settings", ReadOnly = true)]
-    [Description("Gets one domain's dashboard configuration: the record types it counts, the recurring date fields it looks ahead over, and how many days ahead that is. Also returns the shipped default and the bounds a value must lie within, so a caller can tell a chosen look-ahead from the default without knowing this build's numbers. Requires records.read or structure.write. Omitted domainId selects Default. A deployment that has never saved a configuration gets a sensible one derived from its own structure rather than an empty one.")]
+    [Description("Gets one domain's dashboard configuration: the record types it shows as categories, the recurring date fields it looks ahead over, and how many days ahead that is. Also returns the shipped default and the bounds a value must lie within, so a caller can tell a chosen look-ahead from the default without knowing this build's numbers. Requires records.read or structure.write. Omitted domainId selects Default. recordTypeIds is what the dashboard shows rather than only what was saved: a record type created since the configuration was written appears in it, because a type nobody has taken off the dashboard belongs on it. The list is bounded by maximumCategories, with saved categories keeping their places. A deployment that has never saved a configuration gets every active type with people first.")]
     public static Task<CallToolResult> GetSettingsAsync(
         IDashboardService dashboard,
         ICurrentDomainScope currentDomain,
@@ -64,7 +65,7 @@ public sealed class MonkeysphereDashboardTools
 
     [RemoteToolScopes("structure.write")]
     [McpServerTool(Name = "set_dashboard_settings", ReadOnly = false, Destructive = false)]
-    [Description("Sets one domain's dashboard configuration. Requires structure.write and an explicit domainId. Every value is optional and an omitted one is left as it stands, so changing the look-ahead does not clear the categories. Record types must be active and recurring fields must be active date or temporal fields; a retired or foreign one is refused rather than dropped. upcomingDays is 1-366. Affects what the dashboard shows; no record changes.")]
+    [Description("Sets one domain's dashboard configuration. Requires structure.write and an explicit domainId. Every value is optional and an omitted one is left as it stands, so changing the look-ahead does not clear the categories. Record types must be active and recurring fields must be active date or temporal fields; a retired or foreign one is refused rather than dropped. At most maximumCategories record types; upcomingDays is 1-366. Sending recordTypeIds records every other active type as taken off the dashboard, which is what makes the choice stick — otherwise the next read would treat an unlisted type as newly created and put it back. Affects what the dashboard shows; no record changes.")]
     public static Task<CallToolResult> SetSettingsAsync(
         IDashboardService dashboard,
         ICurrentDomainScope currentDomain,
@@ -116,7 +117,8 @@ public sealed class MonkeysphereDashboardTools
         DashboardService.DefaultUpcomingDays,
         DashboardService.MaximumUpcomingDays,
         DashboardService.MaximumRecurringFields,
-        DashboardService.MaximumUpcomingItems);
+        DashboardService.MaximumUpcomingItems,
+        DashboardService.MaximumCategories);
 
     private static RemoteUpcomingDate Map(DashboardUpcomingDate upcoming) => new(
         upcoming.Source.FieldValueId,

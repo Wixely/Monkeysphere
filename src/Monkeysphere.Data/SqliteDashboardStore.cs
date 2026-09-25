@@ -38,8 +38,18 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
             row.UpcomingDays);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListDismissedCategoriesAsync(CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return
+        [.. (await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT RecordTypeId FROM DashboardDismissedCategories;
+            """, cancellationToken: cancellationToken)).ConfigureAwait(false)).Select(ParseGuid)];
+    }
+
     public async Task SaveConfigurationAsync(
         DashboardConfiguration configuration,
+        IReadOnlyList<Guid> dismissedRecordTypeIds,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
@@ -57,6 +67,7 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
 
                 DELETE FROM DashboardRecurringFields;
                 DELETE FROM DashboardCategories;
+                DELETE FROM DashboardDismissedCategories;
                 """, new
             {
                 RecordTypeId = configuration.RecordTypeIds.Count > 0 ? Key(configuration.RecordTypeIds[0]) : null,
@@ -74,6 +85,14 @@ public sealed class SqliteDashboardStore(MonkeysphereConnectionFactory connectio
                     RecordTypeId = Key(configuration.RecordTypeIds[index]),
                     SortOrder = index,
                 }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
+
+            foreach (Guid dismissed in dismissedRecordTypeIds)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    INSERT INTO DashboardDismissedCategories (RecordTypeId)
+                    VALUES (@RecordTypeId);
+                    """, new { RecordTypeId = Key(dismissed) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
             for (int index = 0; index < configuration.RecurringFieldDefinitionIds.Count; index++)
