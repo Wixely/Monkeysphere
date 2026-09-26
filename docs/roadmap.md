@@ -43,7 +43,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
 | New record types missing from the graph and dashboard | [A new record type is absent from the dashboard](#a-new-record-type-is-absent-from-the-dashboard-until-somebody-adds-it) | Done 2026-09-25; migration 38, contract 1.30 | Agent | 2026-10-15 |
-| Reminders on repeating dates are due immediately | [Reminders on repeating dates](#reminders-on-repeating-dates-are-due-the-moment-they-are-set) | Found 2026-09-24; not fixed | Agent | 2026-10-15 |
+| Reminders on repeating dates are due immediately | [Reminders on repeating dates](#reminders-on-repeating-dates-are-due-the-moment-they-are-set) | Done 2026-09-26; migration 39, contract 1.31 | Agent | 2026-10-15 |
 | Preset upgrade workflow | [Preset upgrade workflow](#preset-upgrade-workflow) | Planned | Agent | 2026-10-01 |
 | Accessibility conformance verification | [Accessibility conformance](#accessibility-conformance) | Planned | TBD | 2026-10-01 |
 | DnaX stable dependency | [Dependency and supply-chain maintenance](#dependency-and-supply-chain-maintenance) | Later | Wixely | 2026-11-01 |
@@ -259,9 +259,8 @@ outstanding along with the rest of M5's browser gate, blocked on browser automat
 
 ## Reminders on repeating dates are due the moment they are set
 
-Status: Found 2026-09-24 while exposing reminders over MCP. Not a regression; present since reminders
-shipped. Not fixed, because correcting it is a behaviour change to the calendar page rather than to
-the remote surface, and doing it only for MCP would make the two disagree about the same reminder.
+Status: Done 2026-09-26. Found 2026-09-24 while exposing reminders over MCP; not a regression, present
+since reminders shipped. Application migration 39 and MCP contract 1.31, both surfaces together.
 
 `ReminderItem.DueDate` is the **stored** date less the lead time. For a value that repeats every year
 -- which is what almost every reminder is set on, since birthdays and anniversaries are the cases
@@ -272,18 +271,37 @@ reminder then never returns, including for the next occurrence it was presumably
 The effect is that a reminder on a birthday is useful exactly once, immediately, and for the wrong
 occurrence.
 
-The fix is to compute the due date from the **next** occurrence of the value under its field's
-recurrence -- `FieldRecurrences.Occurrences` already projects those, and the calendar itself uses it --
-and to make dismissal apply to an occurrence rather than to the reminder, so next year's warning
-still arrives. That is a schema question as well as a projection one: `Reminders` has no column for
-which occurrence was dismissed.
+The fix was to compute the due date from the **next** occurrence of the value under its field's
+recurrence, which `FieldRecurrences.Occurrences` already projected for the calendar and
+`DashboardService` already projected for the upcoming-dates panel. Reminders were the one surface that
+disagreed, so this was mostly a matter of using what already worked; a test now asserts that a reminder
+and a calendar entry for the same value answer the same question identically.
 
-MCP disposition: **Included, already.** `list_reminders` reports the same `dueDate` the page does, so
-whatever this becomes, both surfaces move together. The contract documents the current behaviour
-plainly rather than implying a countdown that does not happen.
+Dismissal became per-occurrence rather than per-reminder, which is the schema half: `DismissedForDate`
+records which occurrence was dealt with. A repeating value re-arms once that occurrence is no longer the
+next; a one-off has only ever one, so dismissing it stays permanent without a second rule. Re-arming was
+chosen over a dismissal-count or an occurrence table because it needs one nullable column and it is what
+somebody setting a birthday reminder actually wants.
 
-Owner: Agent. Next action: decide whether dismissal is per-occurrence or whether a reminder simply
-re-arms after its date passes, since that decision drives the schema. Review: 2026-10-15.
+Two consequences were handled rather than discovered later:
+
+- **Uniqueness had to stop depending on dismissal.** The index preventing the same value and lead time
+  being scheduled twice applied only to undismissed rows, because a dismissal used to be terminal. With
+  re-arming, two rows differing only in having been dismissed would both come back and fire together.
+  Migration 39 collapses any such pair — keeping the undismissed row, else the most recently dismissed —
+  and recreates the index without the condition.
+- **Existing dismissals had to be translated.** The old projection showed the stored date, so a dismissal
+  that already happened was a dismissal of that occurrence, and the migration says so. A one-off stays
+  silenced; a repeating one re-arms, which is right, because those were only silenced for being
+  permanently and wrongly due.
+
+MCP disposition: **Included.** Contract 1.31 reports the occurrence in `entry.date`, the day the value
+names in `storedDate`, and a `dueDate` counted back from the occurrence; `dismiss_reminder` deals with
+one occurrence and is no longer marked destructive, because it no longer destroys anything. Both surfaces
+changed in the same commit, which is why this waited rather than being corrected for MCP alone.
+
+Owner: Agent. Remaining: nothing in code. The calendar page's reminder list has not been watched running,
+along with the rest of the browser gate. Review: 2026-10-15.
 
 ## Preset upgrade workflow
 

@@ -46,10 +46,14 @@ public sealed partial class RemoteDiscoveryTests
         Assert.Equal("Ada", created.Entry.RecordDisplayName);
         Assert.Equal("Birthday", created.Entry.FieldName);
 
-        // The due date is the stored date less the lead time, which for a value that repeats every
-        // year is a day long past. That is what the calendar page shows too, and the two agreeing
-        // matters more here than the answer being the one a client might prefer.
-        Assert.Equal(Birth.AddDays(-7), created.DueDate);
+        // The due date counts back from the next occurrence, not from the 1990 day the value stores, so
+        // it is a date a client can compare with today. It used to be 1990-06-08, which made every
+        // reminder on a birthday permanently and uselessly due.
+        Assert.Equal(created.Entry.Date.AddDays(-7), created.DueDate);
+        Assert.Equal(Birth, created.StoredDate);
+        Assert.True(created.Entry.Date.Year >= DateTime.UtcNow.Year, $"Occurrence {created.Entry.Date} is in the past.");
+        Assert.True(created.Entry.IsRepeat);
+        Assert.Equal(created.Entry.Date.Year - 1990, created.Entry.YearsSince);
 
         using JsonDocument listed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "list_reminders", new { domainId });
         RemoteReminder listedReminder = Assert.Single(Structured(listed).Deserialize<RemoteReminder[]>(JsonOptions)!);
@@ -77,11 +81,27 @@ public sealed partial class RemoteDiscoveryTests
         using JsonDocument remaining = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "list_reminders", new { domainId });
         Assert.Equal(30, Assert.Single(Structured(remaining).Deserialize<RemoteReminder[]>(JsonOptions)!).LeadDays);
 
-        // Dismissing what is already dismissed says so rather than succeeding twice, so a caller can
+        // Dismissing the same occurrence again says so rather than succeeding twice, so a caller can
         // tell a completed dismissal from a mistaken identifier.
         using JsonDocument again = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "dismiss_reminder",
             new { domainId, id = created.Id });
         AssertWriteError(again, "not_found");
+
+        // And the dismissal was of one occurrence rather than of the reminder: moving the value's day
+        // makes the dismissed occurrence no longer the next, and the reminder comes back armed for the
+        // one that is. This is what the calendar turning over does, without waiting a year for it.
+        using (IServiceScope moving = factory.Services.CreateScope())
+        {
+            IMonkeysphereService editor = moving.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            RecordDetails current = (await editor.GetRecordAsync(ada.Record.Id))!;
+            _ = await editor.UpdateRecordAsync(
+                ada.Record.Id, "Ada", [Day(birthdayId, Birth.AddDays(1))], expectedRevision: current.Revision);
+        }
+
+        using JsonDocument rearmed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "list_reminders", new { domainId });
+        RemoteReminder[] back = Structured(rearmed).Deserialize<RemoteReminder[]>(JsonOptions)!;
+        Assert.Contains(created.Id, back.Select(item => item.Id));
+        Assert.Equal(Birth.AddDays(1), back.Single(item => item.Id == created.Id).StoredDate);
 
         // And the record and its birthday are untouched by any of it.
         Assert.Single(Structured(await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "query_calendar",

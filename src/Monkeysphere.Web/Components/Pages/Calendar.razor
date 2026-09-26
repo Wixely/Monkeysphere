@@ -40,6 +40,8 @@
         </div>
     </div>
     <p>Reminders appear only after sign-in. No record details are sent to a notification service.</p>
+    @* Worth saying, because dismissing used to end a reminder for good and now does not. *@
+    <p class="muted">Dismissing deals with the occurrence shown. A date that comes round again brings its reminder back for the next one.</p>
     @if (_reminders.Count == 0)
     {
         <p class="empty-state">No active reminders.</p>

@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.30
+- Contract version: 1.31
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-24
 - Owner: Agent
@@ -64,7 +64,7 @@ Accept: application/json, text/event-stream
 | `export_calendar` | `records.read` | Required `from`, `to`; the same narrowing plus `offset` (0), `count` (16384), `generatedAtUtc` (echo it back when paging). The iCalendar document in base64 byte ranges with a SHA-256 of the whole |
 | `list_reminders` | `records.read` | Optional `domainId`. Undismissed reminders with the value each watches and its due date |
 | `create_reminder` | `records.write` | Required `domainId`, `fieldValueId`, `leadDays` (0-3650). A reminder on one dated value |
-| `dismiss_reminder` | `records.write` | Required `domainId`, `id`. Removes it from the list permanently. **Destructive**; no record content is touched |
+| `dismiss_reminder` | `records.write` | Required `domainId`, `id`. Deals with the occurrence now showing; a repeating value comes round again |
 | `query_map` | `records.read` | Optional `south`/`west`/`north`/`east` (whole world), `recordTypeId`, `fieldDefinitionId`, `fieldDefinitionIds`, `page` (1), `pageSize` (100), `domainId`. Located records as pins with their precision |
 | `get_map_settings` | `records.read` or `structure.write` | Optional `domainId`. Whether external tiles are on, the one host they reach, and the privacy disclosure |
 | `set_map_settings` | `structure.write` | Required `domainId`, `externalTilesEnabled`; `acknowledgeExternalRequests` required to enable. Turns the external basemap on or off |
@@ -485,6 +485,46 @@ replayed after it reports `retry_conflict` rather than replaying, because the pa
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
 
+## A reminder comes round with its date in 1.31
+
+Contract 1.31 adds no tools and no grant. `list_reminders` reports one more field, `storedDate`, and
+both reminder tools mean something different — because the behaviour they described was wrong.
+
+1.28 documented this plainly rather than hiding it, and it is now fixed. `dueDate` counted back from the
+day a value **stores**, so a reminder on a birthday recorded in 1990 fell due in 1990; dismissal was
+permanent, so the reminder was useful exactly once, immediately, for an occurrence thirty-odd years
+past. Reminders were therefore useless on precisely the dates people set them for.
+
+- `entry.date` is now the **next occurrence** of the value under its field's recurrence, and `dueDate`
+  counts back from that. Comparing `dueDate` with today gives a real answer.
+- `storedDate` is the day the value actually names. Both travel together because they differ for
+  anything that repeats and a reader given one cannot recover the other — `entry.yearsSince` narrows it
+  but a rolled leap day breaks the arithmetic.
+- `dismiss_reminder` deals with **one occurrence**. A repeating value comes round again and the
+  reminder returns armed for its next; a one-off has only that occurrence, so dismissing it is
+  permanent without needing a second rule. It is no longer marked destructive, because it no longer
+  destroys anything.
+- Dismissing the same occurrence twice still reports `not_found`, so a caller can tell a completed
+  dismissal from a mistaken identifier.
+- `create_reminder` still refuses a duplicate, and now refuses one even while the existing reminder is
+  dismissed for the occurrence currently passing — it is still scheduled, for the next.
+
+The projection is not new code. The calendar has shown repeats since contract 1.27 and
+`list_upcoming_dates` has reported next occurrences since 1.29; reminders were the one surface that
+disagreed, and they now use the same recurrence machinery. A reminder and a calendar entry for the same
+value answer the same question the same way, which a test asserts directly.
+
+Application migration 39 adds `Reminders.DismissedForDate` and translates each existing dismissal into a
+dismissal of the stored-date occurrence, which is exactly what the old projection was showing. A
+non-repeating date therefore stays silenced, while a repeating one re-arms — the right outcome, since
+those were only silenced because they were permanently and wrongly due.
+
+The migration also has to move uniqueness off dismissal. The index that stopped the same value and lead
+time being scheduled twice applied only to undismissed rows, because a dismissal used to end a reminder
+for good; now that a dismissed reminder comes back, two rows differing only in having been dismissed
+would both re-arm and fire together. Any such pair is collapsed first — keeping the undismissed row, or
+else the most recently dismissed — and the index is recreated without the condition.
+
 ## A new record type reaches the dashboard in 1.30
 
 Contract 1.30 adds no tools and no grant. `get_dashboard_settings` reports one more bound,
@@ -617,14 +657,13 @@ is already scheduled rather than creating a second reminder. A different lead ti
 shape is that a client which lost the response cannot tell its own successful retry from a conflict;
 `list_reminders` answers that, and a receipt could be added later without changing the tool.
 
-### A known limitation, stated rather than papered over
+### A known limitation, stated rather than papered over — fixed in 1.31
 
-`dueDate` is the **stored** date less the lead time. For a value that repeats every year that is a day
-long past, so such a reminder reads as due immediately, and dismissal is permanent rather than
-per-occurrence. This is exactly what the calendar page shows, and the two surfaces agreeing matters
-more here than the remote answer being the one a client might prefer. The underlying behaviour is
-recorded as a gap on the roadmap rather than corrected only for MCP, which would have made the page
-and the tool disagree about the same reminder.
+`dueDate` was the **stored** date less the lead time. For a value that repeats every year that is a day
+long past, so such a reminder read as due immediately, and dismissal was permanent rather than
+per-occurrence. It was documented here rather than quietly shipped, recorded as a gap on the roadmap,
+and fixed in 1.31 once the behaviour change could be made on both surfaces at once — correcting it for
+MCP alone would have made the page and the tool disagree about the same reminder.
 
 ### What stays out
 

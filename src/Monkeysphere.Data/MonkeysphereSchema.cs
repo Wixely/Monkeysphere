@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 38,
+        currentVersion: 39,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -932,6 +932,56 @@ public static class MonkeysphereSchema
                 WHERE EXISTS (SELECT 1 FROM DashboardSettings WHERE Singleton = 1)
                   AND types.Lifecycle = 0
                   AND types.Id NOT IN (SELECT RecordTypeId FROM DashboardCategories);
+                """),
+            DnaXMigration.Sql(39, "reminders-rearm-per-occurrence", "Let a reminder come round again with its date", """
+                -- A reminder counted back from the date a value stores rather than from the next time
+                -- that date comes round, so one set on a birthday recorded decades ago was due the
+                -- moment it was created -- and dismissal was permanent, so it was useful exactly once,
+                -- immediately, for an occurrence long past. Recording which occurrence was dismissed
+                -- makes dismissal mean "dealt with this one" and lets the next one arrive.
+                ALTER TABLE Reminders ADD COLUMN DismissedForDate TEXT NULL;
+
+                -- The old projection showed the stored date, so a dismissal that already happened was
+                -- a dismissal of that occurrence. Saying so is the faithful translation: a one-off
+                -- date stays silenced, because its only occurrence is the one that was dismissed,
+                -- while a repeating one re-arms for its next -- which is the whole point, and those
+                -- were only silenced because they were permanently and wrongly due.
+                UPDATE Reminders SET DismissedForDate = (
+                    SELECT CASE fd.TypeId
+                               WHEN 'exact-date' THEN fv.DateValue
+                               ELSE fv.TemporalValue
+                           END
+                    FROM FieldValues fv
+                    INNER JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
+                    WHERE fv.RecordId = Reminders.RecordId
+                      AND fv.FieldDefinitionId = Reminders.FieldDefinitionId
+                      AND fv.Ordinal = Reminders.ValueOrdinal
+                )
+                WHERE DismissedAtUtc IS NOT NULL;
+
+                -- Uniqueness has to stop depending on dismissal. It guarded against scheduling the
+                -- same value and lead time twice, but only among undismissed rows, because a dismissal
+                -- used to end a reminder for good. Now that a dismissed reminder comes back, two rows
+                -- that differ only in having been dismissed would both re-arm and fire together.
+                --
+                -- Any such pair already in a deployment is collapsed first, keeping the undismissed row
+                -- where there is one and otherwise the most recently dismissed, so the index below can
+                -- be created at all.
+                DELETE FROM Reminders WHERE Id NOT IN (
+                    SELECT Id FROM (
+                        SELECT Id, ROW_NUMBER() OVER (
+                            PARTITION BY RecordId, FieldDefinitionId, ValueOrdinal, LeadDays
+                            ORDER BY (DismissedAtUtc IS NOT NULL), DismissedAtUtc DESC, CreatedAtUtc DESC
+                        ) AS Ranking
+                        FROM Reminders
+                    )
+                    WHERE Ranking = 1
+                );
+
+                DROP INDEX UX_Reminders_ActiveValueLead;
+
+                CREATE UNIQUE INDEX UX_Reminders_ValueLead
+                    ON Reminders(RecordId, FieldDefinitionId, ValueOrdinal, LeadDays);
                 """),
         ]);
 }

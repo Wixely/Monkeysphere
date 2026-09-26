@@ -56,11 +56,12 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
         return MapReminder(created);
     }
 
-    public async Task<IReadOnlyList<ReminderItem>> ListActiveAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<StoredReminder>> ListAsync(CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<ReminderRow> rows = await connection.QueryAsync<ReminderRow>(new CommandDefinition($"""
             SELECT m.Id AS ReminderId, fv.Id AS FieldValueId, m.ValueOrdinal, m.LeadDays, m.CreatedAtUtc,
+                   m.DismissedForDate,
                    m.RecordId, r.RecordTypeId, rt.Name AS RecordTypeName,
                    r.DisplayName AS RecordDisplayName, fv.FieldDefinitionId, fd.Name AS FieldName,
                    CASE fd.TypeId WHEN 'exact-date' THEN fv.DateValue ELSE fv.TemporalValue END AS EventDate
@@ -72,32 +73,43 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
             INNER JOIN FieldDefinitions fd ON fd.Id = fv.FieldDefinitionId
             INNER JOIN Records r ON r.Id = fv.RecordId
             INNER JOIN RecordTypes rt ON rt.Id = r.RecordTypeId
-            WHERE m.DismissedAtUtc IS NULL
-              AND ((fd.TypeId = 'exact-date' AND fv.DateValue IS NOT NULL)
+            WHERE ((fd.TypeId = 'exact-date' AND fv.DateValue IS NOT NULL)
                    OR (fd.TypeId = 'temporal'
                        AND fv.TemporalPrecision = @DayPrecision
                        AND fv.IsApproximate = 0
                        AND fv.TemporalValue IS NOT NULL)){Visible("r")}
-            ORDER BY EventDate, m.LeadDays DESC, r.DisplayName COLLATE NOCASE, m.Id;
+            ORDER BY m.Id;
             """, new { DayPrecision = (int)TemporalPrecision.Day }, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
         return rows.Select(Map).ToArray();
     }
 
-    public async Task<bool> DismissAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default)
+    public async Task<bool> DismissAsync(
+        Guid id,
+        DateOnly occurrenceDate,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // Guarded on the occurrence rather than on being undismissed at all, because a reminder that
+        // came back is meant to be dismissible again. Dismissing the same occurrence twice changes
+        // nothing and says so.
         int changed = await connection.ExecuteAsync(new CommandDefinition("""
-            UPDATE Reminders SET DismissedAtUtc = @Now
-            WHERE Id = @Id AND DismissedAtUtc IS NULL;
-            """, new { Id = Key(id), Now = Timestamp(now) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            UPDATE Reminders SET DismissedAtUtc = @Now, DismissedForDate = @OccurrenceDate
+            WHERE Id = @Id AND (DismissedForDate IS NULL OR DismissedForDate <> @OccurrenceDate);
+            """, new
+        {
+            Id = Key(id),
+            Now = Timestamp(now),
+            OccurrenceDate = Date(occurrenceDate),
+        }, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return changed == 1;
     }
 
-    private static ReminderItem Map(ReminderRow row)
+    private static StoredReminder Map(ReminderRow row)
     {
         DateOnly eventDate = DateOnly.ParseExact(row.EventDate, "yyyy-MM-dd", CultureInfo.InvariantCulture);
-        Reminder reminder = MapReminder(row);
         CalendarEntry entry = new(
             Guid.ParseExact(row.FieldValueId, "D"),
             Guid.ParseExact(row.RecordId, "D"),
@@ -107,7 +119,12 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
             Guid.ParseExact(row.FieldDefinitionId, "D"),
             row.FieldName,
             eventDate);
-        return new(reminder, entry, eventDate.AddDays(-reminder.LeadDays));
+        return new(
+            MapReminder(row),
+            entry,
+            row.DismissedForDate is null
+                ? null
+                : DateOnly.ParseExact(row.DismissedForDate, "yyyy-MM-dd", CultureInfo.InvariantCulture));
     }
 
     private static Reminder MapReminder(ReminderRow row) => new(
@@ -123,6 +140,8 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
     private static string Timestamp(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
+    private static string Date(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
     private sealed class ReminderRow
     {
         public required string ReminderId { get; init; }
@@ -137,5 +156,6 @@ public sealed class SqliteReminderStore(MonkeysphereConnectionFactory connection
         public required string FieldDefinitionId { get; init; }
         public required string FieldName { get; init; }
         public required string EventDate { get; init; }
+        public string? DismissedForDate { get; init; }
     }
 }

@@ -6,9 +6,9 @@ using Monkeysphere.Core;
 namespace Monkeysphere.Web.Remote;
 
 /// <summary>
-/// One active reminder: the lead time, the calendar value it watches, and the day it falls due. The
-/// entry travels with it because a reminder identified only by its own id says nothing about what it
-/// is for, and a caller would have to read the whole calendar back to find out.
+/// One active reminder: the lead time, the occurrence it is about, and the day it falls due. The entry
+/// travels with it because a reminder identified only by its own id says nothing about what it is for,
+/// and a caller would have to read the whole calendar back to find out.
 /// </summary>
 public sealed record RemoteReminder(
     Guid Id,
@@ -18,7 +18,8 @@ public sealed record RemoteReminder(
     int LeadDays,
     DateTimeOffset CreatedAtUtc,
     RemoteCalendarEntry Entry,
-    DateOnly DueDate);
+    DateOnly DueDate,
+    DateOnly StoredDate);
 
 /// <summary>What a dismissal reports, so the result names the reminder that is now gone from the list.</summary>
 public sealed record RemoteReminderDismissal(Guid Id, bool Dismissed = true);
@@ -42,7 +43,7 @@ public sealed record RemoteReminderLimits(int MaximumLeadDays = ReminderService.
 public sealed class MonkeysphereReminderTools
 {
     [McpServerTool(Name = "list_reminders", ReadOnly = true)]
-    [Description("Lists the reminders that have not been dismissed, each with the calendar value it watches and the day it falls due. Requires records.read. Omitted domainId selects Default. dueDate is the stored date less the lead time, so a reminder set on a value that repeats every year reads as due rather than counting down to the next repeat — the same thing the calendar page shows, and dismissal is permanent rather than per-occurrence. Returns no field values, tags or notes beyond the entry itself.")]
+    [Description("Lists the reminders currently asking to be seen, each with the occurrence it is about and the day it falls due. Requires records.read. Omitted domainId selects Default. entry.date is the next time the value comes round under its field recurrence, not the day the value stores, and dueDate counts back from that occurrence — so a reminder on a birthday recorded decades ago falls due shortly before this year's, and comparing dueDate with today gives a real answer. storedDate is the day the value actually names. Soonest due first. Returns no field values, tags or notes beyond the entry itself.")]
     public static Task<CallToolResult> ListAsync(
         IReminderService reminders,
         ICurrentDomainScope currentDomain,
@@ -59,7 +60,7 @@ public sealed class MonkeysphereReminderTools
 
     [RemoteToolScopes("records.write")]
     [McpServerTool(Name = "create_reminder", ReadOnly = false, Destructive = false)]
-    [Description("Sets a reminder on one dated value. Requires records.write, an explicit domainId and the fieldValueId of a calendar entry, which query_calendar returns. leadDays is 0-3650 and is how many days before the date the reminder falls due. Only a day-precision, non-approximate value is eligible: a date recorded as roughly a decade has no day to count back from. Takes no idempotencyKey and issues no receipt, because the same value and lead time cannot be scheduled twice — a repeat reports validation_failed saying it is already scheduled rather than creating a second reminder.")]
+    [Description("Sets a reminder on one dated value. Requires records.write, an explicit domainId and the fieldValueId of a calendar entry, which query_calendar returns. leadDays is 0-3650 and is how many days before each occurrence the reminder falls due. Only a day-precision, non-approximate value is eligible: a date recorded as roughly a decade has no day to count back from. Takes no idempotencyKey and issues no receipt, because the same value and lead time cannot be scheduled twice — a repeat reports validation_failed saying it is already scheduled, which holds even while the existing one is dismissed for the occurrence now passing, since that reminder is still scheduled for the next.")]
     public static Task<CallToolResult> CreateAsync(
         IReminderService reminders,
         ICurrentDomainScope currentDomain,
@@ -84,8 +85,8 @@ public sealed class MonkeysphereReminderTools
         });
 
     [RemoteToolScopes("records.write")]
-    [McpServerTool(Name = "dismiss_reminder", ReadOnly = false, Destructive = true)]
-    [Description("Dismisses a reminder. Requires records.write, an explicit domainId and id. Destructive in that it cannot be undone and the reminder does not come back on the next repeat of the date; no record, value or tag is touched. Dismissing one that is already dismissed or does not exist reports not_found, so a caller can tell a completed dismissal from a mistaken identifier.")]
+    [McpServerTool(Name = "dismiss_reminder", ReadOnly = false, Destructive = false)]
+    [Description("Dismisses the occurrence a reminder is currently showing. Requires records.write, an explicit domainId and id. This deals with one occurrence rather than ending the reminder: a value that repeats comes round again and the reminder returns for its next occurrence, while a one-off has only that one and so stays gone. No record, value or tag is touched. Dismissing the same occurrence twice, or a reminder that does not exist, reports not_found — so a caller can tell a completed dismissal from a mistaken identifier.")]
     public static Task<CallToolResult> DismissAsync(
         IReminderService reminders,
         ICurrentDomainScope currentDomain,
@@ -121,5 +122,6 @@ public sealed class MonkeysphereReminderTools
             item.Entry.YearsSince,
             item.Entry.IsRepeat,
             item.Entry.RolledFromLeapDay),
-        item.DueDate);
+        item.DueDate,
+        item.StoredDate);
 }
