@@ -23,7 +23,7 @@ public sealed class RemoteCredentialManager(IDnaXRemoteAccessAdministration admi
             new("records.write", "Create and edit records", "Validate, create and patch records, including previewed atomic batches. Also select application data to discover and read records."),
             new("records.delete", "Delete records", "Preview and delete records with their dependent data and media. Separate from creating/editing records; select application data to discover and read records."),
             new("relationships.write", "Manage relationships", "Create and remove links between records. Select application data to discover records and relationship types."),
-            new("structure.write", "Manage structures", "Create record and relationship types, create and attach reusable fields, install presets and complete onboarding. Select application data to discover existing definitions. Other structure changes are not yet available remotely."),
+            new("structure.write", "Manage structures", "Create, rename, retire and merge record types; create, attach, rename, retire, merge and convert reusable fields; create, rename and retire relationship types; install presets and complete onboarding. Retiring keeps what is already recorded, and merging and converting move it rather than dropping it. Select application data to discover existing definitions. It grants no reading of record content: a field's usage is reported as counts, and the records behind a conversion's unconvertible values are named only if this credential can read records anyway."),
         ]
         : [new("records.read", "Application data", "Read domains, record types, records and relationships.")];
 

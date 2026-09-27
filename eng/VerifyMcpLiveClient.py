@@ -22,8 +22,8 @@ published Release process on a *fresh* data root: the script installs a preset a
 creates records, and its idempotency keys are fixed, so a second run against the same
 data root will fail on replay rather than on anything real.
 
-Checks cover contract 1.29. A later revision should add to the end rather than replace,
-so the evidence accumulates.
+Checks cover contracts 1.29 to 1.34. A later revision should add to the end rather than
+replace, so the evidence accumulates.
 """
 
 import base64
@@ -31,6 +31,8 @@ import datetime
 import hashlib
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:5098"
@@ -73,8 +75,21 @@ def call(tool, arguments=None, method="tools/call"):
 
     request = urllib.request.Request(
         BASE + endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        body = response.read().decode("utf-8")
+
+    # The surface rate-limits, as a deployment exposed to the internet should. A client that gives up
+    # on the first 429 is a client that cannot finish a long session, so this waits and tries again --
+    # which is also the behaviour the contract asks of one. The script grew past the window when the
+    # structure lifecycle was added, so this is load-bearing rather than defensive.
+    for attempt in range(8):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = response.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as failure:
+            if failure.code != 429 or attempt == 7:
+                raise
+            delay = failure.headers.get("Retry-After")
+            time.sleep(float(delay) if delay and delay.isdigit() else 2.0 * (attempt + 1))
 
     # A streamed response arrives as an event-stream frame; read its data line.
     if body.lstrip().startswith("event:") or body.lstrip().startswith("data:"):
@@ -112,10 +127,10 @@ print("Transport and discovery")
 listed = call(None, method="tools/list")
 names = sorted(tool["name"] for tool in listed["result"]["tools"])
 ok("tools/list succeeds over the randomized endpoint", len(names) > 0)
-ok("90 tools registered", len(names) == 90, len(names))
+ok("104 tools registered", len(names) == 104, len(names))
 
 info = structured(call("get_instance_info"), "get_instance_info")
-ok("contract 1.29 reported", info["contractVersion"] == "1.29", info["contractVersion"])
+ok("contract 1.34 reported", info["contractVersion"] == "1.34", info["contractVersion"])
 ok("no host paths in instance info", "C:\\" not in json.dumps(info), json.dumps(info))
 
 caps = structured(call("get_capabilities"), "get_capabilities")
@@ -282,6 +297,176 @@ ok("changing the look-ahead keeps the fields nobody mentioned",
    narrowed["recurringFieldDefinitionIds"] == dashboard["recurringFieldDefinitionIds"], narrowed)
 upcoming = structured(call("list_upcoming_dates", {"domainId": domain}), "list_upcoming_dates")
 ok("list_upcoming_dates answers without error", isinstance(upcoming, list), upcoming)
+
+print("Record-type lifecycle (1.32)")
+spare = structured(call("create_record_type", {
+    "domainId": domain, "name": "Gate spare", "symbol": "\u2699",
+    "idempotencyKey": "77777777-7777-4777-8777-777777777777"}), "create_record_type")
+spare_id = spare["items"][0]["id"]
+spare_revision = spare["items"][0]["revision"]
+
+renamed = structured(call("update_record_type", {
+    "domainId": domain, "recordTypeId": spare_id, "expectedRevision": spare_revision,
+    "name": "  Gate spare renamed  ", "symbol": "\u2699", "tagsEnabled": False,
+    "idempotencyKey": "77777777-7777-4777-8777-777777777778"}), "update_record_type")
+ok("a record type renames and reports a new revision",
+   renamed["items"][0]["revision"] != spare_revision, renamed)
+listed_types = structured(call("list_record_types", {"domainId": domain}), "list_record_types")
+ok("the trimmed name is what the application stored",
+   next(e["name"] for e in listed_types if e["id"] == spare_id) == "Gate spare renamed",
+   [e["name"] for e in listed_types])
+
+retirement = structured(call("preview_record_type_retirement", {
+    "domainId": domain, "recordTypeId": spare_id}), "preview_record_type_retirement")
+ok("an empty type previews as carrying nothing",
+   retirement["recordCount"] == 0 and retirement["savedViewCount"] == 0, retirement)
+ok("retiring a type that has moved on is refused as staleness, not as a bad request",
+   error_code(call("retire_record_type", {
+       "domainId": domain, "recordTypeId": spare_id, "expectedUsageRevision": "0" * 64,
+       "idempotencyKey": "77777777-7777-4777-8777-777777777779"}), "stale retirement") == "stale_revision")
+retired = structured(call("retire_record_type", {
+    "domainId": domain, "recordTypeId": spare_id,
+    "expectedUsageRevision": retirement["expectedUsageRevision"],
+    "idempotencyKey": "77777777-7777-4777-8777-77777777777a"}), "retire_record_type")
+ok("retirement reports itself as a retirement", retired["items"][0]["outcome"] == "retired", retired)
+
+merge_source = structured(call("create_record_type", {
+    "domainId": domain, "name": "Gate merge source",
+    "idempotencyKey": "88888888-8888-4888-8888-888888888881"}), "create_record_type")
+merge_source_id = merge_source["items"][0]["id"]
+merge_target = structured(call("create_record_type", {
+    "domainId": domain, "name": "Gate merge target",
+    "idempotencyKey": "88888888-8888-4888-8888-888888888882"}), "create_record_type")
+merge_target_id = merge_target["items"][0]["id"]
+moved = structured(call("create_record", {
+    "domainId": domain, "recordTypeId": merge_source_id, "displayName": "Moved by a merge",
+    "values": [], "idempotencyKey": "88888888-8888-4888-8888-888888888883"}), "create_record")
+moved_id = moved["items"][0]["id"]
+
+merge_preview = structured(call("preview_record_type_merge", {
+    "domainId": domain, "sourceRecordTypeId": merge_source_id, "targetRecordTypeId": merge_target_id},
+), "preview_record_type_merge")
+ok("the merge preview counts the record it would move", merge_preview["sourceRecordCount"] == 1, merge_preview)
+merged = structured(call("merge_record_types", {
+    "domainId": domain, "sourceRecordTypeId": merge_source_id, "targetRecordTypeId": merge_target_id,
+    "expectedUsageRevision": merge_preview["expectedUsageRevision"],
+    "idempotencyKey": "88888888-8888-4888-8888-888888888884"}), "merge_record_types")
+ok("a merge retires the source and updates the target",
+   [item["outcome"] for item in merged["items"]] == ["retired", "updated"], merged)
+ok("and the record now belongs to the target",
+   structured(call("get_record", {"domainId": domain, "id": moved_id}),
+              "get_record")["record"]["recordTypeId"] == merge_target_id)
+
+print("Field lifecycle (1.33)")
+usage = structured(call("get_field_usage", {"domainId": domain, "fieldDefinitionId": city_id}), "get_field_usage")
+ok("field usage counts the two values recorded against it", usage["valueCount"] == 2, usage)
+ok("and the view that names it", usage["savedViewReferenceCount"] >= 1, usage)
+ok("usage names no record and carries no value", "London" not in json.dumps(usage), json.dumps(usage))
+
+field_revision = usage["definition"]["revision"]
+renamed_field = structured(call("rename_field", {
+    "domainId": domain, "fieldDefinitionId": city_id, "expectedFieldRevision": field_revision,
+    "name": "  Gate city renamed  ", "idempotencyKey": "99999999-9999-4999-8999-999999999991"}), "rename_field")
+ok("renaming a field reports a new revision",
+   renamed_field["items"][0]["revision"] != field_revision, renamed_field)
+ok("a superseded field revision is refused as staleness",
+   error_code(call("rename_field", {
+       "domainId": domain, "fieldDefinitionId": city_id, "expectedFieldRevision": field_revision,
+       "name": "Never applied", "idempotencyKey": "99999999-9999-4999-8999-999999999992"}),
+              "stale rename") == "stale_revision")
+
+# A text field holding "London" and "Leeds" cannot become a number, which is exactly what a
+# conversion preview is for: say so before anything is written.
+unsafe = structured(call("preview_field_conversion", {
+    "domainId": domain, "fieldDefinitionId": city_id, "name": "Gate city", "typeId": "number"},
+), "preview_field_conversion")
+ok("a conversion that would lose values says how many", unsafe["failedValueCount"] == 2, unsafe)
+ok("and names them, because this credential can read records",
+   unsafe["issueRecordsWithheld"] is False and len(unsafe["issues"]) == 2, unsafe)
+ok("applying it is refused rather than dropping them",
+   error_code(call("convert_field", {
+       "domainId": domain, "fieldDefinitionId": city_id,
+       "expectedUsageRevision": unsafe["expectedUsageRevision"], "name": "Gate city", "typeId": "number",
+       "idempotencyKey": "99999999-9999-4999-8999-999999999993"}), "unsafe conversion") == "validation_failed")
+
+# Multiline text takes any text, so this one can carry every value across.
+safe = structured(call("preview_field_conversion", {
+    "domainId": domain, "fieldDefinitionId": city_id, "name": "Gate city notes",
+    "typeId": "multiline-text"}), "preview_field_conversion")
+ok("a conversion that can carry every value says so", safe["failedValueCount"] == 0, safe)
+converted = structured(call("convert_field", {
+    "domainId": domain, "fieldDefinitionId": city_id,
+    "expectedUsageRevision": safe["expectedUsageRevision"], "name": "Gate city notes",
+    "typeId": "multiline-text", "idempotencyKey": "99999999-9999-4999-8999-999999999994"}), "convert_field")
+ok("a conversion creates the new field and retires the original",
+   [item["outcome"] for item in converted["items"]] == ["created", "retired"], converted)
+converted_id = converted["items"][0]["id"]
+ada_after = structured(call("get_record", {"domainId": domain, "id": ada_id}), "get_record")
+ok("and the value came across under the new field, unchanged",
+   any(value["fieldDefinitionId"] == converted_id and value["value"] == "London"
+       and value["typeId"] == "multiline-text" for value in ada_after["values"]), ada_after["values"])
+
+# Two fields of one type and configuration, so they can merge at all.
+first_id = add_field("Gate nickname", "text", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1")
+second_id = add_field("Gate alias", "text", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2")
+field_merge = structured(call("preview_field_merge", {
+    "domainId": domain, "sourceFieldDefinitionId": first_id, "targetFieldDefinitionId": second_id},
+), "preview_field_merge")
+ok("two fields of one type preview as compatible", field_merge["isCompatible"] is True, field_merge)
+ok("a field merge's fingerprint is not one field's own",
+   field_merge["expectedUsageRevision"] != structured(
+       call("get_field_usage", {"domainId": domain, "fieldDefinitionId": first_id}),
+       "get_field_usage")["expectedUsageRevision"])
+field_merged = structured(call("merge_fields", {
+    "domainId": domain, "sourceFieldDefinitionId": first_id, "targetFieldDefinitionId": second_id,
+    "conflictResolution": "keepTarget", "expectedUsageRevision": field_merge["expectedUsageRevision"],
+    "idempotencyKey": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3"}), "merge_fields")
+ok("a field merge retires the source and updates the target",
+   [item["outcome"] for item in field_merged["items"]] == ["retired", "updated"], field_merged)
+
+retire_me = add_field("Gate retired field", "text", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4")
+retire_revision = next(
+    field["revision"] for field in
+    structured(call("list_field_definitions", {"domainId": domain, "pageSize": 100}),
+               "list_field_definitions")["items"] if field["id"] == retire_me)
+retired_field = structured(call("retire_field", {
+    "domainId": domain, "fieldDefinitionId": retire_me, "expectedFieldRevision": retire_revision,
+    "idempotencyKey": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5"}), "retire_field")
+ok("retiring a field reports itself as a retirement",
+   retired_field["items"][0]["outcome"] == "retired", retired_field)
+
+print("Relationship-type lifecycle (1.34)")
+link = structured(call("create_relationship_type", {
+    "domainId": domain, "name": "Gate employs", "directionality": "directional",
+    "inverseName": "Gate works for", "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"},
+), "create_relationship_type")
+link_id = link["items"][0]["id"]
+link_revision = link["items"][0]["revision"]
+relabelled = structured(call("rename_relationship_type", {
+    "domainId": domain, "typeId": link_id, "expectedRevision": link_revision,
+    "name": "  Gate employer of  ", "inverseName": "  Gate employed by  ",
+    "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"}), "rename_relationship_type")
+ok("relabelling a relationship type reports a new revision",
+   relabelled["items"][0]["revision"] != link_revision, relabelled)
+relationship_types = structured(call("list_relationship_types", {"domainId": domain}), "list_relationship_types")
+current_link = next(entry for entry in relationship_types["items"] if entry["id"] == link_id)
+ok("both labels were trimmed by the application",
+   (current_link["name"], current_link["inverseName"]) == ("Gate employer of", "Gate employed by"), current_link)
+ok("a directional type cannot lose its inverse label",
+   error_code(call("rename_relationship_type", {
+       "domainId": domain, "typeId": link_id, "expectedRevision": current_link["revision"],
+       "name": "Gate employer of", "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3"}),
+              "inverse-less directional rename") == "validation_failed")
+relationship_retired = structured(call("retire_relationship_type", {
+    "domainId": domain, "typeId": link_id, "expectedRevision": current_link["revision"],
+    "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4"}), "retire_relationship_type")
+ok("retiring a relationship type reports itself as a retirement",
+   relationship_retired["items"][0]["outcome"] == "retired", relationship_retired)
+ok("and retiring it twice is refused",
+   error_code(call("retire_relationship_type", {
+       "domainId": domain, "typeId": link_id,
+       "expectedRevision": relationship_retired["items"][0]["revision"],
+       "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb5"}), "second retirement") == "validation_failed")
 
 print("Grant separation on a live credential")
 ok("delete_saved_view needs views.manage and this credential has it",

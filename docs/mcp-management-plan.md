@@ -145,8 +145,11 @@ not the code, and matching MCP to the browser was the right direction.
 Link note and endpoint editing stay out, as planned: they are not a shared application command, so a
 tool would mean a second implementation of rules that have only ever had one.
 
-Remaining in M4: the cross-cutting live-client and interactive-browser gates for contract 1.34, which
-are exit evidence rather than tools.
+Both cross-cutting gates were met the same day against one deployment: 71 live-client checks over a
+separately launched published Release process, with the credential minted from the Remote access page
+rather than out of band. The permission interface turned up the one defect of the day, which is what
+that gate is for: `structure.write` still told an operator that "other structure changes are not yet
+available remotely", which M4 had just made false. M4 is closed.
 
 ## M5 - Views, projections, and settings
 
