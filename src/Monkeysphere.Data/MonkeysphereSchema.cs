@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 39,
+        currentVersion: 40,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -982,6 +982,75 @@ public static class MonkeysphereSchema
 
                 CREATE UNIQUE INDEX UX_Reminders_ValueLead
                     ON Reminders(RecordId, FieldDefinitionId, ValueOrdinal, LeadDays);
+                """),
+            DnaXMigration.Sql(40, "merged-record-source-kind", "Let a merged-away record's data survive as retained source material", """
+                -- Merging two duplicate people has to leave the loser's data readable, the way an
+                -- imported vCard leaves the lines the application did not understand. Retained source
+                -- material is already exactly that mechanism, so a merge writes there rather than
+                -- inventing a second archive -- but the kind is constrained to 'vcard' and SQLite
+                -- cannot alter a CHECK, so the table is rebuilt.
+                --
+                -- Two things make this more than a rename. Dropping the parent fires
+                -- ON DELETE SET NULL on RecordSourceValues.ImportId, which would silently unlink
+                -- every retained line from the import it arrived on; and the six triggers attached to
+                -- the table go with it. The attribution is therefore parked first and restored after,
+                -- and every trigger is recreated verbatim.
+                CREATE TABLE RecordSourceImportAttribution (
+                    RecordId TEXT NOT NULL,
+                    Ordinal INTEGER NOT NULL,
+                    ImportId TEXT NOT NULL,
+                    PRIMARY KEY (RecordId, Ordinal)
+                );
+                INSERT INTO RecordSourceImportAttribution (RecordId, Ordinal, ImportId)
+                SELECT RecordId, Ordinal, ImportId FROM RecordSourceValues WHERE ImportId IS NOT NULL;
+
+                CREATE TABLE RecordSourceImports_rebuilt (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RecordId TEXT NOT NULL,
+                    SourceKind TEXT NOT NULL CHECK (SourceKind IN ('vcard', 'merge')),
+                    SourceFormat TEXT NULL,
+                    Fingerprint TEXT NULL,
+                    ImportedAtUtc TEXT NOT NULL,
+                    FOREIGN KEY (RecordId) REFERENCES Records(Id) ON DELETE CASCADE
+                );
+                INSERT INTO RecordSourceImports_rebuilt (Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc)
+                SELECT Id, RecordId, SourceKind, SourceFormat, Fingerprint, ImportedAtUtc FROM RecordSourceImports;
+
+                DROP TABLE RecordSourceImports;
+                ALTER TABLE RecordSourceImports_rebuilt RENAME TO RecordSourceImports;
+
+                UPDATE RecordSourceValues
+                SET ImportId = (SELECT a.ImportId FROM RecordSourceImportAttribution a
+                                WHERE a.RecordId = RecordSourceValues.RecordId AND a.Ordinal = RecordSourceValues.Ordinal)
+                WHERE ImportId IS NULL
+                  AND EXISTS (SELECT 1 FROM RecordSourceImportAttribution a
+                              WHERE a.RecordId = RecordSourceValues.RecordId AND a.Ordinal = RecordSourceValues.Ordinal);
+                DROP TABLE RecordSourceImportAttribution;
+
+                CREATE UNIQUE INDEX UX_RecordSourceImports_Identity
+                    ON RecordSourceImports(RecordId, SourceKind, Fingerprint)
+                    WHERE Fingerprint IS NOT NULL;
+                CREATE INDEX IX_RecordSourceImports_Record
+                    ON RecordSourceImports(RecordId, ImportedAtUtc);
+
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_INSERT AFTER INSERT ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_UPDATE AFTER UPDATE ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId, NEW.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceImports_DeletionRevision_DELETE AFTER DELETE ON RecordSourceImports BEGIN
+                    UPDATE Records SET DeletionRevision = lower(hex(randomblob(16))) WHERE Id IN (OLD.RecordId);
+                END;
+                CREATE TRIGGER RecordSourceImports_ContactImport_INSERT AFTER INSERT ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceImports_ContactImport_UPDATE AFTER UPDATE ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
+                CREATE TRIGGER RecordSourceImports_ContactImport_DELETE AFTER DELETE ON RecordSourceImports BEGIN
+                    UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
+                END;
                 """),
         ]);
 }
