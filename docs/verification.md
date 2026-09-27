@@ -1,5 +1,43 @@
 # Verification status
 
+2026-09-27 interactive browser gate for contract 1.31, met. Browser automation came back far enough to drive the application: `press_key` and coordinate clicking work, while every tool taking an element reference still errors, as do `evaluate` and console reading. Key presses and coordinate clicks are enough, so this was done against the deployment directly — real session, real Content Security Policy, real Blazor circuit, no proxy. The deployment was restarted with single-character credentials because typing is one call per character and the administrator password has no minimum length.
+
+**Dismissing a reminder deals with one occurrence.** Clicked Dismiss on the one-off "Joined" reminder. The row went from four to three, and the database recorded `DismissedForDate = 2020-03-04` — the occurrence, not the reminder. A one-off has only that occurrence, so it stays gone, which is the behaviour without a second rule. The other three were untouched. Taken with the upgrade run recorded above, where a reminder dismissed under the old permanent rule came back as **Due 3 Dec**, both halves of the change are now observed.
+
+**A hidden record type stays hidden and a new one still appears.** Unticking People took the graph from 5 nodes to 0, and `localStorage` held
+`monkeysphere.graph.hidden-record-types.<domain>` = `["<Person id>"]` — the **new** key, storing the one type hidden rather than the three left visible, which is the whole of the fix visible in storage. On a fresh browser seeded with that exact value, the graph restored People unticked and the other three ticked. A record type created afterwards through the Structures page then appeared **ticked** alongside the still-hidden People. That is the reported defect, watched not happening.
+
+**The permission interface mints what it shows.** The Remote access page correctly reports `UnavailableByDeploymentPolicy` until the deployment gate is configured. With it enabled, **Manage saved views** renders with its full explanation, including that it is separate from `structure.write` and grants no reading. Ticking it alongside Application data and rotating the MCP credential produced exactly `["records.read","views.manage"]` in the credential store — the selected set and nothing else. This meets the permission-interface gate for `views.manage`.
+
+Also confirmed incidentally: cytoscape draws the graph under the real policy, with nodes, labelled edges and type badges. The 2026-09-24 CSP evidence was gathered against a reproduction page and the proxy strips the header, so this is the first time the graph has been watched rendering under the deployment's own policy.
+
+Two notes for whoever drives this next. The accessibility snapshot returned immediately after a click still shows the pre-click state: the click has registered — the control has focus — but the Blazor round trip has not re-rendered. Take a second snapshot or check the data; do not trust the immediate one. And the graph's unsaved-changes guard is a native `beforeunload`, which the automation auto-dismisses as "stay", so a dirty graph page cannot be navigated away from at all; the restore check was done in a second browser instead.
+
+Still not reachable: console messages, so Content Security Policy violations and JavaScript errors remain invisible to this tooling. That is the one gap worth closing.
+
+The full suite passed 511 tests (84 Core, 195 Data, 232 Web).
+
+Owner: Agent; next action: MCP milestone M4, structure lifecycle, which is the remaining Agent-owned beta gate. Review: 2026-10-08.
+
+2026-09-27 interactive browser gate for contract 1.31, met. Browser automation came back far enough to drive the application: `press_key` and coordinate clicking work, while every tool taking an element reference still errors, as do `evaluate` and console reading. Key presses and coordinate clicks are enough, so this was done against the deployment directly — real session, real Content Security Policy, real Blazor circuit, no proxy. The deployment was restarted with single-character credentials because typing is one call per character and the administrator password has no minimum length.
+
+**Dismissing a reminder deals with one occurrence.** Clicked Dismiss on the one-off "Joined" reminder. The row went from four to three, and the database recorded `DismissedForDate = 2020-03-04` — the occurrence, not the reminder. A one-off has only that occurrence, so it stays gone, which is the behaviour without a second rule. The other three were untouched. Taken with the upgrade run recorded above, where a reminder dismissed under the old permanent rule came back as **Due 3 Dec**, both halves of the change are now observed.
+
+**A hidden record type stays hidden and a new one still appears.** Unticking People took the graph from 5 nodes to 0, and `localStorage` held
+`monkeysphere.graph.hidden-record-types.<domain>` = `["<Person id>"]` — the **new** key, storing the one type hidden rather than the three left visible, which is the whole of the fix visible in storage. On a fresh browser seeded with that exact value, the graph restored People unticked and the other three ticked. A record type created afterwards through the Structures page then appeared **ticked** alongside the still-hidden People. That is the reported defect, watched not happening.
+
+**The permission interface mints what it shows.** The Remote access page correctly reports `UnavailableByDeploymentPolicy` until the deployment gate is configured. With it enabled, **Manage saved views** renders with its full explanation, including that it is separate from `structure.write` and grants no reading. Ticking it alongside Application data and rotating the MCP credential produced exactly `["records.read","views.manage"]` in the credential store — the selected set and nothing else. This meets the permission-interface gate for `views.manage`.
+
+Also confirmed incidentally: cytoscape draws the graph under the real policy, with nodes, labelled edges and type badges. The 2026-09-24 CSP evidence was gathered against a reproduction page and the proxy strips the header, so this is the first time the graph has been watched rendering under the deployment's own policy.
+
+Two notes for whoever drives this next. The accessibility snapshot returned immediately after a click still shows the pre-click state: the click has registered — the control has focus — but the Blazor round trip has not re-rendered. Take a second snapshot or check the data; do not trust the immediate one. And the graph's unsaved-changes guard is a native `beforeunload`, which the automation auto-dismisses as "stay", so a dirty graph page cannot be navigated away from at all; the restore check was done in a second browser instead.
+
+Still not reachable: console messages, so Content Security Policy violations and JavaScript errors remain invisible to this tooling. That is the one gap worth closing.
+
+The full suite passed 511 tests (84 Core, 195 Data, 232 Web).
+
+Owner: Agent; next action: MCP milestone M4, structure lifecycle, which is the remaining Agent-owned beta gate. Review: 2026-10-08.
+
 2026-09-27 upgrade from the previous release, and the first look at three unwatched changes. Browser automation is still half-available — navigate, snapshot and screenshot answer; click, type, evaluate and cookie-set all error — so the interactive gate is still not met. What that does allow was used: a curl sign-in, a local proxy carrying the established session, and screenshots of what the deployment actually serves. Anything needing a click remains unverified.
 
 **The schema-changing upgrade is no longer untested.** `v0.6.0-alpha.1` was published from a detached worktree and run once to build a data root at schema 36. That database was then given, through raw SQL against the old schema, the two shapes the new migrations have to translate: a dashboard curated to one category with two deliberately left off, and a reminder already dismissed under the old permanent rule. The current build was pointed at it and applied migrations 37, 38 and 39 cleanly.

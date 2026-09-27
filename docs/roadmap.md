@@ -101,11 +101,11 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
-| M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Live-client gate for 1.29 passed 2026-09-24 against a published process; the interactive browser gate remains, blocked on browser automation | Agent | 2026-10-15 |
+| M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Complete 2026-09-27: live-client gate passed 2026-09-24 against a published process, interactive browser gate 2026-09-27 including the permission interface for `views.manage` | Agent | 2026-10-15 |
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 to M7 remain and belong to beta; M5 is under way. Recommended next action: the interactive browser gate for contract 1.29, which is all that is left of M5, then begin M4. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M5 closed on 2026-09-27 with both cross-cutting gates met. M4, M6 and M7 remain and belong to beta. Recommended next action: M4, complete structure lifecycle, which is the remaining Agent-owned beta gate. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 
@@ -254,8 +254,9 @@ the dashboard: contract 1.30 reports `maximumCategories`, `get_dashboard_setting
 dashboard shows rather than only what was saved, and `set_dashboard_settings` records the dismissals, so
 the browser and the tools agree about what an absent category means.
 
-Owner: Agent. Remaining: nothing. The interactive browser check of the new first-run dashboard is
-outstanding along with the rest of M5's browser gate, blocked on browser automation. Review: 2026-10-15.
+Owner: Agent. Remaining: nothing. The first-run dashboard was watched on 2026-09-27, which found the
+empty-category panels and led to the shared "Nothing yet" row; hiding a type and seeing a newly created
+one appear anyway was watched the same day. Review: 2026-10-15.
 
 ## Reminders on repeating dates are due the moment they are set
 
@@ -300,8 +301,9 @@ names in `storedDate`, and a `dueDate` counted back from the occurrence; `dismis
 one occurrence and is no longer marked destructive, because it no longer destroys anything. Both surfaces
 changed in the same commit, which is why this waited rather than being corrected for MCP alone.
 
-Owner: Agent. Remaining: nothing in code. The calendar page's reminder list has not been watched running,
-along with the rest of the browser gate. Review: 2026-10-15.
+Owner: Agent. Remaining: nothing. Dismissal was watched on a real deployment on 2026-09-27, and the
+upgrade run the same day showed a reminder dismissed under the old rule returning armed for its next
+occurrence. Review: 2026-10-15.
 
 ## Preset upgrade workflow
 
