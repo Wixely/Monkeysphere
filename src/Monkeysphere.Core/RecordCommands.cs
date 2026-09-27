@@ -40,7 +40,8 @@ public sealed class CommandReplayException(string code, string message) : Invali
     public string Code { get; } = code;
 }
 
-public sealed class RecordCommandNotFoundException(string message) : InvalidOperationException(message);
+public sealed class RecordCommandNotFoundException(string message, Exception? innerException = null)
+    : InvalidOperationException(message, innerException);
 
 public interface IRecordCommandStore
 {
