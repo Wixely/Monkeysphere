@@ -1,8 +1,8 @@
 # Roadmap
 
-- Last reviewed: 2026-09-07
+- Last reviewed: 2026-09-27
 - Owner: Wixely / Agent unless otherwise noted
-- Current release: `0.2.0-alpha.1` prerelease; active branch `main`
+- Current release: `0.6.0-alpha.1` prerelease; active branch `main`; application schema 39
 
 ## How to read this roadmap
 
@@ -21,10 +21,14 @@ The product is pre-alpha in maturity even though alpha packages are published. T
 | Phase | Theme | Exit criteria | Review |
 | --- | --- | --- | --- |
 | Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | Met on 2026-09-10: M0-M3 closed and every deployment shape has live lifecycle evidence. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
-| Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed; complete script/style CSP enforced; accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
+| Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed (M4 and M5 closed 2026-09-27; M6 and M7 remain); complete script/style CSP enforced (done); accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
 | 1.0 | Operational confidence for a self-hosting user who is not the author | Interaction timeline shipped; upgrade path across at least two prior minor versions verified; documented backup/restore drill repeated on a clean host; no open High residual risk in the [threat model](threat-model.md) | 2027-02-01 |
 
 Phase membership is a planning aid. An item may be pulled forward or dropped without renaming the phase.
+
+The version series has moved ahead of the phase labels: alpha packages are published from `0.6.x` while the
+beta gate is still labelled `0.2.x`. The labels are kept as written so earlier entries still resolve; read
+them as phase names rather than as version ranges.
 
 ## Priority overview
 
@@ -88,7 +92,7 @@ Owner: Wixely / Agent. Next action: reconcile the *Not yet verified* list agains
 
 ## MCP instance management
 
-Status: M0 in progress. Baseline reviewed: 2026-09-07.
+Status: M0 to M5 complete; M6 in progress, M7 pending. Baseline reviewed: 2026-09-27.
 
 Build out authenticated MCP management of application data and runtime administration, preserving domain isolation and the offline restore boundary. The [MCP implementation plan](mcp-management-plan.md) defines contracts, dependencies, delivery phases, acceptance criteria, and remaining decisions.
 
@@ -100,20 +104,20 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M1 | Write authorization, concurrency, retry protection, previews, and audit foundations | Complete 2026-09-10 against its exit criteria; preview families and long operations for later tools move to the milestones that need them | Agent | 2026-09-14 |
 | M2 | Records, relationships, domain setup, and minimum structure creation | Complete 2026-09-10; the two-domain MCP-only scenario passes and the live client/browser gates closed on 2026-09-08 | Agent | 2026-09-21 |
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
-| M4 | Complete field and record-type lifecycle management | Planned; depends on M2 | Agent | 2026-09-28 |
+| M4 | Complete field and record-type lifecycle management | Complete 2026-09-27: record types as contract 1.32, reusable fields as 1.33, relationship types as 1.34, taking the surface to 104 tools. Both cross-cutting gates met the same day, 71 live-client checks with the credential minted from the Remote access page | Agent | 2026-10-15 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Complete 2026-09-27: live-client gate passed 2026-09-24 against a published process, interactive browser gate 2026-09-27 including the permission interface for `views.manage` | Agent | 2026-10-15 |
-| M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
+| M6 | Backup operations, operational status, and separately scoped remote administration | In progress from 2026-09-27; dependencies M1 and M3 are closed. Wixely owns the deployment-policy decisions | Agent | 2026-10-15 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M5 closed on 2026-09-27 with both cross-cutting gates met. M4 closed on 2026-09-27 as contracts 1.32 to 1.34, with both cross-cutting gates met. M6 and M7 remain and belong to beta. Recommended next action: M6, runtime administration and backups, where Wixely owns the deployment-policy decisions. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 and M5 both closed on 2026-09-27, each with both cross-cutting gates met, taking the contract to 1.34 and the surface to 104 tools. M6 is under way and M7 depends on it; both belong to beta. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 
 These apply to every milestone above and are the most common reason a milestone stays open after its local tests pass.
 
-- **Live client verification.** Repeated for contract 1.16 on 2026-09-10, demonstrating the full record image lifecycle against a separately launched published process, which also closes M3's demonstration criterion and positively confirms client interoperability. Previously done for contract 1.15 on 2026-09-08 against the published `v0.1.0-alpha.3` win-x64 package over its randomized endpoint: 52 tools, a full create-then-export round trip with digest verification, and live grant separation. It found two defects the test host could not, recorded under [MCP client interoperability](#mcp-client-interoperability). Repeat for each future contract revision. Owner: Agent; review 2026-09-14.
-- **Interactive browser verification.** Repeated for contract 1.16 on 2026-09-10 against the deployed process the live client had just written to, confirming that an image attached through MCP appears as an ordinary record image and that the browser serves byte counts identical to the MCP read. Previously done on 2026-09-08 against the published package: login, the setup wizard and its transactional install, Settings, and the Remote access page through permission selection, credential rotation, activation and the redacted audit table. Owner: Agent; review 2026-09-14.
-- **Permission user interface.** Verified interactively on 2026-09-08 and again for contract 1.16 on 2026-09-10, when the new media.write and media.read permissions rendered with their metadata warning and the page reported exactly the minted scope set. Owner: Agent; review 2026-09-21.
+- **Live client verification.** Most recently repeated for contract 1.34 on 2026-09-27: 71 checks over a published Release process on a fresh data root, covering the whole structure lifecycle. The client is kept as `eng/VerifyMcpLiveClient.py` so each revision extends it rather than rewriting the transport. Previously repeated for contract 1.16 on 2026-09-10, demonstrating the full record image lifecycle against a separately launched published process, which also closes M3's demonstration criterion and positively confirms client interoperability. Previously done for contract 1.15 on 2026-09-08 against the published `v0.1.0-alpha.3` win-x64 package over its randomized endpoint: 52 tools, a full create-then-export round trip with digest verification, and live grant separation. It found two defects the test host could not, recorded under [MCP client interoperability](#mcp-client-interoperability). Repeat for each future contract revision. Owner: Agent; review 2026-10-15.
+- **Interactive browser verification.** Most recently repeated for contract 1.34 on 2026-09-27, in the same session as the live-client run and against the same deployment. Previously repeated for contract 1.16 on 2026-09-10 against the deployed process the live client had just written to, confirming that an image attached through MCP appears as an ordinary record image and that the browser serves byte counts identical to the MCP read. Previously done on 2026-09-08 against the published package: login, the setup wizard and its transactional install, Settings, and the Remote access page through permission selection, credential rotation, activation and the redacted audit table. Owner: Agent; review 2026-10-15.
+- **Permission user interface.** Verified interactively on 2026-09-08, again for contract 1.16 on 2026-09-10 when the new media.write and media.read permissions rendered with their metadata warning, and again on 2026-09-27 for `views.manage` and then for M4's rewritten `structure.write` description. Each time the page reported exactly the minted scope set. This gate has now caught a defect twice, which is the argument for keeping it: a grant description that has quietly stopped being true is invisible to every test. Owner: Agent; review 2026-10-15.
 - **Contract documentation.** [The MCP contract](mcp-contract.md) must be regenerated or corrected in the same change that alters tool count, inputs, limits, or grants.
 
 ## Android contact importer
