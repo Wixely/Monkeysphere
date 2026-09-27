@@ -128,6 +128,7 @@ builder.Services.AddScoped<MonkeysphereSchemaQueries>();
 builder.Services.AddScoped<MonkeysphereStructureLifecycleQueries>();
 builder.Services.AddScoped<MonkeysphereFieldLifecycleQueries>();
 builder.Services.AddScoped<MonkeysphereOperationsQueries>();
+builder.Services.AddScoped<MonkeysphereAdministrationCommands>();
 builder.Services.AddScoped<RemotePresetQueries>();
 builder.Services.AddScoped<RemoteCredentialManager>();
 builder.Services.AddScoped<RemoteCommandIdentityProvider>();
@@ -170,6 +171,7 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeysphereStructureLifecycleTools>()
     .WithTools<MonkeysphereFieldLifecycleTools>()
     .WithTools<MonkeysphereOperationsTools>()
+    .WithTools<MonkeysphereAdministrationTools>()
     .WithTools<MonkeyspherePresetReadTools>()
     .WithTools<MonkeyspherePresetWriteTools>()
     .WithTools<MonkeysphereDomainWriteTools>()
