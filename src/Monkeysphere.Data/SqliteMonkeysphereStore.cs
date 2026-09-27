@@ -761,6 +761,12 @@ public sealed partial class SqliteMonkeysphereStore(
                OR EXISTS (SELECT 1 FROM SavedViewFilters f WHERE f.SavedViewId = SavedViews.Id AND f.FieldDefinitionId = @SourceId);
             """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
+        // A reminder follows its value, so the pair is collapsed by which value the conflict policy keeps
+        // and by nothing else. Dismissal used to be part of this condition, from when a dismissed
+        // reminder was finished and two rows differing only in that were harmless; now that one comes
+        // back for its next occurrence, both would re-arm and fire together, and the uniqueness rule
+        // refuses to hold them at all. Matching on dismissal state would leave the merge failing on the
+        // index for anything somebody had already dealt with.
         string reminderConflictDelete = conflictResolution == FieldMergeConflictResolution.KeepSource
             ? """
                 DELETE FROM Reminders AS target
@@ -770,9 +776,7 @@ public sealed partial class SqliteMonkeysphereStore(
                       WHERE source.RecordId = target.RecordId
                         AND source.FieldDefinitionId = @SourceId
                         AND source.ValueOrdinal = target.ValueOrdinal
-                        AND source.LeadDays = target.LeadDays
-                        AND source.DismissedAtUtc IS NULL
-                        AND target.DismissedAtUtc IS NULL);
+                        AND source.LeadDays = target.LeadDays);
                 """
             : """
                 DELETE FROM Reminders AS source
@@ -782,9 +786,7 @@ public sealed partial class SqliteMonkeysphereStore(
                       WHERE target.RecordId = source.RecordId
                         AND target.FieldDefinitionId = @TargetId
                         AND target.ValueOrdinal = source.ValueOrdinal
-                        AND target.LeadDays = source.LeadDays
-                        AND target.DismissedAtUtc IS NULL
-                        AND source.DismissedAtUtc IS NULL);
+                        AND target.LeadDays = source.LeadDays);
                 """;
         await connection.ExecuteAsync(new CommandDefinition(
             reminderConflictDelete,
