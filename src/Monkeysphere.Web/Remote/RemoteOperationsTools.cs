@@ -35,6 +35,20 @@ public sealed record RemoteBackup(Guid Id, string FileName, DateTimeOffset Creat
 public sealed record RemoteBackupValidation(
     RemoteBackup Backup, int FormatVersion, int ApplicationSchemaVersion, int EntryCount, int OriginalImageCount);
 
+public sealed record RemoteBackupLimits(int MaximumChunkBytes = 65536, int MaximumResponseBytes = 131072);
+
+/// <summary>
+/// One bounded range of a backup package, base64 encoded.
+///
+/// Offsets are 64-bit because a package can exceed two gigabytes, which is also the reason
+/// <c>ContentDigest</c> is opt-in: a backup file is written once and never rewritten, so ranges can be
+/// concatenated safely without one, and computing it reads the whole package on every call, turning a
+/// download into quadratic work. Ask for it once if you want it.
+/// </summary>
+public sealed record RemoteBackupContent(
+    Guid BackupId, string FileName, string Encoding, long TotalBytes, long Offset, long? NextOffset,
+    string? ContentDigest, string ContentBase64);
+
 public sealed class MonkeysphereOperationsQueries(
     IBackupService backups,
     IDomainCatalog domains,
@@ -94,6 +108,49 @@ public sealed class MonkeysphereOperationsQueries(
         return Project(await backups.CreateAsync(cancellationToken).ConfigureAwait(false));
     }
 
+    public static readonly RemoteBackupLimits Limits = new();
+
+    public async Task<RemoteBackupContent> ReadAsync(Guid id, long offset, int count, bool includeDigest,
+        CancellationToken cancellationToken)
+    {
+        // Its own grant. Listing a package says how big the deployment is; reading its bytes hands over
+        // every record, every image and the remote-access state in one call, which is the single most
+        // consequential read the surface has.
+        RemoteTagAuthority.Demand(accessor, "backups.export");
+        if (count is < 1 || count > Limits.MaximumChunkBytes)
+            throw new DomainValidationException($"Supply count 1-{Limits.MaximumChunkBytes}.");
+        if (offset < 0) throw new DomainValidationException("Supply a non-negative offset.");
+
+        await using Stream stream = await backups.OpenAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new RecordCommandNotFoundException("Backup was not found.");
+        BackupInfo backup = (await backups.ListAsync(cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(stored => stored.Id == id)
+            ?? throw new RecordCommandNotFoundException("Backup was not found.");
+
+        long total = stream.Length;
+
+        // The end offset yields an empty final range and anything beyond it fails, matching
+        // export_contacts and read_contact_import_evidence rather than inventing a third convention.
+        if (offset > total)
+            throw new DomainValidationException("The offset is beyond the backup. Restart at offset 0.");
+
+        string? digest = null;
+        if (includeDigest)
+        {
+            digest = Convert.ToHexString(await System.Security.Cryptography.SHA256
+                .HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
+            stream.Seek(0, SeekOrigin.Begin);
+        }
+
+        int length = (int)Math.Min(count, total - offset);
+        byte[] buffer = new byte[length];
+        stream.Seek(offset, SeekOrigin.Begin);
+        await stream.ReadExactlyAsync(buffer, cancellationToken).ConfigureAwait(false);
+        long next = offset + length;
+        return new(backup.Id, backup.FileName, "base64", total, offset, next < total ? next : null,
+            digest, Convert.ToBase64String(buffer));
+    }
+
     private static RemoteBackup Project(BackupInfo backup) =>
         new(backup.Id, backup.FileName, backup.CreatedAtUtc, backup.ByteLength);
 
@@ -130,6 +187,13 @@ public sealed class MonkeysphereOperationsTools
     public static Task<CallToolResult> ValidateAsync(MonkeysphereOperationsQueries queries, IHttpContextAccessor accessor,
         Guid id, CancellationToken cancellationToken = default) =>
         RemoteReadResults.RunAsync(accessor, () => queries.ValidateAsync(id, cancellationToken));
+
+    [RemoteToolScopes("backups.export")]
+    [McpServerTool(Name = "read_backup", ReadOnly = true, UseStructuredContent = true, OutputSchemaType = typeof(RemoteBackupContent))]
+    [Description("Reads a stored backup package in bounded byte ranges. Requires backups.export, which is separate from backups.read because listing a package reveals its size while reading its bytes hands over every domain's records, original images and remote-access state in one call. Offset starts at 0; count 1-65536. Decode each contentBase64 chunk and concatenate in offset order, following nextOffset until null. A package is written once and never rewritten, so ranges are safe to concatenate without verification; contentDigest is therefore opt-in via includeDigest, because computing it reads the whole package and asking on every chunk makes a download quadratic. A package pruned mid-read fails with not_found rather than returning a short document. Large deployments produce large packages: this is a bounded reader, not a fast transport.")]
+    public static Task<CallToolResult> ReadAsync(MonkeysphereOperationsQueries queries, IHttpContextAccessor accessor,
+        Guid id, long offset = 0, int count = 65536, bool includeDigest = false, CancellationToken cancellationToken = default) =>
+        RemoteReadResults.RunAsync(accessor, () => queries.ReadAsync(id, offset, count, includeDigest, cancellationToken));
 
     [RemoteToolScopes("backups.write")]
     [McpServerTool(Name = "create_backup", ReadOnly = false, Destructive = false)]

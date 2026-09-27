@@ -131,6 +131,116 @@ public sealed partial class RemoteDiscoveryTests
     }
 
     [Fact]
+    public async Task McpReadsABackupInRangesThatReassembleToTheStoredPackage()
+    {
+        await using RemoteEnabledApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+
+        BackupInfo stored;
+        byte[] onDisk;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IMonkeysphereService records = scope.ServiceProvider.GetRequiredService<IMonkeysphereService>();
+            RecordType person = await records.CreateRecordTypeAsync("Downloaded person");
+            _ = await records.CreateRecordAsync(person.Id, "Ada", []);
+            IBackupService backups = scope.ServiceProvider.GetRequiredService<IBackupService>();
+            stored = await backups.CreateAsync();
+            await using Stream source = (await backups.OpenAsync(stored.Id))!;
+            using MemoryStream copy = new();
+            await source.CopyToAsync(copy);
+            onDisk = copy.ToArray();
+        }
+
+        var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["backups.export"]);
+
+        // Deliberately small ranges, so the paging is exercised rather than the whole package arriving
+        // in one chunk and the offsets never being tested.
+        List<byte> rebuilt = [];
+        long? offset = 0;
+        string? digest = null;
+        int chunks = 0;
+        while (offset is long at)
+        {
+            using JsonDocument response = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+                "read_backup", new { id = stored.Id, offset = at, count = 4096, includeDigest = chunks == 0 });
+            RemoteBackupContent chunk = Structured(response).Deserialize<RemoteBackupContent>(JsonOptions)!;
+            Assert.Equal(stored.Id, chunk.BackupId);
+            Assert.Equal(onDisk.LongLength, chunk.TotalBytes);
+            Assert.Equal(at, chunk.Offset);
+            if (chunks == 0) digest = chunk.ContentDigest;
+
+            // The digest is opt-in, so every chunk after the first omits it rather than re-reading the
+            // whole package to recompute something that cannot have changed.
+            else Assert.Null(chunk.ContentDigest);
+            rebuilt.AddRange(Convert.FromBase64String(chunk.ContentBase64));
+            offset = chunk.NextOffset;
+            chunks++;
+        }
+
+        Assert.True(chunks > 1, $"the package arrived in {chunks} chunk(s), so paging was never exercised");
+        Assert.Equal(onDisk, rebuilt.ToArray());
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(onDisk)), digest);
+
+        // The end offset is an empty final range; past it is a caller error, not an empty success.
+        using JsonDocument end = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "read_backup", new { id = stored.Id, offset = onDisk.LongLength, count = 4096 });
+        RemoteBackupContent last = Structured(end).Deserialize<RemoteBackupContent>(JsonOptions)!;
+        Assert.Equal(string.Empty, last.ContentBase64);
+        Assert.Null(last.NextOffset);
+
+        using JsonDocument beyond = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "read_backup", new { id = stored.Id, offset = onDisk.LongLength + 1, count = 4096 });
+        AssertWriteError(beyond, "validation_failed");
+
+        using JsonDocument oversized = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "read_backup", new { id = stored.Id, offset = 0, count = 65537 });
+        AssertWriteError(oversized, "validation_failed");
+
+        using JsonDocument absent = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "read_backup", new { id = Guid.CreateVersion7(), offset = 0, count = 4096 });
+        AssertWriteError(absent, "not_found");
+    }
+
+    [Fact]
+    public async Task ReadingABackupNeedsItsOwnGrantAndIsNotImpliedByListingOrTakingOne()
+    {
+        await using RemoteEnabledApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+
+        BackupInfo stored;
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            stored = await scope.ServiceProvider.GetRequiredService<IBackupService>().CreateAsync();
+        }
+
+        // Holding both of the other backup grants is still not permission to take a copy of everything
+        // out of the deployment. That separation is the whole reason backups.export exists.
+        var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["backups.read", "backups.write"]);
+        using JsonDocument refused = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "read_backup", new { id = stored.Id, offset = 0, count = 4096 });
+        AssertWriteError(refused, "permission_denied");
+    }
+
+    [Fact]
+    public async Task TheExportGrantAloneCannotListOrTakeBackups()
+    {
+        await using RemoteEnabledApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            _ = await scope.ServiceProvider.GetRequiredService<IBackupService>().CreateAsync();
+        }
+
+        // The separation runs both ways: being trusted to read a package out is not being trusted to
+        // discover what packages exist, or to make the deployment do the work of writing a new one.
+        var (_, credential, surface) = await EnableRelationshipWritesAsync(factory, ["backups.export"]);
+        using JsonDocument listed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "list_backups");
+        AssertWriteError(listed, "permission_denied");
+        using JsonDocument created = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "create_backup");
+        AssertWriteError(created, "permission_denied");
+    }
+
+    [Fact]
     public async Task OperationalStatusNeedsInstanceReadAndIsNotImpliedByABackupGrant()
     {
         await using RemoteEnabledApplicationFactory factory = new();
