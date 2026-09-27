@@ -71,6 +71,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<RecordBatchService>();
         services.AddScoped<IRecordDeletionStore, SqliteMonkeysphereStore>();
         services.AddScoped<RecordDeletionService>();
+        services.AddScoped<IRecordMergeStore, SqliteMonkeysphereStore>();
+        services.AddScoped<RecordMergeCommandService>();
         services.AddScoped<IApplicationCommandAudit, SqliteApplicationCommandAudit>();
         services.AddScoped<ICalendarStore, SqliteCalendarStore>();
         services.AddScoped<ICalendarService, CalendarService>();

@@ -42,6 +42,13 @@ public static class RecordMergeUncarriedReasons
     public const string SurvivingValueKept = "The surviving record's own value was kept.";
 
     /// <summary>
+    /// The opposite case, and the one the promise is easiest to break on: somebody chose the other
+    /// record's value, so the surviving record's own is displaced. It is archived like anything else,
+    /// because a merge losing the data of the record that survived would be the worst version of this.
+    /// </summary>
+    public const string SurvivingValueReplaced = "The surviving record's own value was replaced by the other record's.";
+
+    /// <summary>
     /// Only possible when the two records are of different types. The survivor's type has no such
     /// field, so there is nowhere for the value to live as record data. It is archived instead, which
     /// is the difference between merging across types and losing something.
@@ -99,4 +106,57 @@ public static class RecordMergeLimits
     /// fields their types carry, so this is a sanity bound rather than a paging scheme.
     /// </summary>
     public const int MaximumReportedValues = 500;
+}
+
+/// <summary>
+/// The merge as a remote command: the same merge, with an idempotent receipt around it.
+///
+/// A merge deletes a record, so a retry that ran twice would be a retry that deleted two. The receipt
+/// makes an identical retry replay rather than repeat, and the revision the preview handed back makes a
+/// retry issued against stale information refuse rather than merge something else.
+/// </summary>
+public interface IRecordMergeStore
+{
+    Task<RecordCommandReceipt> MergeRecordsAsync(
+        RecordCommandIdentity identity,
+        Guid survivingRecordId,
+        Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice> choices,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class RecordMergeCommandService(
+    IRecordMergeStore merges, IMonkeysphereService records, TimeProvider timeProvider)
+{
+    /// <summary>
+    /// Asks what a merge would do. Null when either record is missing or out of the caller's sight; a
+    /// pair that cannot be merged answers with a refusal, because a caller choosing between candidates
+    /// needs to be told which are unavailable and why.
+    /// </summary>
+    public Task<RecordMergePreview?> PreviewAsync(Guid survivingRecordId, Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice>? choices, CancellationToken cancellationToken = default) =>
+        records.PreviewRecordMergeAsync(survivingRecordId, mergedRecordId, choices, cancellationToken);
+
+    public Task<RecordCommandReceipt> MergeAsync(RecordCommandIdentity identity, Guid survivingRecordId,
+        Guid mergedRecordId, IReadOnlyList<RecordMergeChoice> choices, string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        if (choices is null || choices.Count > RecordMergeLimits.MaximumReportedValues || choices.Any(choice => choice is null))
+        {
+            throw new DomainValidationException(
+                $"Supply at most {RecordMergeLimits.MaximumReportedValues} non-null merge choices.");
+        }
+
+        if (string.IsNullOrWhiteSpace(expectedRevision))
+        {
+            // Without one the merge would run on whatever the records happen to say now, which for a
+            // command that deletes one of them is not a reasonable default.
+            throw new DomainValidationException("Supply the revision from a merge preview.");
+        }
+
+        return merges.MergeRecordsAsync(identity, survivingRecordId, mergedRecordId, choices, expectedRevision,
+            timeProvider.GetUtcNow(), cancellationToken);
+    }
 }

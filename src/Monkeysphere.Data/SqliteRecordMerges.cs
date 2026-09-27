@@ -7,7 +7,7 @@ using Monkeysphere.Core;
 
 namespace Monkeysphere.Data;
 
-public sealed partial class SqliteMonkeysphereStore
+public sealed partial class SqliteMonkeysphereStore : IRecordMergeStore
 {
     /// <summary>
     /// Everything a merge would do, worked out once. The preview and the apply both run this, so the
@@ -75,6 +75,46 @@ public sealed partial class SqliteMonkeysphereStore
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await ApplyMergeAsync(connection, transaction, survivingRecordId, mergedRecordId, choices, expectedRevision,
+            now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The remote merge. The plan is built and applied inside the receipt's own transaction, so a
+    /// command that is recorded as done is a command that happened, and one that was refused left
+    /// nothing behind.
+    /// </summary>
+    public Task<RecordCommandReceipt> MergeRecordsAsync(RecordCommandIdentity identity, Guid survivingRecordId,
+        Guid mergedRecordId, IReadOnlyList<RecordMergeChoice> choices, string expectedRevision, DateTimeOffset now,
+        CancellationToken cancellationToken = default) =>
+        ExecuteEntityCommandAsync(identity, "records.merge", now, async (connection, transaction) =>
+        {
+            RecordDetails surviving = await ApplyMergeAsync(connection, transaction, survivingRecordId, mergedRecordId,
+                choices, expectedRevision, now, cancellationToken).ConfigureAwait(false);
+
+            // The receipt names the record that still exists and the revision it now carries, because
+            // that is the thing a caller can go on to read. The merged-away one is reported as deleted
+            // rather than left out, so a replayed receipt still says what became of it.
+            string revision = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+                "SELECT Revision FROM Records WHERE Id = @Id;", new { Id = Key(survivingRecordId) }, transaction,
+                cancellationToken: cancellationToken)).ConfigureAwait(false)
+                ?? surviving.Revision;
+            return (IReadOnlyList<RecordMutationOutcome>)
+            [
+                new(survivingRecordId, revision, "merged"),
+                new(mergedRecordId, string.Empty, "deleted"),
+            ];
+        }, cancellationToken);
+
+    /// <summary>
+    /// Shared by the browser and the remote surface so the two cannot come to disagree about when a
+    /// merge is allowed. Returns the surviving record as the plan saw it, before the merge ran.
+    /// </summary>
+    private async Task<RecordDetails> ApplyMergeAsync(SqliteConnection connection, SqliteTransaction transaction,
+        Guid survivingRecordId, Guid mergedRecordId, IReadOnlyList<RecordMergeChoice> choices, string expectedRevision,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
         MergePlan plan = await BuildMergePlanAsync(connection, transaction, survivingRecordId, mergedRecordId,
             choices, cancellationToken).ConfigureAwait(false)
             ?? throw new RecordCommandNotFoundException("One or both records were not found.");
@@ -86,7 +126,7 @@ public sealed partial class SqliteMonkeysphereStore
         }
 
         await MergeRecordsCoreAsync(connection, transaction, plan, now, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return plan.Surviving;
     }
 
     private static IReadOnlyList<T> Cap<T>(IReadOnlyList<T> values) =>
@@ -152,7 +192,7 @@ public sealed partial class SqliteMonkeysphereStore
                 case RecordMergeResolution.TakeMerged:
                     // The survivor's values go, so the incoming ones start from the bottom.
                     actions.Add(new(group.Key, ReplaceSurvivingValues: true, fromMerged, UnionTags: false, FirstOrdinal: 0));
-                    archived.Add(new(group.Key, name, RecordMergeUncarriedReasons.SurvivingValueKept, fromSurviving));
+                    archived.Add(new(group.Key, name, RecordMergeUncarriedReasons.SurvivingValueReplaced, fromSurviving));
                     break;
                 case RecordMergeResolution.KeepBoth when typeId == FieldTypes.Tags:
                     // Two lists on one field would read as two sets of tags rather than one. Combining
@@ -642,6 +682,14 @@ public sealed partial class SqliteMonkeysphereStore
         lines.AddRange(plan.Merged.Values
             .OrderBy(value => value.FieldName, StringComparer.Ordinal).ThenBy(value => value.Ordinal)
             .Select(value => (value.FieldName, Describe(value), (int)RecordSourceMapping.Opaque)));
+
+        // A value of the survivor's own that a choice displaced. It is about to stop being record data
+        // and this is the only place it will exist, so leaving it out would be the one way a merge could
+        // still lose something somebody was looking at when they agreed to it.
+        lines.AddRange(plan.Archived
+            .Where(entry => entry.Reason == RecordMergeUncarriedReasons.SurvivingValueReplaced)
+            .SelectMany(entry => entry.Values.OrderBy(value => value.Ordinal)
+                .Select(value => ($"{entry.FieldName} (replaced)", Describe(value), (int)RecordSourceMapping.Opaque))));
 
         foreach ((string name, string raw, int mapping) in lines)
         {

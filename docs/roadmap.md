@@ -617,6 +617,57 @@ Owner: TBD. Next action: define the minimum upgrade matrix once `0.2.0` exists, 
 - Publish a replacement prerelease. Both published alphas are labelled unupgradable and should not be the newest thing a visitor finds. Owner: Wixely; review 2026-09-28. See [migration ledger compatibility](#migration-ledger-compatibility).
 - Keep the README capability description synchronized with [verification status](verification.md) at each tag. Owner: Wixely / Agent; ongoing.
 
+## Merging duplicate records
+
+Status: Complete on `feature/record-merge`. Owner: Agent. Review: 2026-10-12.
+
+Importing contacts produces duplicates of the same person, and until now dealing with one meant copying
+a few fields across by hand and deleting the rest. That loses whatever nobody thought to copy, which is
+the opposite of what this application is for.
+
+**Nothing is lost, and that is the whole design.** A merge folds one record into another and deletes it.
+What the surviving record's type can hold becomes its data; everything else is written to the survivor's
+retained source material under a new kind, `merge`, and reads on the same panel as the lines of an
+imported vCard the application never understood. That includes the values a choice discarded — from
+either record, because choosing the other record's value displaces the survivor's own — and every field
+a different record type has no place for, which is how merging across types stays non-destructive.
+Schema version 40 widens the retained-source kind to accept it.
+
+**A conflict is only a field both records hold a value for.** The model carries no cardinality flag, so
+it cannot be told that a record has one date of birth and many photographs; that is inferred from the
+situation. A field only one record uses is carried without asking. For the rest the survivor's value is
+kept by default, and a person may take the other or keep both — two phone numbers beat throwing one
+away. Keeping both on a tags field combines the lists rather than leaving two lists on one field. The
+merged-away record's name becomes an alias, because a different name is another name the same person
+went by rather than a disagreement.
+
+**Three things cannot be carried, and each had to be worked out rather than assumed.** A link between
+the two records would make the survivor related to itself. A link duplicating one the survivor already
+has collides on the unique index — but whether two links mean the same thing depends on the type's
+directionality, and a symmetric pair's stored order follows `Guid` comparison rather than text order, so
+both are decided in C# rather than in SQL. And a reminder names its value by ordinal rather than by
+identity, so carried values are renumbered on the survivor and their reminders renumbered with them;
+left alone a reminder would quietly become about whichever value now sits at its old number.
+
+The preview and the merge run the same plan, so the counts somebody agrees to are the counts that
+happen, and the revision the preview hands back covers both records' deletion revisions — the
+trigger-maintained fingerprint over every table hanging off a record, which is exactly the surface a
+merge touches.
+
+Available in the browser as **Merge a duplicate** at the bottom of a record, and over MCP as contract
+1.38's `preview_record_merge` and `merge_records`, which demand both `records.write` and
+`records.delete`: without deleting, a credential permitted only to edit could destroy any record by
+merging it away; without writing, one permitted only to delete could write another record's data onto a
+record it may not touch.
+
+`eng/SeedMergeDemo.cs` seeds three deliberately awkward pairs to try it on — a person duplicated with
+conflicting dates, overlapping tags, a shared child, a mutual link, two cover images and two colliding
+reminders; a person and a company that are the same entity; and one person imported twice so both
+records already carry vCard material the merge has to move.
+
+Outstanding: interactive browser verification of the merge panel against a separately launched Release
+process, and a live-client run of the two new tools. Owner: Agent; review 2026-10-12.
+
 ## Saved graph layouts
 
 Status: Complete and merged to `main`.

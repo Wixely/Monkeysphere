@@ -88,7 +88,7 @@ public sealed class RecordMergeTests
         // The preview has to report the survivor's own value as the one being archived, because that is
         // the half a person is agreeing to give up and it is the opposite of the default.
         RecordMergeUncarriedValue archived = Assert.Single(preview.Archived);
-        Assert.Equal(RecordMergeUncarriedReasons.SurvivingValueKept, archived.Reason);
+        Assert.Equal(RecordMergeUncarriedReasons.SurvivingValueReplaced, archived.Reason);
         Assert.Equal("1815-12-11", Assert.Single(archived.Values).DateValue);
 
         await records.MergeRecordsAsync(keep.Record.Id, lose.Record.Id,
@@ -101,6 +101,15 @@ public sealed class RecordMergeTests
         // Replacing the survivor's values frees their ordinals, so the incoming one starts at the bottom
         // rather than being appended after a value that is no longer there.
         Assert.Equal(0, value.Ordinal);
+
+        // And the day this record used to hold is still readable. Choosing the other record's value is
+        // the one path where the survivor's own data is what gets displaced, so it is the one path where
+        // an archive that only recorded the deleted record would quietly lose something.
+        RecordSourceSnapshot sources = Assert.IsType<RecordSourceSnapshot>(
+            await application.Services.GetRequiredService<IRecordSourceService>().GetAsync(keep.Record.Id));
+        RecordSourceValue replaced = Assert.Single(sources.Values, entry => entry.Name.EndsWith("(replaced)", StringComparison.Ordinal));
+        Assert.Equal("1815-12-11", replaced.ValuePreview);
+        Assert.Equal(RecordSourceMapping.Opaque, replaced.Mapping);
     }
 
     [Fact]

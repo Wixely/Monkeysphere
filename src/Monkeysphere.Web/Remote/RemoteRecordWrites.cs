@@ -56,7 +56,7 @@ public sealed record RemoteRecordValidation(bool IsValid, Guid RecordTypeId, str
     int FieldCount, string SchemaRevision, IReadOnlyList<string>? Tags = null);
 
 public sealed partial class RemoteRecordWriter(RecordCommandService commands, RecordBatchService batches, RecordDeletionService deletions,
-    RelationshipCommandService relationshipCommands, StructureCommandService structureCommands, PresetCommandService presetCommands, RemoteCommandIdentityProvider identities,
+    RelationshipCommandService relationshipCommands, StructureCommandService structureCommands, PresetCommandService presetCommands, RecordMergeCommandService merges, RemoteCommandIdentityProvider identities,
     ICurrentDomainScope currentDomain, IHttpContextAccessor accessor, IDomainCatalog domains, IDomainCommands domainCommands,
     IApplicationCommandAudit audit, IMonkeysphereService records, TimeProvider timeProvider, ILogger<RemoteRecordWriter> logger)
 {
