@@ -8,9 +8,10 @@
         <p>
             Exactly what arrived, kept as it arrived &mdash; from an import, or from a record that was merged
             into this one. Lines marked
-            <span class="pill source-opaque">not used</span> were understood by nothing and exist only here &mdash;
-            custom properties, embedded payloads, and anything a merge could not carry live in this list and
-            nowhere else in the record.
+            <span class="pill source-opaque">not used</span> were understood by nothing and exist only here:
+            custom properties and embedded payloads live in this list and nowhere else in the record. Lines
+            marked <span class="pill source-opaque">merged record</span> are what a deleted record held, kept
+            whether or not this record took them on.
         </p>
 
         <h3>Where it came from</h3>
@@ -19,7 +20,10 @@
             {
                 <li>
                     <span class="pill">@KindLabel(import.SourceKind)@(import.SourceFormat is null ? null : " " + import.SourceFormat)</span>
-                    <span class="muted">Imported @import.ImportedAtUtc.ToLocalTime().ToString("f")</span>
+                    <span class="muted">
+                        @(import.SourceKind == RecordSourceKinds.Merge ? "Merged" : "Imported")
+                        @import.ImportedAtUtc.ToLocalTime().ToString("f")
+                    </span>
                     @if (import.Fingerprint is string fingerprint)
                     {
                         <code class="muted" title="Content fingerprint of the imported item">@Shorten(fingerprint)</code>
@@ -67,7 +71,14 @@
                                 }
                             </td>
                             <td>
-                                @if (value.Mapping == RecordSourceMapping.Opaque)
+                                @if (value.Mapping == RecordSourceMapping.Opaque && FromMerge(value))
+                                {
+                                    @* A merged-away record's values are archived whether or not they were
+                                       carried, so "not used" would be a lie about the ones that were: the
+                                       line records what that record held, and the fields above say the rest. *@
+                                    <span class="pill source-opaque">merged record</span>
+                                }
+                                else if (value.Mapping == RecordSourceMapping.Opaque)
                                 {
                                     <span class="pill source-opaque">not used</span>
                                 }
@@ -106,6 +117,9 @@
     /// <summary>True only when other lines are attributed, so the note means something to the reader.</summary>
     private bool Unattributed(RecordSourceValue value) =>
         value.ImportId is null && _snapshot!.Imports.Count > 0;
+
+    private bool FromMerge(RecordSourceValue value) =>
+        _snapshot!.Imports.Any(import => import.Id == value.ImportId && import.SourceKind == RecordSourceKinds.Merge);
 
     private static string KindLabel(string kind) => kind switch
     {

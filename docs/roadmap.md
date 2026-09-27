@@ -665,8 +665,13 @@ conflicting dates, overlapping tags, a shared child, a mutual link, two cover im
 reminders; a person and a company that are the same entity; and one person imported twice so both
 records already carry vCard material the merge has to move.
 
-Outstanding: interactive browser verification of the merge panel against a separately launched Release
-process, and a live-client run of the two new tools. Owner: Agent; review 2026-10-12.
+Browser verification is done, recorded under [verification status](verification.md): the whole merge was
+driven by hand against a seeded data root, and it found four wording defects the test host could not —
+including a summary that read "2 aliass" and a retained-source panel that labelled a value it had just
+carried as "not used".
+
+Outstanding: a live-client run of the two new tools against a separately launched published Release
+process, as every prior contract revision has had. Owner: Agent; review 2026-10-12.
 
 ## Saved graph layouts
 

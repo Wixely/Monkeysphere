@@ -56,7 +56,7 @@
                 </h3>
                 <ul class="item-list">
                     <li>@Count(preview.Impact.FieldValuesCarried, "field value") carried over.</li>
-                    <li>@Count(preview.Impact.AliasesAdded, "alias") and @Count(preview.Impact.TagsAdded, "tag") added.</li>
+                    <li>@Count(preview.Impact.AliasesAdded, "alias", "aliases") and @Count(preview.Impact.TagsAdded, "tag") added.</li>
                     <li>@Count(preview.Impact.ImagesCarried, "image") moved across.</li>
                     <li>
                         @Count(preview.Impact.RelationshipsRepointed, "relationship") repointed at
@@ -69,10 +69,13 @@
                             </span>
                         }
                     </li>
-                    @if (preview.Impact.RemindersCarried + preview.Impact.RemindersDropped > 0)
+                    @if (preview.Impact.RemindersCarried > 0 || preview.Impact.RemindersDropped > 0)
                     {
                         <li>
-                            @Count(preview.Impact.RemindersCarried, "reminder") carried over.
+                            @if (preview.Impact.RemindersCarried > 0)
+                            {
+                                <text>@Count(preview.Impact.RemindersCarried, "reminder") carried over.</text>
+                            }
                             @if (preview.Impact.RemindersDropped > 0)
                             {
                                 <span class="muted">
@@ -302,6 +305,10 @@
         : value.Location?.DisplayContext
             ?? value.TemporalValue ?? value.DateValue ?? value.NumberValue ?? value.TextValue ?? "—";
 
-    private static string Count(int count, string noun) =>
-        $"{count.ToString("N0", CultureInfo.CurrentCulture)} {noun}{(count == 1 ? string.Empty : "s")}";
+    /// <summary>
+    /// Appending "s" is wrong often enough to be worth the parameter: "alias" becomes "aliass", which a
+    /// person reads as a mistake in the thing about to delete one of their records.
+    /// </summary>
+    private static string Count(int count, string singular, string? plural = null) =>
+        $"{count.ToString("N0", CultureInfo.CurrentCulture)} {(count == 1 ? singular : plural ?? singular + "s")}";
 }
