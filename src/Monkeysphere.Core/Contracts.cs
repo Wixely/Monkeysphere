@@ -215,6 +215,9 @@ public interface IMonkeysphereService
 
     Task RetireFieldAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>How much a reusable field is used. Names no records; see <see cref="FieldUsageCounts"/>.</summary>
+    Task<FieldUsageCounts?> GetFieldUsageCountsAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<FieldMergePreview> PreviewFieldMergeAsync(
         Guid sourceFieldDefinitionId,
         Guid targetFieldDefinitionId,
@@ -236,6 +239,17 @@ public interface IMonkeysphereService
         Guid sourceFieldDefinitionId,
         ConvertFieldRequest request,
         string expectedRevision,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Prepares a conversion for a caller that applies it itself, such as a receipt-bearing command.
+    /// The identifier the new field will take has to be supplied, because the values are transformed
+    /// against it. Use <see cref="PreviewFieldConversionAsync"/> when only the preview is wanted.
+    /// </summary>
+    Task<PreparedFieldConversion> PrepareFieldConversionAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        ConvertFieldRequest request,
         CancellationToken cancellationToken = default);
 
     Task<RecordDetails> CreateRecordAsync(

@@ -58,7 +58,7 @@ public sealed record RemoteRecordValidation(bool IsValid, Guid RecordTypeId, str
 public sealed partial class RemoteRecordWriter(RecordCommandService commands, RecordBatchService batches, RecordDeletionService deletions,
     RelationshipCommandService relationshipCommands, StructureCommandService structureCommands, PresetCommandService presetCommands, RemoteCommandIdentityProvider identities,
     ICurrentDomainScope currentDomain, IHttpContextAccessor accessor, IDomainCatalog domains, IDomainCommands domainCommands,
-    IApplicationCommandAudit audit, TimeProvider timeProvider, ILogger<RemoteRecordWriter> logger)
+    IApplicationCommandAudit audit, IMonkeysphereService records, TimeProvider timeProvider, ILogger<RemoteRecordWriter> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly Action<ILogger, string, string, string, Exception?> LogAuditFailure =

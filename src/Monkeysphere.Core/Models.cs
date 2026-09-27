@@ -235,6 +235,29 @@ public sealed record FieldUsageSnapshot(
     int SavedViewReferenceCount,
     IReadOnlyList<FieldValueUsage> Values);
 
+/// <summary>
+/// How much a reusable field is used, without naming who uses it.
+///
+/// Deliberately not <see cref="FieldUsageSnapshot"/>: that carries every value in full, including the
+/// backstage ones a conversion has to rewrite, so it cannot leave the application layer. Deciding
+/// whether to rename, retire, merge or convert a field needs the counts and nothing else, and a caller
+/// who does want the records asks for the records.
+/// </summary>
+public sealed record FieldUsageCounts(
+    FieldDefinition Definition,
+    string Revision,
+    int AttachmentCount,
+    int ValueCount,
+    int SavedViewReferenceCount);
+
+/// <summary>
+/// Everything a conversion needs before it is applied: the preview somebody reads and the transformed
+/// values a write consumes, prepared in one pass so the two cannot describe different conversions.
+/// </summary>
+public sealed record PreparedFieldConversion(
+    FieldConversionPreview Preview,
+    IReadOnlyList<ConvertedFieldValue> Values);
+
 public sealed record ConvertedFieldValue(
     Guid SourceValueId,
     Guid RecordId,

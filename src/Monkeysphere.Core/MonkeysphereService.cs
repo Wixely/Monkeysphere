@@ -270,6 +270,13 @@ public sealed class MonkeysphereService(
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<FieldUsageCounts?> GetFieldUsageCountsAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        FieldUsageSnapshot? usage = await store.GetFieldUsageAsync(id, cancellationToken).ConfigureAwait(false);
+        return usage is null ? null : new(usage.Definition, usage.Revision, usage.AttachmentCount,
+            usage.Values.Count, usage.SavedViewReferenceCount);
+    }
+
     public async Task<FieldConversionPreview> PreviewFieldConversionAsync(
         Guid sourceFieldDefinitionId,
         ConvertFieldRequest request,
@@ -281,6 +288,34 @@ public sealed class MonkeysphereService(
             Guid.Empty,
             cancellationToken).ConfigureAwait(false);
         return preview;
+    }
+
+    public async Task<PreparedFieldConversion> PrepareFieldConversionAsync(
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        ConvertFieldRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        (FieldConversionPreview preview, IReadOnlyList<ConvertedFieldValue> values) = await PrepareConversionAsync(
+            sourceFieldDefinitionId,
+            request,
+            targetFieldDefinitionId,
+            cancellationToken).ConfigureAwait(false);
+        return new(preview, values);
+    }
+
+    /// <summary>
+    /// Refuses a conversion that cannot carry every value across. Shared with anything that applies a
+    /// prepared conversion, because the values that failed are simply absent from the prepared list:
+    /// without this the conversion would look like it succeeded and quietly drop them.
+    /// </summary>
+    public static void RequireEveryValueConverts(FieldConversionPreview preview)
+    {
+        if (preview.FailedValueCount != 0)
+        {
+            throw new DomainValidationException(
+                $"Conversion cannot continue because {preview.FailedValueCount} value(s) cannot be represented safely.");
+        }
     }
 
     public async Task<FieldDefinition> ConvertFieldAsync(
@@ -299,12 +334,8 @@ public sealed class MonkeysphereService(
         {
             throw new DomainValidationException("Field usage changed after the preview. Preview the conversion again.");
         }
-        if (preview.FailedValueCount != 0)
-        {
-            throw new DomainValidationException(
-                $"Conversion cannot continue because {preview.FailedValueCount} value(s) cannot be represented safely.");
-        }
 
+        RequireEveryValueConverts(preview);
         return await store.ConvertFieldAsync(
             sourceFieldDefinitionId,
             targetFieldDefinitionId,

@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.32
+- Contract version: 1.33
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-27
 - Owner: Agent
@@ -484,6 +484,75 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Reusable-field lifecycle in 1.33
+
+Contract 1.33 has 102 tools, adding seven, and no new grant. With 1.32 it completes MCP milestone M4's
+structure surface: a reusable field can now be inspected, renamed, retired, merged and converted from a
+remote client, all on `structure.write`.
+
+- `get_field_usage`, `preview_field_merge`, `preview_field_conversion`.
+- `rename_field`, `retire_field`, `merge_fields`, `convert_field`.
+
+`list_field_definitions` already covered listing and has since 1.x; it stays on `records.read`.
+
+### structure.write is not a licence to read records
+
+This is the one place where the field lifecycle could have leaked record content, so it is worth being
+explicit about what these tools do and do not say.
+
+`get_field_usage` reports counts and the definition. How many record types carry the field, how many
+values exist, how many saved views name it — never the values, and never the records holding them.
+Anybody wanting those asks `query_records` under `records.read`.
+
+`preview_field_conversion` has to report which values cannot be represented in the new type, because
+otherwise a caller cannot fix them and the conversion stays refused forever. It reports the count
+always, and names the records **only when the credential also holds `records.read`**;
+`issueRecordsWithheld` says which happened, and withheld entries carry a null `recordId` and
+`"(withheld)"` as the name. That is the same shape the browser already uses for a record withheld by
+backstage policy. Values marked backstage are withheld from the names regardless, as they are in the
+browser: a conversion still rewrites them, and only who holds them is concealed.
+
+### Which fingerprint goes where
+
+Three different revisions appear, and sending the wrong one gets `stale_revision`:
+
+- `rename_field` and `retire_field` take `expectedFieldRevision`, the field's own revision from
+  `list_field_definitions`. A record gaining a value is no reason to refuse a rename.
+- `convert_field` takes `expectedUsageRevision` over the **one** field, which both
+  `preview_field_conversion` and `get_field_usage` return.
+- `merge_fields` takes `expectedUsageRevision` over **both** fields, which only
+  `preview_field_merge` returns. Either side moving is a reason to look again.
+
+### Merging and converting
+
+Two fields can merge only if they share a type **and** configuration. A field's recurrence is part of
+its configuration, so a repeating date cannot be merged into a one-off one: doing so would quietly
+change what every moved value means. An incompatible pair comes back from the preview as
+`isCompatible: false` with the reason, not as an error, because asking is a reasonable thing to do.
+
+`conflictResolution` is `reject`, `keepTarget` or `keepSource`. `reject` refuses when any record holds
+both values; the other two say which value survives, and the reminder on the surviving value survives
+with it. Where either side required the field, the merged attachment is required — the stricter rule is
+the one that was being relied on. Values, attachments, reminders, import provenance rows and every
+saved-view reference (columns, filters, grouping and sort) move to the target, and the source retires.
+
+A conversion creates a new field, rewrites every value into it, moves everything that pointed at the old
+one, and retires the original. If **any** value cannot be represented in the new type the whole
+conversion is refused rather than carrying what it can: a silent partial conversion loses data that
+looked like it had been converted. `preview_field_conversion` is how to find those values first. Its
+receipt names the created field before the retired original, because the new identifier is the one a
+caller has no other way of learning.
+
+### A defect this surfaced
+
+Migration 39 made a reminder come round again, which required the uniqueness rule over a value and its
+lead time to stop excluding dismissed rows. The field merge's own reminder de-duplication had not been
+updated with it: it collapsed a colliding pair only when neither had been dismissed. Merging two date
+fields on a record where one reminder had been dismissed therefore failed on the index — from the
+Structures page as much as from here. A reminder now follows its value, collapsed by which value the
+conflict policy keeps and nothing else. Found by asking what a merge does to a reminder while wrapping
+these tools, not by running into it.
 
 ## Record-type lifecycle in 1.32
 

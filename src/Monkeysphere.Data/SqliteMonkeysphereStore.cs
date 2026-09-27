@@ -598,9 +598,16 @@ public sealed partial class SqliteMonkeysphereStore(
     public async Task RenameFieldAsync(Guid id, string name, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await RenameFieldCoreAsync(connection, transaction: null, id, name, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RenameFieldCoreAsync(SqliteConnection connection, SqliteTransaction? transaction, Guid id,
+        string name, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         int changed = await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE FieldDefinitions SET Name = @Name, UpdatedAtUtc = @Now WHERE Id = @Id;",
             new { Id = Key(id), Name = name, Now = Timestamp(now) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Field definition was not found.");
     }
@@ -618,12 +625,32 @@ public sealed partial class SqliteMonkeysphereStore(
     public async Task RetireFieldAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await RetireFieldCoreAsync(connection, transaction: null, id, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RetireFieldCoreAsync(SqliteConnection connection, SqliteTransaction? transaction, Guid id,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
         int changed = await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE FieldDefinitions SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @Id AND Lifecycle = 0;",
             new { Id = Key(id), Now = Timestamp(now) },
+            transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Active field definition was not found.");
     }
+
+    /// <summary>
+    /// Compares the field usage fingerprint a preview reported against the one the database holds now.
+    /// Returned rather than thrown for the same reason as the record-type one: a page tells somebody
+    /// their preview went stale, while a remote call reports <c>stale_revision</c>, which says the
+    /// identical request can never succeed.
+    /// </summary>
+    internal static async Task<bool> FieldRevisionMatchesAsync(SqliteConnection connection, SqliteTransaction transaction,
+        IReadOnlyList<Guid> fieldDefinitionIds, string expectedRevision, CancellationToken cancellationToken) =>
+        string.Equals(
+            await ComputeFieldRevisionAsync(connection, fieldDefinitionIds, transaction, cancellationToken).ConfigureAwait(false),
+            expectedRevision,
+            StringComparison.Ordinal);
 
     public async Task<FieldMergePreview?> PreviewFieldMergeAsync(
         Guid sourceFieldDefinitionId,
@@ -698,19 +725,29 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (!await FieldRevisionMatchesAsync(connection, transaction,
+            [sourceFieldDefinitionId, targetFieldDefinitionId], expectedRevision, cancellationToken).ConfigureAwait(false))
+        {
+            throw new DomainValidationException("Field usage changed after the preview. Preview the merge again.");
+        }
+
+        await MergeFieldsCoreAsync(connection, transaction, sourceFieldDefinitionId, targetFieldDefinitionId,
+            conflictResolution, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task MergeFieldsCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        FieldMergeConflictResolution conflictResolution,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         if (sourceFieldDefinitionId == targetFieldDefinitionId || !Enum.IsDefined(conflictResolution))
         {
             throw new DomainValidationException("Choose two different fields and a supported conflict policy.");
-        }
-
-        string currentRevision = await ComputeFieldRevisionAsync(
-            connection,
-            [sourceFieldDefinitionId, targetFieldDefinitionId],
-            transaction,
-            cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
-        {
-            throw new DomainValidationException("Field usage changed after the preview. Preview the merge again.");
         }
 
         FieldDefinition? source = await QueryFieldDefinitionAsync(connection, sourceFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
@@ -862,7 +899,6 @@ public sealed partial class SqliteMonkeysphereStore(
                 SELECT 1 FROM RecordTypeFields fields
                 WHERE fields.RecordTypeId = RecordTypes.Id AND fields.FieldDefinitionId = @TargetId);
             """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<FieldUsageSnapshot?> GetFieldUsageAsync(Guid id, CancellationToken cancellationToken = default)
@@ -953,19 +989,33 @@ public sealed partial class SqliteMonkeysphereStore(
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        string timestamp = Timestamp(now);
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        string currentRevision = await ComputeFieldRevisionAsync(
-            connection,
-            [sourceFieldDefinitionId],
-            transaction,
-            cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+        if (!await FieldRevisionMatchesAsync(connection, transaction,
+            [sourceFieldDefinitionId], expectedRevision, cancellationToken).ConfigureAwait(false))
         {
             throw new DomainValidationException("Field usage changed after the preview. Preview the conversion again.");
         }
 
+        FieldDefinition converted = await ConvertFieldCoreAsync(connection, transaction, sourceFieldDefinitionId,
+            targetFieldDefinitionId, targetName, targetTypeId, targetConfigurationJson, convertedValues, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return converted;
+    }
+
+    internal static async Task<FieldDefinition> ConvertFieldCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId,
+        string targetName,
+        string targetTypeId,
+        string targetConfigurationJson,
+        IReadOnlyList<ConvertedFieldValue> convertedValues,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        string timestamp = Timestamp(now);
         FieldDefinition? source = await QueryFieldDefinitionAsync(connection, sourceFieldDefinitionId, transaction, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
@@ -1050,7 +1100,6 @@ public sealed partial class SqliteMonkeysphereStore(
             },
             transaction,
             cancellationToken: cancellationToken)).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new FieldDefinition(
             targetFieldDefinitionId,
             targetName,

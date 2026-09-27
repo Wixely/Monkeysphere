@@ -12,7 +12,7 @@ public sealed record RecordCommandIdentity(Guid DomainId, string Surface, string
         "records.create", "records.patch", "records.batch", "records.delete",
         "relationships.create", "relationships.update", "relationships.delete", "relationship_types.create",
         "record_types.create", "record_types.update", "record_types.retire", "record_types.merge",
-        "fields.create_attach", "fields.attach",
+        "fields.create_attach", "fields.attach", "fields.rename", "fields.retire", "fields.merge", "fields.convert",
         "presets.install", "setup.complete", "domains.rename", "domains.create",
     ];
 

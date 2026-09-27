@@ -16,6 +16,17 @@ public interface IStructureCommandStore
         DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<RecordCommandReceipt> MergeTypesAsync(RecordCommandIdentity identity, Guid sourceRecordTypeId, Guid targetRecordTypeId,
         string expectedUsageRevision, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> RenameFieldAsync(RecordCommandIdentity identity, Guid id, string expectedFieldRevision,
+        string name, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> RetireFieldAsync(RecordCommandIdentity identity, Guid id, string expectedFieldRevision,
+        DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> MergeFieldsAsync(RecordCommandIdentity identity, Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId, FieldMergeConflictResolution conflictResolution, string expectedUsageRevision,
+        DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> ConvertFieldAsync(RecordCommandIdentity identity, Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId, string targetName, string targetTypeId, string targetConfigurationJson,
+        IReadOnlyList<ConvertedFieldValue> convertedValues, string expectedUsageRevision, DateTimeOffset now,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class StructureCommandService(IStructureCommandStore commands, TimeProvider timeProvider)
@@ -76,6 +87,54 @@ public sealed class StructureCommandService(IStructureCommandStore commands, Tim
         if (targetRecordTypeId == Guid.Empty) throw new DomainValidationException("Supply an entity ID and its discovery revision.");
         return commands.MergeTypesAsync(identity, sourceRecordTypeId, targetRecordTypeId, expectedUsageRevision,
             timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Renames a reusable field. Checked against the field's own revision from field discovery, which
+    /// is what a rename can collide with; the usage fingerprint the merge and conversion commands want
+    /// would be needlessly strict here, since a record gaining a value is no reason to refuse a rename.
+    /// </summary>
+    public Task<RecordCommandReceipt> RenameFieldAsync(RecordCommandIdentity identity, Guid id, string expectedFieldRevision,
+        string name, CancellationToken cancellationToken = default)
+    {
+        RequireReference(id, expectedFieldRevision);
+        return commands.RenameFieldAsync(identity, id, expectedFieldRevision,
+            FieldTypes.Required(name, "Field name", 200), timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    public Task<RecordCommandReceipt> RetireFieldAsync(RecordCommandIdentity identity, Guid id, string expectedFieldRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireReference(id, expectedFieldRevision);
+        return commands.RetireFieldAsync(identity, id, expectedFieldRevision, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    public Task<RecordCommandReceipt> MergeFieldsAsync(RecordCommandIdentity identity, Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId, FieldMergeConflictResolution conflictResolution, string expectedUsageRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireReference(sourceFieldDefinitionId, expectedUsageRevision);
+        if (targetFieldDefinitionId == Guid.Empty) throw new DomainValidationException("Supply an entity ID and its discovery revision.");
+        if (!Enum.IsDefined(conflictResolution)) throw new DomainValidationException("Choose a supported merge conflict policy.");
+        return commands.MergeFieldsAsync(identity, sourceFieldDefinitionId, targetFieldDefinitionId, conflictResolution,
+            expectedUsageRevision, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies a conversion whose values were already transformed by
+    /// <see cref="IMonkeysphereService.PreviewFieldConversionAsync"/>. The transformation stays in the
+    /// service because that is where the field-type rules live and where the browser does it too; what
+    /// this adds is the receipt, and the fingerprint check inside the transaction that makes applying a
+    /// preview read a moment ago safe.
+    /// </summary>
+    public Task<RecordCommandReceipt> ConvertFieldAsync(RecordCommandIdentity identity, Guid sourceFieldDefinitionId,
+        Guid targetFieldDefinitionId, string targetName, string targetTypeId, string targetConfigurationJson,
+        IReadOnlyList<ConvertedFieldValue> convertedValues, string expectedUsageRevision, CancellationToken cancellationToken = default)
+    {
+        RequireReference(sourceFieldDefinitionId, expectedUsageRevision);
+        if (targetFieldDefinitionId == Guid.Empty) throw new DomainValidationException("Supply an entity ID and its discovery revision.");
+        return commands.ConvertFieldAsync(identity, sourceFieldDefinitionId, targetFieldDefinitionId, targetName, targetTypeId,
+            targetConfigurationJson, convertedValues, expectedUsageRevision, timeProvider.GetUtcNow(), cancellationToken);
     }
 
     private static void RequireReference(Guid id, string revision)

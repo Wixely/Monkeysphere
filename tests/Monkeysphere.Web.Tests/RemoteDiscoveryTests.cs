@@ -31,13 +31,20 @@ public sealed partial class RemoteDiscoveryTests
         using JsonDocument discovery = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/list");
         string[] registered = discovery.RootElement.GetProperty("result").GetProperty("tools")
             .EnumerateArray().Select(tool => tool.GetProperty("name").GetString()!).Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(95, registered.Length);
+        Assert.Equal(102, registered.Length);
         Assert.Contains("update_relationship", registered);
         Assert.Contains("preview_record_type_retirement", registered);
         Assert.Contains("preview_record_type_merge", registered);
         Assert.Contains("update_record_type", registered);
         Assert.Contains("retire_record_type", registered);
         Assert.Contains("merge_record_types", registered);
+        Assert.Contains("get_field_usage", registered);
+        Assert.Contains("preview_field_merge", registered);
+        Assert.Contains("preview_field_conversion", registered);
+        Assert.Contains("rename_field", registered);
+        Assert.Contains("retire_field", registered);
+        Assert.Contains("merge_fields", registered);
+        Assert.Contains("convert_field", registered);
         Assert.Contains("list_saved_views", registered);
         Assert.Contains("get_saved_view", registered);
         Assert.Contains("run_saved_view", registered);
