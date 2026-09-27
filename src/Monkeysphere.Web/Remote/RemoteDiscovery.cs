@@ -42,7 +42,7 @@ public sealed record RemoteCapabilities(
 [RemoteToolScopes("records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "views.manage", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write")]
 public sealed class MonkeysphereDiscoveryTools
 {
-    private const string ContractVersion = "1.33";
+    private const string ContractVersion = "1.34";
 
     private static readonly string[] DiscoveryScopes =
         ["records.read", "instance.read", "records.write", "records.delete", "relationships.write", "structure.write", "views.manage", "domains.manage", "contacts.import", "contacts.export", "media.read", "media.write", "tags.manage"];

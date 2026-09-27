@@ -24,6 +24,10 @@ public interface IRelationshipCommandStore
         DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<RecordCommandReceipt> DeleteRelationshipAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
         DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> RenameRelationshipTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
+        string name, string? inverseName, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> RetireRelationshipTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
+        DateTimeOffset now, CancellationToken cancellationToken = default);
 }
 
 public sealed class RelationshipCommandService(IRelationshipCommandStore commands, TimeProvider timeProvider)
@@ -35,6 +39,32 @@ public sealed class RelationshipCommandService(IRelationshipCommandStore command
         DateTimeOffset now = timeProvider.GetUtcNow();
         RelationshipType type = new(Guid.CreateVersion7(), name, request.Directionality, inverse, RelationshipLifecycle.Active, now, now);
         return commands.CreateRelationshipTypeAsync(identity, type, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Relabels a relationship type. The labels are normalized against the type's own directionality,
+    /// which the command reads inside its transaction rather than taking on trust: a symmetric type has
+    /// no inverse label to set, and a directional one must have one.
+    /// </summary>
+    public Task<RecordCommandReceipt> RenameTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
+        string name, string? inverseName, CancellationToken cancellationToken = default)
+    {
+        RequireTypeReference(id, expectedRevision);
+        return commands.RenameRelationshipTypeAsync(identity, id, expectedRevision, name, inverseName,
+            timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    public Task<RecordCommandReceipt> RetireTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireTypeReference(id, expectedRevision);
+        return commands.RetireRelationshipTypeAsync(identity, id, expectedRevision, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    private static void RequireTypeReference(Guid id, string revision)
+    {
+        if (id == Guid.Empty || string.IsNullOrWhiteSpace(revision) || revision.Length > 128)
+            throw new DomainValidationException("Supply a relationship type ID and its discovery revision.");
     }
 
     public Task<RecordCommandReceipt> CreateAsync(RecordCommandIdentity identity, Guid typeId, Guid sourceRecordId, Guid targetRecordId,

@@ -105,7 +105,7 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M6 | Backup operations, operational status, and separately scoped remote administration | Planned; depends on M1 and M3 | Agent | 2026-10-01 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M5 closed on 2026-09-27 with both cross-cutting gates met. M4, M6 and M7 remain and belong to beta. Recommended next action: M4, complete structure lifecycle, which is the remaining Agent-owned beta gate. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M5 closed on 2026-09-27 with both cross-cutting gates met. M4's tool surface landed the same day as contracts 1.32 to 1.34, leaving only its live-client and interactive-browser gates. M6 and M7 remain and belong to beta. Recommended next action: M4's two gates, then M6. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 

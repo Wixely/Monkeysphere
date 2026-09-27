@@ -27,10 +27,16 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     public async Task<RelationshipType?> GetTypeAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await QueryTypeCoreAsync(connection, transaction: null, id, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<RelationshipType?> QueryTypeCoreAsync(SqliteConnection connection, SqliteTransaction? transaction,
+        Guid id, CancellationToken cancellationToken)
+    {
         RelationshipTypeRow? row = await connection.QuerySingleOrDefaultAsync<RelationshipTypeRow>(new CommandDefinition("""
             SELECT Id, Name, Directionality, InverseName, Lifecycle, CreatedAtUtc, UpdatedAtUtc, PresetKey, PresetVersion, Revision
             FROM RelationshipTypes WHERE Id = @Id;
-            """, new { Id = Key(id) }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            """, new { Id = Key(id) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return row is null ? null : MapType(row);
     }
 
@@ -77,6 +83,12 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     public async Task RenameTypeAsync(Guid id, string name, string? inverseName, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await RenameTypeCoreAsync(connection, transaction: null, id, name, inverseName, now, expectedRevision, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RenameTypeCoreAsync(SqliteConnection connection, SqliteTransaction? transaction, Guid id,
+        string name, string? inverseName, DateTimeOffset now, string? expectedRevision, CancellationToken cancellationToken)
+    {
         int changed;
         try
         {
@@ -84,7 +96,7 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
                 UPDATE RelationshipTypes
                 SET Name = @Name, InverseName = @InverseName, UpdatedAtUtc = @Now
                 WHERE Id = @Id AND (@ExpectedRevision IS NULL OR Revision = @ExpectedRevision);
-                """, new { Id = Key(id), Name = name, InverseName = inverseName, Now = Timestamp(now), ExpectedRevision = expectedRevision }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+                """, new { Id = Key(id), Name = name, InverseName = inverseName, Now = Timestamp(now), ExpectedRevision = expectedRevision }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsConstraint(exception))
         {
@@ -97,10 +109,16 @@ public sealed class SqliteRelationshipStore(MonkeysphereConnectionFactory connec
     public async Task RetireTypeAsync(Guid id, DateTimeOffset now, string? expectedRevision = null, CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await RetireTypeCoreAsync(connection, transaction: null, id, now, expectedRevision, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RetireTypeCoreAsync(SqliteConnection connection, SqliteTransaction? transaction, Guid id,
+        DateTimeOffset now, string? expectedRevision, CancellationToken cancellationToken)
+    {
         int changed = await connection.ExecuteAsync(new CommandDefinition("""
             UPDATE RelationshipTypes SET Lifecycle = 1, UpdatedAtUtc = @Now
             WHERE Id = @Id AND Lifecycle = 0 AND (@ExpectedRevision IS NULL OR Revision = @ExpectedRevision);
-            """, new { Id = Key(id), Now = Timestamp(now), ExpectedRevision = expectedRevision }, cancellationToken: cancellationToken)).ConfigureAwait(false);
+            """, new { Id = Key(id), Now = Timestamp(now), ExpectedRevision = expectedRevision }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Active relationship type was not found.", expectedRevision);
     }
 

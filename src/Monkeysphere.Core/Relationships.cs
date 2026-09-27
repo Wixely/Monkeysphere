@@ -209,7 +209,13 @@ public sealed class RelationshipService(IRelationshipStore store, TimeProvider t
 
     internal static string? NormalizeNote(string? note) => string.IsNullOrWhiteSpace(note) ? null : FieldTypes.Required(note, "Relationship note", 2_000);
 
-    internal static (string Name, string? Inverse) NormalizeLabels(
+    /// <summary>
+    /// The one rule for a relationship type's labels: trimmed and bounded, with an inverse label
+    /// required for a directional type and meaningless for a symmetric one. Public because the storage
+    /// layer applies it too, inside the transaction where a rename reads the directionality it has to
+    /// normalize against.
+    /// </summary>
+    public static (string Name, string? Inverse) NormalizeLabels(
         string name,
         string? inverseName,
         RelationshipDirectionality directionality)

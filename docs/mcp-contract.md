@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.33
+- Contract version: 1.34
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-27
 - Owner: Agent
@@ -484,6 +484,38 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Relationship-type lifecycle in 1.34
+
+Contract 1.34 has 104 tools, adding two, and no new grant. It closes MCP milestone M4.
+
+- `rename_relationship_type` and `retire_relationship_type`, both on `structure.write`, joining
+  `create_relationship_type` there.
+
+They sit on `structure.write` rather than `relationships.write` because recording that two people
+correspond and changing what "corresponds with" means are different powers. A credential that can link
+records cannot relabel or retire the definition those links are recorded under.
+
+Both take `expectedRevision` from `list_relationship_types` and return a receipt with the usual 24-hour
+identical-retry replay. A stale revision is `stale_revision`, from the check the store already had.
+
+`directionality` cannot be changed. Every existing relationship was recorded under it, and a symmetric
+type stores its endpoints in a canonical order that a directional one does not, so flipping it would
+silently reinterpret data rather than change a label. Retire and recreate if that is really what is
+wanted. Labels follow the rule `create_relationship_type` already follows: a directional type requires
+an `inverseName`, and one supplied for a symmetric type is ignored rather than refused, because it would
+never be read.
+
+Retiring keeps every relationship already recorded, labels included; the type stops being offered, and
+`create_relationship` against it is refused. A retired type can still be relabelled, because its
+relationships are still shown somewhere.
+
+### What is deliberately absent
+
+There is no tool for editing a relationship's note or moving its endpoints. Those are not currently a
+shared application command — the browser reaches them through page-local code — so advertising a tool
+would mean writing a second implementation of rules that have only ever had one. That extension is
+tracked separately rather than smuggled in behind M4.
 
 ## Reusable-field lifecycle in 1.33
 

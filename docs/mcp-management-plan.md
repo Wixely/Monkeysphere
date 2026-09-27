@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M3 complete as of 2026-09-10; M5 complete as of 2026-09-27; M4, M6 and M7 remain and belong to beta
+- Status: M0-M3 complete as of 2026-09-10; M4 and M5 complete as of 2026-09-27; M6 and M7 remain and belong to beta
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -100,6 +100,53 @@ Dependencies: M2. Owner: Agent.
 - Preserve required-field behavior, conflict choices, saved-view references, reminders, import provenance, and unknown values. Reuse existing transactional revision fingerprints rather than introducing conflicting remote-only rules.
 
 Exit criteria: remote tests cover compatible merges, conflict policies, unsafe conversion rejection, stale preview rejection, and preservation of views/reminders/import provenance. Browser and MCP results agree for the same commands.
+
+Progress 2026-09-27: the structure lifecycle ships as contracts 1.32 to 1.34, taking the surface from 90
+tools to 104. 1.32 covers record types -- retirement and merge previews with their apply, and an update
+tool for the name, symbol and universal-tag setting. 1.33 covers reusable fields -- usage inspection,
+rename, retirement, merge preview and apply with its conflict policies, and conversion preview and
+apply. 1.34 covers relationship-type rename and retirement. All of it is on `structure.write`, previews
+included: a preview counts nothing a reader could not count, but the revision it returns is only usable
+by somebody who can apply it, so splitting the pair across grants would hand out half a workflow.
+
+The approach was to split each existing mutation into a method taking the caller's connection and
+transaction, so the remote path runs the page's own SQL inside the transaction that gives it an
+idempotent receipt. That is what makes the preservation criteria true rather than merely tested:
+records, saved views, reminders, import provenance, unknown field-type values and required-field
+relaxation all survive because it is the same merge. A conversion goes further and reuses the
+application service's own value transformation, since that is where the field-type rules live.
+
+Three revisions are in play and the distinction is load-bearing. A rename checks the entity's own
+revision, because a record gaining a value is no reason to refuse a relabel. A retirement or merge
+checks the usage fingerprint its preview returned -- over one field for a conversion, over both for a
+merge -- because what they need to know is whether what they are about to move is still what was
+counted. A stale one answers `stale_revision` rather than `validation_failed`, because the identical
+request can never succeed; the page refuses the same case from the same check in its own words.
+`get_field_usage` had claimed its single-field revision would do for a merge, which would have earned a
+caller a `stale_revision` they could not explain; the descriptions now say which is which, and a test
+asserts the two fingerprints differ.
+
+Keeping `structure.write` from becoming a way to read records took the most care. The store's field
+usage snapshot carries every value in full, including the backstage ones a conversion has to rewrite, so
+it now stops at the application boundary behind a counts-only type; `get_field_usage` reports how much a
+field is used and never what it holds. A conversion preview does have to say which values cannot be
+carried, or a caller can never fix them, so it reports the count always and names their records only
+when the credential also holds `records.read`, with `issueRecordsWithheld` saying which happened -- the
+same shape the browser already uses for a record withheld by backstage policy.
+
+Two defects were found by writing these tools rather than by review. Migration 39 let a dismissed
+reminder come round again, which made the reminder uniqueness rule total; the field merge's own
+de-duplication still matched on dismissal, so merging two date fields on a record with one dismissed
+reminder failed on the index -- from the Structures page as much as from MCP. It is fixed, and a
+reminder now follows its value. And `rename_relationship_type`'s description claimed a symmetric type
+would refuse a supplied inverse label, where the established rule drops it; the description was wrong,
+not the code, and matching MCP to the browser was the right direction.
+
+Link note and endpoint editing stay out, as planned: they are not a shared application command, so a
+tool would mean a second implementation of rules that have only ever had one.
+
+Remaining in M4: the cross-cutting live-client and interactive-browser gates for contract 1.34, which
+are exit evidence rather than tools.
 
 ## M5 - Views, projections, and settings
 

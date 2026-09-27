@@ -84,6 +84,25 @@ public sealed partial class RemoteRecordWriter
         using IDisposable domain = currentDomain.Use(domainId);
         return await relationshipCommands.DeleteAsync(identity, id, expectedRevision, cancellationToken).ConfigureAwait(false);
     });
+
+    public Task<CallToolResult> RenameRelationshipTypeAsync(Guid domainId, Guid typeId, string expectedRevision, string name,
+        string? inverseName, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        RunAsync(domainId, "relationship_types.rename", async () =>
+    {
+        string hash = CommandRequestHash.Compute(new { contract = 1, domainId, typeId, expectedRevision, name, inverseName });
+        RecordCommandIdentity identity = identities.Create(domainId, "structure.write", "relationship_types.rename", idempotencyKey, hash);
+        using IDisposable domain = currentDomain.Use(domainId);
+        return await relationshipCommands.RenameTypeAsync(identity, typeId, expectedRevision, name, inverseName, cancellationToken).ConfigureAwait(false);
+    });
+
+    public Task<CallToolResult> RetireRelationshipTypeAsync(Guid domainId, Guid typeId, string expectedRevision,
+        Guid idempotencyKey, CancellationToken cancellationToken) => RunAsync(domainId, "relationship_types.retire", async () =>
+    {
+        string hash = CommandRequestHash.Compute(new { contract = 1, domainId, typeId, expectedRevision });
+        RecordCommandIdentity identity = identities.Create(domainId, "structure.write", "relationship_types.retire", idempotencyKey, hash);
+        using IDisposable domain = currentDomain.Use(domainId);
+        return await relationshipCommands.RetireTypeAsync(identity, typeId, expectedRevision, cancellationToken).ConfigureAwait(false);
+    });
 }
 
 [McpServerToolType]
@@ -95,6 +114,20 @@ public sealed class MonkeysphereRelationshipWriteTools
     public static Task<CallToolResult> CreateTypeAsync(RemoteRecordWriter writer, Guid domainId, string name, string directionality,
         Guid idempotencyKey, string? inverseName = null, CancellationToken cancellationToken = default) =>
         writer.CreateRelationshipTypeAsync(domainId, name, directionality, inverseName, idempotencyKey, cancellationToken);
+
+    [RemoteToolScopes("structure.write")]
+    [McpServerTool(Name = "rename_relationship_type", ReadOnly = false, Destructive = false)]
+    [Description("Relabels a relationship definition. Requires structure.write, explicit domainId, expectedRevision from list_relationship_types and idempotencyKey. Labels are trimmed and at most 200 characters. A directional type needs an inverseName; a symmetric one has none, and one supplied for it is ignored, matching create_relationship_type. Directionality itself cannot be changed, because every existing relationship was recorded under it. A retired type can still be relabelled, since its relationships are still shown. Returns an updated ID/revision receipt with 24-hour identical retry replay.")]
+    public static Task<CallToolResult> RenameTypeAsync(RemoteRecordWriter writer, Guid domainId, Guid typeId, string expectedRevision,
+        string name, Guid idempotencyKey, string? inverseName = null, CancellationToken cancellationToken = default) =>
+        writer.RenameRelationshipTypeAsync(domainId, typeId, expectedRevision, name, inverseName, idempotencyKey, cancellationToken);
+
+    [RemoteToolScopes("structure.write")]
+    [McpServerTool(Name = "retire_relationship_type", ReadOnly = false, Destructive = true)]
+    [Description("Retires an active relationship definition. Requires structure.write, explicit domainId, expectedRevision from list_relationship_types and idempotencyKey. Relationships already recorded under it are kept and still shown; the type stops being offered for new ones, and create_relationship against it is refused. Returns a retired ID/revision receipt.")]
+    public static Task<CallToolResult> RetireTypeAsync(RemoteRecordWriter writer, Guid domainId, Guid typeId, string expectedRevision,
+        Guid idempotencyKey, CancellationToken cancellationToken = default) =>
+        writer.RetireRelationshipTypeAsync(domainId, typeId, expectedRevision, idempotencyKey, cancellationToken);
 
     [RemoteToolScopes("relationships.write")]
     [McpServerTool(Name = "create_relationship", ReadOnly = false, Destructive = false)]
