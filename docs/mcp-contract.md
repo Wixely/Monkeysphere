@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.34
+- Contract version: 1.37
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-27
 - Owner: Agent
@@ -484,6 +484,113 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Operations, backups and remote administration in 1.35 to 1.37
+
+Contracts 1.35 to 1.37 have 115 tools, adding eleven, and five new grants. Together they are MCP
+milestone M6: what an operator needs to know the deployment is healthy, to take and fetch a backup,
+and to administer the remote surface itself.
+
+- 1.35: `get_operational_status`, `list_backups`, `validate_backup`, `create_backup`.
+- 1.36: `read_backup`.
+- 1.37: `get_remote_access_state`, `list_remote_activity`, `set_remote_activation`,
+  `rotate_remote_credential`, `revoke_remote_credential`, `rotate_remote_endpoint`.
+
+### Five grants, because these are five different powers
+
+`backups.read` lists packages and opens one to report its format, schema and contents.
+`backups.write` takes a new package. `backups.export` reads a package's bytes out of the deployment.
+`admin.read` sees the remote surfaces and the redacted activity log. `admin.manage` changes them.
+
+They are deliberately separable in every direction, and the tests assert each direction rather than
+just the happy path. A credential that can take a backup cannot inspect one. One that can read a
+package out cannot discover what packages exist. None of them is a way into the records. And reading
+the remote-access state is not administering it.
+
+`backups.export` deserves its own sentence, because it is the most consequential permission on the
+surface: a package contains every domain's records, their original images and the remote-access
+state, so granting it is equivalent to granting a copy of everything.
+
+### A remote rotation can never widen itself
+
+This is the control that keeps `admin.manage` from being a privilege-escalation path rather than an
+administration feature.
+
+`rotate_remote_credential` refuses any permission the **calling credential does not already hold**. A
+rotation over MCP narrows or preserves; it never adds. A credential holding nothing but `admin.read`
+and `admin.manage` therefore cannot mint itself one that reads records, downloads backups or sees
+backstage records — it is refused with `permission_denied` naming the permissions it tried to add,
+and nothing is rotated.
+
+Widening remains an operator action at the Remote access page in the browser. That is not an
+oversight but the recovery route the refusal depends on: the browser path is deliberately unchanged,
+and a test asserts an operator can still restore a grant a remote call had narrowed away.
+
+### Acting on your own connection is allowed, and disclosed
+
+Deactivating the surface a call arrived on, rotating its credential, revoking it, or moving its
+endpoint all break the connection making the call. These are permitted rather than refused, because
+refusing them would make a credential or endpoint believed to be compromised impossible to stop from
+the client that noticed.
+
+Every administrative result therefore carries `affectsThisConnection` and a `disclosure` saying what
+just happened and how to recover. A rotation returns the new secret **once**, in the result; it is
+never written to logs or to the audit record.
+
+### Deployment policy wins
+
+A surface the deployment does not permit to be activated, rotated or moved at runtime stays refused
+however these tools are called. The scope says what the caller may ask for; deployment policy says
+what the deployment will do, and the second wins. A test runs against a host configured to forbid
+endpoint rotation and proves the denial holds for a credential that holds `admin.manage`, that the
+surface is still reachable afterwards, and that what policy does permit still works.
+
+### What these tools deliberately cannot do
+
+- **Restore a backup.** Restore replaces every domain's data and must happen while the application is
+  not serving, so it is an offline operator action: stop the deployment, run it against the package
+  with the documented restore path, and start it again. No remote tool performs or schedules a
+  restore, and `validate_backup` exists precisely so a package can be checked before an operator
+  commits to that.
+- **Delete or prune a package.** Retention applies to scheduled backups. Removing a package on demand
+  needs a design that states what happens to an in-flight download and to the deployment's recovery
+  position, and that design does not exist.
+- **Change the backup schedule.** `get_operational_status` reports the configured schedule read-only.
+  Runtime editing needs a persistence and configuration-precedence design; until it exists, the
+  schedule is changed where it is configured, in deployment settings.
+- **Widen a credential**, as above, or enable anonymous access, which no tool offers at all.
+- **Report the host.** Operational status carries no paths, disk figures or process detail: those
+  describe the machine rather than the deployment.
+
+### Backups are deployment-wide
+
+No backup tool takes a `domainId`. One package covers the registry, every domain's database and
+original media, and remote-access state, and is validated and restored as one unit. This follows the
+existing isolation invariant rather than softening it.
+
+`create_backup` takes no idempotency key. A backup is not a domain command, and a second one is a new
+timestamped package rather than a repeated write, so there is no receipt to replay. A successful call
+returns the package's identifier, name, size and creation time, which is unambiguous; if a response is
+lost, call `list_backups` and compare creation times rather than retrying blind. Large deployments make
+creation slow, because it reads everything.
+
+`read_backup` pages bounded byte ranges, offset 0, count 1-65536, following `nextOffset` until null.
+Offsets are 64-bit: a package can exceed two gigabytes. Unlike `export_contacts`, the digest is
+**opt-in** via `includeDigest`, and the difference is worth stating: that export regenerates its
+document per call, so a stable digest is what proves two chunks came from one document, while a backup
+package is written once and never rewritten. Computing the digest reads the whole package, so asking
+on every chunk would make a download quadratic. A package pruned mid-read fails with `not_found`
+rather than returning a short document.
+
+Validating a package that does not exist answers `not_found`, not `temporarily_unavailable`. The
+latter had been telling callers to retry something that can never succeed.
+
+### Auditing off is not the same as nothing happening
+
+`list_remote_activity` fails with a validation error when remote-access auditing is disabled for the
+deployment, rather than returning an empty page. An operator reading an empty list should not have to
+guess whether the deployment was quiet or simply was not writing anything down. Limit is 1-200, and
+the records are redacted by DnaX: no credential, no request body, no record content.
 
 ## Relationship-type lifecycle in 1.34
 

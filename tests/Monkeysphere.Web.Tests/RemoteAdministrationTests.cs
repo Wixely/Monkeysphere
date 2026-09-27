@@ -139,6 +139,40 @@ public sealed partial class RemoteDiscoveryTests
     }
 
     [Fact]
+    public async Task DeploymentPolicyStillRefusesWhateverTheCredentialHolds()
+    {
+        // The deployment forbids endpoint rotation. A credential holding admin.manage therefore must
+        // not be able to rotate the endpoint anyway: the scope says what the caller is allowed to ask
+        // for, and deployment policy says what the deployment will do, and the second wins. This is
+        // the exit criterion about continued denial when policy disables something, and it needs its
+        // own host because the policy is configuration rather than state.
+        await using RemoteFrozenApplicationFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        IDnaXRemoteAccessAdministration administration = factory.Services.GetRequiredService<IDnaXRemoteAccessAdministration>();
+        RemoteCredentialManager manager = factory.Services.GetRequiredService<RemoteCredentialManager>();
+        string[] grants = ["admin.read", "admin.manage"];
+        DnaXGeneratedCredential credential = await manager.RotateAsync(DnaXRemoteSurface.Mcp, 0, grants);
+        DnaXRemoteEffectiveSurface surface = await administration.SetActivationAsync(
+            DnaXRemoteSurface.Mcp, true, false, credential.Version);
+
+        using JsonDocument refused = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "rotate_remote_endpoint", new { surface = "mcp" });
+        JsonElement result = refused.RootElement.GetProperty("result");
+        Assert.True(result.GetProperty("isError").GetBoolean(), result.GetRawText());
+
+        // Refused and unchanged: the address this call arrived on still works, so the denial did not
+        // half-apply and leave the surface unreachable.
+        using JsonDocument state = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call", "get_remote_access_state");
+        Assert.Equal(surface.EndpointPath, Structured(state).Deserialize<RemoteAccessState>(JsonOptions)!.Mcp.EndpointPath);
+
+        // What policy does permit still works, so the denial is specific rather than a blanket failure
+        // of every administration tool.
+        using JsonDocument narrowed = await SendAsync(client, surface.EndpointPath!, credential.Secret, "tools/call",
+            "rotate_remote_credential", new { surface = "mcp", scopes = grants });
+        _ = Structured(narrowed);
+    }
+
+    [Fact]
     public async Task ActivityIsRedactedPagedAndDistinguishesSilenceFromDisabledAuditing()
     {
         await using RemoteEnabledApplicationFactory factory = new();

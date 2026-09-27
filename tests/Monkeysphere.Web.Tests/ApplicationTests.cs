@@ -1374,3 +1374,31 @@ public class RemoteEnabledApplicationFactory : MonkeysphereApplicationFactory
         });
     }
 }
+
+/// <summary>
+/// Remote access is on and a credential can exist, but the deployment forbids changing any of it at
+/// runtime. This is the shape an operator uses when the surface is configured once and then frozen,
+/// and it is the only way to prove that the administration tools are gated by deployment policy
+/// rather than by their own scope check.
+/// </summary>
+public sealed class RemoteFrozenApplicationFactory : MonkeysphereApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, configuration) =>
+        {
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DnaX:RemoteAccess:Enabled"] = "true",
+                ["DnaX:RemoteAccess:DeploymentId"] = "monkeysphere-frozen-tests",
+                ["DnaX:RemoteAccess:Network:RequireHttps"] = "false",
+                ["DnaX:RemoteAccess:Mcp:Available"] = "true",
+                ["DnaX:RemoteAccess:Mcp:UseRandomizedEndpoint"] = "true",
+                ["DnaX:RemoteAccess:Mcp:AllowRuntimeActivation"] = "true",
+                ["DnaX:RemoteAccess:Mcp:AllowCredentialRotation"] = "true",
+                ["DnaX:RemoteAccess:Mcp:AllowEndpointRotation"] = "false",
+            });
+        });
+    }
+}
