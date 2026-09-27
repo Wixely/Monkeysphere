@@ -125,6 +125,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<MonkeysphereRemoteQueries>();
 builder.Services.AddScoped<MonkeysphereSchemaQueries>();
+builder.Services.AddScoped<MonkeysphereStructureLifecycleQueries>();
 builder.Services.AddScoped<RemotePresetQueries>();
 builder.Services.AddScoped<RemoteCredentialManager>();
 builder.Services.AddScoped<RemoteCommandIdentityProvider>();
@@ -164,6 +165,7 @@ builder.Services.AddDnaXRemoteMcp()
     .WithTools<MonkeysphereRelationshipWriteTools>()
     .WithTools<MonkeysphereGraphSettingsTools>()
     .WithTools<MonkeysphereStructureWriteTools>()
+    .WithTools<MonkeysphereStructureLifecycleTools>()
     .WithTools<MonkeyspherePresetReadTools>()
     .WithTools<MonkeyspherePresetWriteTools>()
     .WithTools<MonkeysphereDomainWriteTools>()

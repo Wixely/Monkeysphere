@@ -2,12 +2,24 @@ namespace Monkeysphere.Core;
 
 public sealed record RecordCommandIdentity(Guid DomainId, string Surface, string CredentialFingerprint, string Action, Guid IdempotencyKey, string RequestHash)
 {
+    /// <summary>
+    /// Every action a receipt can be stored against. Closed rather than free text because the action
+    /// is part of what makes a retry key unique, so a typo would otherwise open a second idempotency
+    /// space silently. A new command has to be added here as well as implemented.
+    /// </summary>
+    private static readonly HashSet<string> KnownActions =
+    [
+        "records.create", "records.patch", "records.batch", "records.delete",
+        "relationships.create", "relationships.update", "relationships.delete", "relationship_types.create",
+        "record_types.create", "record_types.update", "record_types.retire", "record_types.merge",
+        "fields.create_attach", "fields.attach",
+        "presets.install", "setup.complete", "domains.rename", "domains.create",
+    ];
+
     public void Validate()
     {
         if (DomainId == Guid.Empty || IdempotencyKey == Guid.Empty || Surface is not ("mcp" or "api") ||
-            Action is not ("records.create" or "records.patch" or "records.batch" or "records.delete" or
-                "relationships.create" or "relationships.update" or "relationships.delete" or "relationship_types.create" or
-                "record_types.create" or "fields.create_attach" or "fields.attach" or "presets.install" or "setup.complete" or "domains.rename" or "domains.create") || !IsDigest(CredentialFingerprint) || !IsDigest(RequestHash))
+            !KnownActions.Contains(Action) || !IsDigest(CredentialFingerprint) || !IsDigest(RequestHash))
         {
             throw new DomainValidationException("The command identity is invalid.");
         }

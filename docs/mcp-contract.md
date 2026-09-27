@@ -1,8 +1,8 @@
 # MCP contract
 
-- Contract version: 1.31
+- Contract version: 1.32
 - Status: Local implementation; live deployment not verified
-- Reviewed: 2026-09-24
+- Reviewed: 2026-09-27
 - Owner: Agent
 - Next review: 2026-10-24
 
@@ -484,6 +484,67 @@ must not look like the same command to idempotent replay. A retry issued before 
 replayed after it reports `retry_conflict` rather than replaying, because the payload no longer
 hashes the same. That is the safe direction — a refusal, not a second write — and it applies only
 within the 24-hour retry window that spans the upgrade.
+
+## Record-type lifecycle in 1.32
+
+Contract 1.32 has 95 tools, adding five, and no new grant. It opens MCP milestone M4: a remote caller
+could create a record type and never tidy it up, so structure accumulated and only a person at the
+browser could rename, retire or merge it.
+
+- `preview_record_type_retirement` and `retire_record_type`.
+- `preview_record_type_merge` and `merge_record_types`.
+- `update_record_type`, which covers the name, the symbol and whether the type carries universal tags.
+
+All five sit on `structure.write`, the previews included. A preview counts nothing a reader could not
+count for themselves, but the revision it returns is only usable by somebody who can apply it, and
+keeping the pair behind one grant means a credential cannot be given half of a workflow.
+
+### Two different revisions, because there are two different questions
+
+`update_record_type` takes `expectedRevision`, the type's own revision from `get_record_type`, exactly
+as `attach_field` does. Renaming cares only whether somebody else renamed it first.
+
+`retire_record_type` and `merge_record_types` take `expectedUsageRevision` from their preview instead.
+That is a fingerprint over the types **and** their records, field attachments and saved views: what a
+retirement or a merge needs to know is whether what it is about to move is still what was counted. A
+record added between the preview and the call invalidates it, and rightly — the numbers the caller
+decided on are no longer true.
+
+A stale one fails with `stale_revision`, not `validation_failed`. The distinction is load-bearing:
+`validation_failed` invites a corrected retry, while a `stale_revision` request will fail identically
+forever. Preview again and send the new fingerprint. The browser refuses the same case with the same
+fingerprint and its own wording; both call the same code.
+
+### What a merge preserves
+
+The tools wrap the application commands the Structures page already uses, so a merge does exactly what
+the page does rather than something similar:
+
+- Records and saved views move to the target. A view keeps pointing at its records instead of at a
+  retired type.
+- Reminders survive, because a reminder names a field value, and the value's record changing type is
+  not a reason to lose it.
+- Import provenance survives. A field created by a contact import keeps its canonical key, so the next
+  import recognises it instead of making a second one.
+- Values of field types this build does not recognise keep their exact text. Nothing about a merge
+  decides it now understands them.
+- Fields the source has and the target lacks are appended **optional**. A field required on one side
+  and not the other is relaxed, as is a target field required while the source has records. Records
+  that were valid before the merge are still valid after it, which is why `requiredDowngradeCount`
+  appears in the preview: it is the one number that describes a change to structure rather than a
+  move.
+- Merging a type into itself is refused at the preview, so there is no fingerprint to carry to an
+  apply.
+
+Retirement keeps everything. A retired type stops being offered for new work; its records, their
+values and the views over them are untouched, and `query_records` still returns them.
+
+Turning `tagsEnabled` off keeps the tags already recorded, so turning it back on restores exactly what
+the type had. Omitting the argument leaves the setting alone rather than defaulting it off.
+
+Each of the three writes is a receipt-bearing command with 24-hour identical-retry replay, like every
+other write on this surface. A merge's receipt names the retired source first and the updated target
+second, because the retirement is the half a caller is least likely to have expected.
 
 ## A reminder comes round with its date in 1.31
 

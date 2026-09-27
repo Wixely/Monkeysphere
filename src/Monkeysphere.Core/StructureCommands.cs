@@ -10,6 +10,12 @@ public interface IStructureCommandStore
         PreparedFieldDefinition field, DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<RecordCommandReceipt> AttachFieldAsync(RecordCommandIdentity identity, Guid recordTypeId, Guid fieldId,
         string expectedRevision, string expectedFieldRevision, bool isRequired, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> UpdateTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision, string name,
+        string? symbol, bool? tagsEnabled, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> RetireTypeAsync(RecordCommandIdentity identity, Guid id, string expectedUsageRevision,
+        DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<RecordCommandReceipt> MergeTypesAsync(RecordCommandIdentity identity, Guid sourceRecordTypeId, Guid targetRecordTypeId,
+        string expectedUsageRevision, DateTimeOffset now, CancellationToken cancellationToken = default);
 }
 
 public sealed class StructureCommandService(IStructureCommandStore commands, TimeProvider timeProvider)
@@ -35,6 +41,40 @@ public sealed class StructureCommandService(IStructureCommandStore commands, Tim
         RequireReference(recordTypeId, expectedRevision);
         RequireReference(fieldId, expectedFieldRevision);
         return commands.AttachFieldAsync(identity, recordTypeId, fieldId, expectedRevision, expectedFieldRevision, isRequired,
+            timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Changes a record type's name, symbol or whether it carries tags.
+    ///
+    /// The revision checked here is the type's own discovery revision, the same one
+    /// <see cref="AttachFieldAsync"/> demands. Retirement and merging check a usage fingerprint
+    /// instead, because what they need to know is whether the records and views they are about to
+    /// move have changed, which a rename does not touch.
+    /// </summary>
+    public Task<RecordCommandReceipt> UpdateTypeAsync(RecordCommandIdentity identity, Guid id, string expectedRevision,
+        string name, string? symbol, bool? tagsEnabled, CancellationToken cancellationToken = default)
+    {
+        RequireReference(id, expectedRevision);
+        return commands.UpdateTypeAsync(identity, id, expectedRevision, FieldTypes.Required(name, "Record type name", 200),
+            MonkeysphereService.NormalizeRecordTypeSymbol(symbol), tagsEnabled, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    public Task<RecordCommandReceipt> RetireTypeAsync(RecordCommandIdentity identity, Guid id, string expectedUsageRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireReference(id, expectedUsageRevision);
+        return commands.RetireTypeAsync(identity, id, expectedUsageRevision, timeProvider.GetUtcNow(), cancellationToken);
+    }
+
+    public Task<RecordCommandReceipt> MergeTypesAsync(RecordCommandIdentity identity, Guid sourceRecordTypeId,
+        Guid targetRecordTypeId, string expectedUsageRevision, CancellationToken cancellationToken = default)
+    {
+        // One fingerprint covers both types, so one reference check does too: the preview computed it
+        // over the pair and neither half can have moved without it changing.
+        RequireReference(sourceRecordTypeId, expectedUsageRevision);
+        if (targetRecordTypeId == Guid.Empty) throw new DomainValidationException("Supply an entity ID and its discovery revision.");
+        return commands.MergeTypesAsync(identity, sourceRecordTypeId, targetRecordTypeId, expectedUsageRevision,
             timeProvider.GetUtcNow(), cancellationToken);
     }
 

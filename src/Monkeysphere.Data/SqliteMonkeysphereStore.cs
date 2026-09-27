@@ -125,6 +125,19 @@ public sealed partial class SqliteMonkeysphereStore(
         CancellationToken cancellationToken = default)
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await UpdateRecordTypeCoreAsync(connection, transaction: null, id, name, symbol, now, tagsEnabled, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task UpdateRecordTypeCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        Guid id,
+        string name,
+        string? symbol,
+        DateTimeOffset now,
+        bool? tagsEnabled,
+        CancellationToken cancellationToken)
+    {
         int changed;
         try
         {
@@ -146,6 +159,7 @@ public sealed partial class SqliteMonkeysphereStore(
                     TagsEnabled = tagsEnabled is bool enabled ? enabled ? 1 : 0 : (int?)null,
                     Now = Timestamp(now),
                 },
+                transaction,
                 cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
         catch (SqliteException exception) when (IsUniqueConstraint(exception))
@@ -187,18 +201,46 @@ public sealed partial class SqliteMonkeysphereStore(
     {
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        string revision = await ComputeRecordTypeRevisionAsync(connection, [id], transaction, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(revision, expectedRevision, StringComparison.Ordinal))
+        if (!await RecordTypeRevisionMatchesAsync(connection, transaction, [id], expectedRevision, cancellationToken).ConfigureAwait(false))
         {
             throw new DomainValidationException("Record-type usage changed after the preview. Preview retirement again.");
         }
 
+        await RetireRecordTypeCoreAsync(connection, transaction, id, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RetireRecordTypeCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid id,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         int changed = await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE RecordTypes SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @Id AND Lifecycle = 0;",
             new { Id = Key(id), Now = Timestamp(now) }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         RequireChanged(changed, "Active record type was not found.");
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Compares the usage fingerprint a preview reported against the one the database holds now.
+    ///
+    /// Returned rather than thrown because the two callers have to say different things about the
+    /// same fact: a page tells somebody their preview went stale, while a remote call has a
+    /// <c>stale_revision</c> code that means exactly this and is deliberately not a validation
+    /// failure, since retrying the identical request can never succeed.
+    /// </summary>
+    internal static async Task<bool> RecordTypeRevisionMatchesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyList<Guid> recordTypeIds,
+        string expectedRevision,
+        CancellationToken cancellationToken) =>
+        string.Equals(
+            await ComputeRecordTypeRevisionAsync(connection, recordTypeIds, transaction, cancellationToken).ConfigureAwait(false),
+            expectedRevision,
+            StringComparison.Ordinal);
 
     public async Task<RecordTypeMergePreview?> PreviewRecordTypeMergeAsync(
         Guid sourceRecordTypeId,
@@ -301,21 +343,32 @@ public sealed partial class SqliteMonkeysphereStore(
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
+        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (!await RecordTypeRevisionMatchesAsync(connection, transaction,
+            [sourceRecordTypeId, targetRecordTypeId], expectedRevision, cancellationToken).ConfigureAwait(false))
+        {
+            throw new DomainValidationException("Record-type usage changed after the preview. Preview the merge again.");
+        }
+
+        await MergeRecordTypesCoreAsync(connection, transaction, sourceRecordTypeId, targetRecordTypeId, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task MergeRecordTypesCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid sourceRecordTypeId,
+        Guid targetRecordTypeId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        // Guarded here rather than in either caller: merging a type into itself would retire it and
+        // leave its records pointing at a retired type, and both the page and a remote call have to
+        // be stopped from asking for that.
         if (sourceRecordTypeId == targetRecordTypeId)
         {
             throw new DomainValidationException("Choose a different target record type.");
-        }
-
-        await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        string revision = await ComputeRecordTypeRevisionAsync(
-            connection,
-            [sourceRecordTypeId, targetRecordTypeId],
-            transaction,
-            cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(revision, expectedRevision, StringComparison.Ordinal))
-        {
-            throw new DomainValidationException("Record-type usage changed after the preview. Preview the merge again.");
         }
 
         RecordType? source = await QueryRecordTypeAsync(connection, sourceRecordTypeId, transaction, cancellationToken).ConfigureAwait(false);
@@ -374,7 +427,6 @@ public sealed partial class SqliteMonkeysphereStore(
             UPDATE RecordTypes SET Lifecycle = 1, UpdatedAtUtc = @Now WHERE Id = @SourceId;
             UPDATE RecordTypes SET UpdatedAtUtc = @Now WHERE Id = @TargetId;
             """, parameters, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<FieldDefinition> CreateAndAttachFieldAsync(
