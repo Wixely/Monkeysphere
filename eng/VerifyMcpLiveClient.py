@@ -14,15 +14,16 @@ Usage:
 The credential file is two lines: the endpoint path, then the bearer secret. Both come
 from the Remote access page when an administrator activates the MCP surface and selects
 permissions -- which is also the interactive half of the gate, so do that first and
-paste the values here. The credential needs instance.read, records.read, records.write,
-structure.write and views.manage.
+paste the values here. The credential needs instance.read, records.read, records.write, structure.write,
+views.manage, backups.read, backups.write, backups.export, admin.read and admin.manage.
+It must NOT hold records.delete: two checks depend on a permission it lacks.
 
 The base URL defaults to http://localhost:5098. Point it at a separately launched
 published Release process on a *fresh* data root: the script installs a preset and
 creates records, and its idempotency keys are fixed, so a second run against the same
 data root will fail on replay rather than on anything real.
 
-Checks cover contracts 1.29 to 1.34. A later revision should add to the end rather than
+Checks cover contracts 1.29 to 1.37. A later revision should add to the end rather than
 replace, so the evidence accumulates.
 """
 
@@ -127,10 +128,10 @@ print("Transport and discovery")
 listed = call(None, method="tools/list")
 names = sorted(tool["name"] for tool in listed["result"]["tools"])
 ok("tools/list succeeds over the randomized endpoint", len(names) > 0)
-ok("104 tools registered", len(names) == 104, len(names))
+ok("115 tools registered", len(names) == 115, len(names))
 
 info = structured(call("get_instance_info"), "get_instance_info")
-ok("contract 1.34 reported", info["contractVersion"] == "1.34", info["contractVersion"])
+ok("contract 1.37 reported", info["contractVersion"] == "1.37", info["contractVersion"])
 ok("no host paths in instance info", "C:\\" not in json.dumps(info), json.dumps(info))
 
 caps = structured(call("get_capabilities"), "get_capabilities")
@@ -467,6 +468,93 @@ ok("and retiring it twice is refused",
        "domainId": domain, "typeId": link_id,
        "expectedRevision": relationship_retired["items"][0]["revision"],
        "idempotencyKey": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb5"}), "second retirement") == "validation_failed")
+
+print("Operational status and backups (1.35, 1.36)")
+status = structured(call("get_operational_status"), "get_operational_status")
+ok("the deployment reports itself ready", status["ready"] is True, status)
+ok("and reports no host detail", "\\" not in json.dumps(status) and "/var/" not in json.dumps(status), status)
+ok("the schedule is reported read-only", "frequency" in status["schedule"], status["schedule"])
+before_count = status["backupCount"]
+
+taken = structured(call("create_backup"), "create_backup")
+ok("a backup reports an unambiguous completion", taken["byteLength"] > 0 and taken["id"], taken)
+listed = structured(call("list_backups"), "list_backups")
+ok("and appears in the list exactly once",
+   len([b for b in listed if b["id"] == taken["id"]]) == 1, listed)
+ok("the status count moved with it",
+   structured(call("get_operational_status"), "get_operational_status")["backupCount"] == before_count + 1)
+
+checked = structured(call("validate_backup", {"id": taken["id"]}), "validate_backup")
+ok("validation opens the package and reports its schema",
+   checked["applicationSchemaVersion"] == info["databaseSchemaVersion"], checked)
+ok("validating a package that does not exist is not_found, not a retry suggestion",
+   error_code(call("validate_backup", {"id": "00000000-0000-4000-8000-0000000000ff"}),
+              "absent backup") == "not_found")
+
+# Paged deliberately small, so the offsets are exercised rather than the package arriving at once.
+rebuilt = bytearray()
+offset, chunks, digest = 0, 0, None
+while offset is not None:
+    chunk = structured(call("read_backup", {"id": taken["id"], "offset": offset, "count": 8192,
+                                            "includeDigest": chunks == 0}), "read_backup")
+    if chunks == 0:
+        digest = chunk["contentDigest"]
+    rebuilt.extend(base64.b64decode(chunk["contentBase64"]))
+    offset, chunks = chunk["nextOffset"], chunks + 1
+ok("the package pages in more than one range", chunks > 1, chunks)
+ok("the ranges reassemble to the reported length", len(rebuilt) == taken["byteLength"], len(rebuilt))
+ok("and to the digest the first range reported",
+   hashlib.sha256(bytes(rebuilt)).hexdigest().upper() == digest, digest)
+ok("an offset past the end is refused",
+   error_code(call("read_backup", {"id": taken["id"], "offset": taken["byteLength"] + 1, "count": 8192}),
+              "past the end") == "validation_failed")
+
+print("Remote administration (1.37)")
+access = structured(call("get_remote_access_state"), "get_remote_access_state")
+ok("remote access reports itself enabled and the MCP surface active",
+   access["enabled"] is True and access["mcp"]["isActive"] is True, access)
+ok("the credential is identified by suffix, not disclosed",
+   access["mcp"]["credentialEnding"] and secret not in json.dumps(access))
+ok("the endpoint this call arrived on is the one reported",
+   access["mcp"]["endpointPath"] == endpoint, access["mcp"]["endpointPath"])
+
+activity = structured(call("list_remote_activity", {"limit": 25}), "list_remote_activity")
+ok("redacted activity is returned and bounded", activity["returned"] > 0 and activity["limit"] == 25)
+ok("and carries no credential", secret not in json.dumps(activity))
+ok("an unbounded limit is refused",
+   error_code(call("list_remote_activity", {"limit": 500}), "unbounded activity") == "validation_failed")
+
+held = sorted(access["mcp"]["scopes"])
+ok("this credential does not hold records.delete, so the next check means something",
+   "records.delete" not in held, held)
+ok("a rotation cannot grant a permission this credential lacks",
+   error_code(call("rotate_remote_credential",
+                   {"surface": "mcp", "scopes": held + ["records.delete"]}),
+              "widening rotation") == "permission_denied")
+ok("and nothing was rotated by the refusal",
+   sorted(structured(call("get_remote_access_state"), "get_remote_access_state")["mcp"]["scopes"]) == held)
+
+# The API surface is a different connection, so acting on it must say so rather than warn about nothing.
+elsewhere = structured(call("set_remote_activation", {"surface": "api", "active": False}), "set_remote_activation")
+ok("changing the other surface reports no effect on this connection",
+   elsewhere["affectsThisConnection"] is False, elsewhere["disclosure"])
+
+# Last, because it replaces the credential this script is using. Narrowing is permitted, and the new
+# secret has to work while the old one stops: that is the whole rotation contract in two calls.
+rotated = structured(call("rotate_remote_credential", {"surface": "mcp", "scopes": held}), "rotate_remote_credential")
+ok("rotating this surface discloses that it affects this connection",
+   rotated["affectsThisConnection"] is True and "stop working" in rotated["disclosure"], rotated["disclosure"])
+ok("and returns the new secret once", bool(rotated.get("credential")))
+
+superseded, secret = secret, rotated["credential"]
+ok("the new credential works", structured(call("get_operational_status"), "get_operational_status")["ready"] is True)
+secret = superseded
+try:
+    replaced = call("get_operational_status")
+    ok("the superseded credential no longer works", replaced.get("result", {}).get("isError") is True, replaced)
+except urllib.error.HTTPError as rejected:
+    ok("the superseded credential no longer works", rejected.code in (401, 403), rejected.code)
+secret = rotated["credential"]
 
 print("Grant separation on a live credential")
 ok("delete_saved_view needs views.manage and this credential has it",

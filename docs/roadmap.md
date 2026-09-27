@@ -21,7 +21,7 @@ The product is pre-alpha in maturity even though alpha packages are published. T
 | Phase | Theme | Exit criteria | Review |
 | --- | --- | --- | --- |
 | Alpha (`0.1.x`) | Prove the record/relationship model and the self-hosted deployment shape | Met on 2026-09-10: M0-M3 closed and every deployment shape has live lifecycle evidence. The replacement prerelease clause is met by `v0.1.0-alpha.3` | 2026-10-01 |
-| Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed (M4 and M5 closed 2026-09-27; M6 and M7 remain); complete script/style CSP enforced (done); accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
+| Beta (`0.2.x`) | Complete the management surfaces and remove documented residual risks | MCP milestones M4-M7 closed (M4, M5 and M6 closed 2026-09-27; M7 remains); complete script/style CSP enforced (done); accessibility conformance verification completed; preset upgrade workflow shipped; DnaX consumed as a stable version | 2026-12-01 |
 | 1.0 | Operational confidence for a self-hosting user who is not the author | Interaction timeline shipped; upgrade path across at least two prior minor versions verified; documented backup/restore drill repeated on a clean host; no open High residual risk in the [threat model](threat-model.md) | 2027-02-01 |
 
 Phase membership is a planning aid. An item may be pulled forward or dropped without renaming the phase.
@@ -92,7 +92,7 @@ Owner: Wixely / Agent. Next action: reconcile the *Not yet verified* list agains
 
 ## MCP instance management
 
-Status: M0 to M5 complete; M6 in progress, M7 pending. Baseline reviewed: 2026-09-27.
+Status: M0 to M6 complete; M7 pending. Baseline reviewed: 2026-09-27.
 
 Build out authenticated MCP management of application data and runtime administration, preserving domain isolation and the offline restore boundary. The [MCP implementation plan](mcp-management-plan.md) defines contracts, dependencies, delivery phases, acceptance criteria, and remaining decisions.
 
@@ -106,10 +106,10 @@ The [MCP options plan](mcp-options-plan.md) expands this into tool families, acc
 | M3 | File transfer, vCard preview/apply/export, and record images | Complete 2026-09-10; record image transfer shipped as contract 1.16 and the live client demonstration passed against a deployed process | Agent | 2026-09-21 |
 | M4 | Complete field and record-type lifecycle management | Complete 2026-09-27: record types as contract 1.32, reusable fields as 1.33, relationship types as 1.34, taking the surface to 104 tools. Both cross-cutting gates met the same day, 71 live-client checks with the credential minted from the Remote access page | Agent | 2026-10-15 |
 | M5 | Saved views, graph/map queries, calendar, reminders, and settings | Tool surface complete: saved record views as contract 1.25 with the `views.manage` grant, graph views and bounded graph queries as 1.26, calendar and iCalendar export as 1.27, reminders as 1.28, spatial queries with map settings and the dashboard as 1.29. Complete 2026-09-27: live-client gate passed 2026-09-24 against a published process, interactive browser gate 2026-09-27 including the permission interface for `views.manage` | Agent | 2026-10-15 |
-| M6 | Backup operations, operational status, and separately scoped remote administration | In progress from 2026-09-27; dependencies M1 and M3 are closed. Wixely owns the deployment-policy decisions | Agent | 2026-10-15 |
+| M6 | Backup operations, operational status, and separately scoped remote administration | Complete 2026-09-27: operational status and backups as contracts 1.35 and 1.36, remote administration as 1.37, taking the surface to 115 tools and adding five grants. Both cross-cutting gates met the same day, 96 live-client checks | Agent | 2026-10-15 |
 | M7 | Coverage review, end-to-end verification, documentation, and staged release | Planned; depends on M3-M6 | Wixely / Agent | 2026-10-01 |
 
-Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4 and M5 both closed on 2026-09-27, each with both cross-cutting gates met, taking the contract to 1.34 and the surface to 104 tools. M6 is under way and M7 depends on it; both belong to beta. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
+Dates are review checkpoints, not delivery commitments. M0 to M3 are closed as of 2026-09-10, which satisfies the alpha gate's MCP criterion. M4, M5 and M6 all closed on 2026-09-27, each with both cross-cutting gates met, taking the contract to 1.37 and the surface to 115 tools. M7 remains and belongs to beta; it depends on the others and Wixely co-owns it. Wixely separately reviews whether alpha is now complete, since every alpha exit criterion has evidence.
 
 ### Cross-cutting gates
 

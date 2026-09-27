@@ -1,6 +1,6 @@
 # MCP instance-management implementation plan
 
-- Status: M0-M3 complete as of 2026-09-10; M4 and M5 complete as of 2026-09-27; M6 and M7 remain and belong to beta
+- Status: M0-M6 complete as of 2026-09-27; M7 remains and belongs to beta
 - Created and last reviewed: 2026-09-07
 - Plan owner: Wixely / Agent
 - Next review: 2026-09-14
@@ -176,6 +176,42 @@ Dependencies: M1 and M3. Owner: Agent; Wixely owns deployment-policy decisions.
 - Document offline restore and operator-owned actions as capability exclusions with concrete operational instructions.
 
 Exit criteria: least-privilege backup and administration credentials are tested separately; backups remain deployment-wide and validate across multiple domains. Long-running creation has unambiguous completion/retry status. Tests prove credential/endpoint lifecycle behavior and continued denial when deployment policy disables a surface.
+
+Progress 2026-09-27: M6 ships as contracts 1.35 to 1.37, taking the surface to 115 tools and adding five
+grants. 1.35 is operational status and backup read/create/validate, 1.36 is the bounded package reader,
+1.37 is remote-surface state, the redacted activity log, and the activation, rotation, revocation and
+endpoint tools.
+
+The grants are separable in every direction and each direction is tested: taking a backup is not
+inspecting one, reading a package out is not discovering what packages exist, none of them is a way into
+the records, and reading the remote-access state is not administering it. `backups.export` is the most
+consequential permission on the surface and its description says so, because a package is every domain's
+records, their original images and the remote-access state in one file.
+
+The control that decides whether remote administration is a feature or a hole is that a rotation cannot
+widen: the selected permissions must be a subset of what the calling credential already holds. Widening
+stays at the Remote access page, so the browser path is deliberately untouched and a test asserts an
+operator can still restore what a remote call narrowed away. Acting on the surface a call arrived on is
+permitted rather than refused -- otherwise a compromised credential could not be stopped by the client
+that noticed it -- but every result carries `affectsThisConnection` and a disclosure, and the live gate
+proved the old endpoint really is gone and the superseded credential really does stop working.
+
+Three smaller judgements, each recorded because the alternative looked reasonable. `create_backup` takes
+no idempotency key: a backup is deployment-wide rather than a domain command, so there is no receipt to
+replay, and the honest answer to a lost response is `list_backups` and a comparison of creation times.
+`read_backup` makes its digest opt-in, unlike `export_contacts`, because a package is written once and
+never rewritten while that export regenerates per call -- and hashing the whole package per chunk would
+make a download quadratic. `list_remote_activity` fails rather than returning an empty page when auditing
+is off, because "nothing was recorded" and "nothing happened" are different facts.
+
+One error-contract fix fell out of the work: validating a backup that does not exist had been answering
+`temporarily_unavailable`, telling callers to retry something that can never succeed. It now answers
+`not_found`, translated at the one place that knows the identifier was simply wrong rather than in the
+shared mapping, where a missing file can genuinely mean a broken deployment.
+
+Both cross-cutting gates were met the same day against one deployment: 96 live-client checks with the
+credential minted from the Remote access page. Deployment-policy denial needs a differently configured
+host, so it is covered by a test rather than the gate. M6 is closed.
 
 ## M7 - Verification and release
 
