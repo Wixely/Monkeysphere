@@ -630,6 +630,16 @@ h3 {
     overflow: hidden;
 }
 
+/* The one row standing in for every category holding nothing. Deliberately slighter than a records
+   panel: it is an invitation rather than content, and it used to be one full panel per empty type. */
+.dashboard-empty {
+    padding-block: .9rem 1rem;
+}
+
+.dashboard-empty .eyebrow {
+    margin-bottom: .6rem;
+}
+
 .dashboard-date-list {
     display: grid;
     gap: .65rem;

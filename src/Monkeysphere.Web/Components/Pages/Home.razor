@@ -47,7 +47,7 @@ else
     {
         <section class="panel dashboard-records"><p class="empty-state">Choose one or more record categories in Dashboard settings.</p></section>
     }
-    @foreach (DashboardCategory category in _categories)
+    @foreach (DashboardCategory category in _categories.Where(item => item.Records.TotalCount > 0))
     {
         <section class="panel dashboard-records" aria-labelledby="dashboard-records-@category.Type.Id">
             <div class="section-heading">
@@ -57,27 +57,38 @@ else
                     <a class="button subtle" href="/records?typeId=@category.Type.Id">View all</a>
                 </div>
             </div>
-            @if (category.Records.TotalCount == 0)
-            {
-                <p class="empty-state">No @category.DisplayName.ToLower(CultureInfo.CurrentCulture) yet.</p>
-            }
-            else
-            {
-                <ul class="item-list dashboard-record-list">
-                    @foreach (DashboardRecordRow row in category.Rows)
-                    {
-                        <li>
-                            <RecordIdentity RecordId="row.Record.Id" DisplayName="@row.Record.DisplayName"
-                                            ImageId="row.ImageId" Symbol="@category.Symbol" />
-                            <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
-                        </li>
-                    }
-                </ul>
-                @if (category.Records.TotalCount > category.Records.Items.Count)
+            <ul class="item-list dashboard-record-list">
+                @foreach (DashboardRecordRow row in category.Rows)
                 {
-                    <p class="dashboard-more"><a href="/records?typeId=@category.Type.Id">View all @category.Records.TotalCount @category.DisplayName.ToLower(CultureInfo.CurrentCulture)</a></p>
+                    <li>
+                        <RecordIdentity RecordId="row.Record.Id" DisplayName="@row.Record.DisplayName"
+                                        ImageId="row.ImageId" Symbol="@category.Symbol" />
+                        <span class="muted">Updated @row.Record.UpdatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</span>
+                    </li>
                 }
+            </ul>
+            @if (category.Records.TotalCount > category.Records.Items.Count)
+            {
+                <p class="dashboard-more"><a href="/records?typeId=@category.Type.Id">View all @category.Records.TotalCount @category.DisplayName.ToLower(CultureInfo.CurrentCulture)</a></p>
             }
+        </section>
+    }
+
+    @* A category with nothing in it used to get a panel of its own saying so. Once a record type
+       began reaching the dashboard without being asked for, a fresh deployment was mostly panels
+       reading "No workplace yet" -- the useful content pushed below three of them. They are worth
+       keeping, because the link is where somebody starts the first one, but not worth a panel each. *@
+    @if (_emptyCategories.Count > 0)
+    {
+        <section class="panel dashboard-empty" aria-labelledby="dashboard-nothing-yet">
+            <p class="eyebrow">Nothing yet</p>
+            <h2 id="dashboard-nothing-yet" class="visually-hidden">Categories with no records</h2>
+            <div class="action-row wrap">
+                @foreach (DashboardCategory category in _emptyCategories)
+                {
+                    <a class="button subtle" href="/records/new?typeId=@category.Type.Id">Add @category.Type.Name</a>
+                }
+            </div>
         </section>
     }
 }
@@ -87,6 +98,13 @@ else
     private IReadOnlyList<DashboardUpcomingDate> _upcoming = [];
     private readonly List<DashboardCategory> _categories = [];
     private bool _loading = true;
+
+    /// <summary>
+    /// The categories holding nothing. Gathered rather than filtered inline so the markup reads as the
+    /// two things the page shows: what is there, and where to start what is not.
+    /// </summary>
+    private List<DashboardCategory> _emptyCategories =>
+        [.. _categories.Where(category => category.Records.TotalCount == 0)];
 
     protected override async Task OnInitializedAsync()
     {

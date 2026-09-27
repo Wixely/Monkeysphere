@@ -38,7 +38,7 @@ Phase membership is a planning aid. An item may be pulled forward or dropped wit
 | MCP record image transfer | [MCP instance management](#mcp-instance-management) | Complete; M3 closed 2026-09-10 | Agent | 2026-09-21 |
 | Document the MCP transport requirements a client must meet | [MCP client interoperability](#mcp-client-interoperability) | Corrected 2026-09-10; not a defect, a documentation gap | Agent | 2026-09-14 |
 | Live MCP client and interactive browser gates | [MCP instance management](#mcp-instance-management) | Complete for contract 1.15 against the published package | Agent | 2026-09-14 |
-| Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Mechanism verified alpha.3 to alpha.4 on both platforms; a schema-changing upgrade is still untested | TBD | 2026-12-01 |
+| Upgrade across a schema-changing release | [Upgrade path verification](#upgrade-path-verification) | Verified 2026-09-27: `v0.6.0-alpha.1` to current across migrations 37-39, with curated data preserved | Agent | 2026-12-01 |
 | Format 1 backup compatibility fixture | [Backup and restore follow-up](#backup-and-restore-follow-up) | Complete | Agent | 2026-09-28 |
 | Clean DnaX package release without local build paths | [Release follow-up](#release-follow-up) | Planned | Wixely / Agent | 2026-09-28 |
 | Complete script/style CSP | [Content Security Policy completion](#content-security-policy-completion) | Done | Agent | 2026-12-01 |
@@ -589,7 +589,9 @@ Owner: TBD. Next action: write the design note choosing the data model and stati
 
 ## Upgrade path verification
 
-Status: Partly done. The upgrade mechanism was verified alpha.3 to alpha.4 on 2026-09-09 on both Windows and Linux: replacing only the binaries left the data root and ledger byte-identical and the service started without drift. Because those releases share application schema 28, no migration ran, so a schema-changing upgrade remains untested. The earlier negative evidence stands separately under [migration ledger compatibility](#migration-ledger-compatibility).
+Status: Partly done, and one gap closed. The upgrade mechanism was verified alpha.3 to alpha.4 on 2026-09-09 on both Windows and Linux: replacing only the binaries left the data root and ledger byte-identical and the service started without drift. Because those releases share application schema 28, no migration ran.
+
+A **schema-changing** upgrade was then verified on 2026-09-27: `v0.6.0-alpha.1` built a data root at schema 36, that database was given a curated dashboard and a dismissed reminder through the old schema, and the current build applied migrations 37, 38 and 39 to it. The arrangement, the dismissals the migration had to infer, and the translated reminder dismissal all came through as designed, and the upgraded deployment served them. Details and the limits of that evidence are in [verification status](verification.md). The earlier negative evidence stands separately under [migration ledger compatibility](#migration-ledger-compatibility).
 
 DnaX historical verification constructs and upgrades every application schema version to the same canonical schema, and the registry and staging manifests have their own historical checks. That covers the database. It does not cover a real deployment moving between released versions with its data, media, configuration, remote-access state, and container or service definition in place.
 
@@ -597,7 +599,9 @@ Required before 1.0: install a released version, populate it, upgrade in place a
 
 MCP disposition: **Not applicable.** Upgrade is an operator procedure. The schema version already reported by `get_instance_info` must remain correct across it.
 
-Owner: TBD. Next action: define the minimum upgrade matrix once `0.2.0` exists. Review: 2026-12-01.
+What that run did not cover, and 1.0 still needs: media derivatives, remote credentials, scheduled backups and the container and service definitions, across each supported deployment shape rather than one Windows process.
+
+Owner: TBD. Next action: define the minimum upgrade matrix once `0.2.0` exists, now that one schema-changing hop has been done by hand. Review: 2026-12-01.
 
 ## Release follow-up
 
