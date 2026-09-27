@@ -2799,6 +2799,37 @@ input[type="checkbox"] {
     margin-top: 1.5rem;
 }
 
+/* Merging a duplicate. One of the two records is about to stop existing, so the summary that names it
+   is given the same weight as a warning rather than reading as another paragraph of the panel. */
+.record-merge h3 {
+    margin-top: 1.5rem;
+}
+
+.record-merge .source-value {
+    display: inline-block;
+    max-width: 34rem;
+    overflow-wrap: anywhere;
+}
+
+.merge-summary {
+    margin-top: 1.25rem;
+    padding: .9rem 1rem;
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+}
+
+.merge-summary h3 {
+    margin: 0 0 .5rem;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.merge-summary .item-list li {
+    display: block;
+    padding: .2rem 0;
+    border: 0;
+}
+
 /* The enrichment offers sit inside the review panel, so they need their own boundary. */
 .enrichment-offers {
     margin-bottom: 1.25rem;

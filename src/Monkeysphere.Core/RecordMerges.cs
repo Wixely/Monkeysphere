@@ -1,39 +1,76 @@
 namespace Monkeysphere.Core;
 
+/// <summary>What to do with a field both records hold a value for.</summary>
+public enum RecordMergeResolution
+{
+    /// <summary>Keep the surviving record's value. The other is archived rather than deleted.</summary>
+    KeepSurviving,
+
+    /// <summary>Take the merged-away record's value instead. The survivor's own is archived.</summary>
+    TakeMerged,
+
+    /// <summary>
+    /// Keep both. The field ends up holding the surviving record's values followed by the merged-away
+    /// record's, because nothing in the model says a field holds only one — two phone numbers or two
+    /// notes are a better answer than throwing one away. A tags field unions its lists instead of
+    /// ending up with two lists.
+    /// </summary>
+    KeepBoth,
+}
+
+public sealed record RecordMergeChoice(Guid FieldDefinitionId, RecordMergeResolution Resolution);
+
 /// <summary>
 /// One field both records hold a value for, which is the only case a person has to decide.
 ///
 /// The model has no cardinality flag, so "this field holds one value" is not something the
-/// application can be told; it is inferred from the situation. A field only one of the two records
-/// uses is carried without asking. A field both use is a conflict, whether that is one date of birth
-/// against another or three phone numbers against two, because in every such case keeping both would
-/// invent a record neither side had.
+/// application can be told; it is inferred from the situation. A field only one record uses is
+/// carried without asking. A field both use is a conflict, because silently keeping both would
+/// invent a record neither side had and silently keeping one would lose data without saying so.
 /// </summary>
 public sealed record RecordMergeValueConflict(
     Guid FieldDefinitionId,
     string FieldName,
     string TypeId,
-    IReadOnlyList<RecordValue> TargetValues,
-    IReadOnlyList<RecordValue> SourceValues);
+    IReadOnlyList<RecordValue> SurvivingValues,
+    IReadOnlyList<RecordValue> MergedValues,
+    RecordMergeResolution Resolution);
 
-/// <summary>Take the merged-away record's values for this field instead of the survivor's.</summary>
-public sealed record RecordMergeChoice(Guid FieldDefinitionId, bool TakeSourceValues);
+/// <summary>Why a value from the merged-away record did not become live data on the survivor.</summary>
+public static class RecordMergeUncarriedReasons
+{
+    public const string SurvivingValueKept = "The surviving record's own value was kept.";
+
+    /// <summary>
+    /// Only possible when the two records are of different types. The survivor's type has no such
+    /// field, so there is nowhere for the value to live as record data. It is archived instead, which
+    /// is the difference between merging across types and losing something.
+    /// </summary>
+    public const string FieldNotOnSurvivingType = "The surviving record's type does not have this field.";
+}
+
+public sealed record RecordMergeUncarriedValue(
+    Guid FieldDefinitionId, string FieldName, string Reason, IReadOnlyList<RecordValue> Values);
 
 /// <summary>
-/// What a merge would do, counted. <see cref="FieldValuesRetainedOnly"/> is the number that lose
-/// their conflict: they are not discarded, they stop being live record data and remain readable as
-/// retained source material, which is the whole promise of the merge.
+/// What a merge would do, counted. Every number is about the record being merged away, because that is
+/// the record something happens to; the survivor's own data is only counted where the merge displaces
+/// it, as a replaced field's reminders are.
+///
+/// Nothing here is a loss: a value that is not carried stops being live record data and becomes
+/// readable as retained source material, which is the promise the merge makes and the reason it is not
+/// just a delete.
 /// </summary>
 public sealed record RecordMergeImpact(
     int FieldValuesCarried,
-    int FieldValuesRetainedOnly,
+    int FieldValuesArchivedOnly,
     int AliasesAdded,
     int TagsAdded,
     int ImagesCarried,
     int RelationshipsRepointed,
     int RelationshipsDropped,
     int RemindersCarried,
-    int RemindersCollapsed,
+    int RemindersDropped,
     int SourceImportsCarried,
     int GraphViewsUpdated);
 
@@ -41,23 +78,25 @@ public sealed record RecordMergeImpact(
 /// What merging one record into another would do, and what the person has to decide first.
 ///
 /// <see cref="Refusal"/> is non-null when the pair cannot be merged at all. It is reported rather
-/// than thrown because asking whether two records can be merged is a reasonable thing to do, and a
-/// picker that offers a record needs to be able to say why it is unavailable.
+/// than thrown because asking whether two records can be merged is a reasonable thing for a picker
+/// to do, and it needs to be able to say why one is unavailable.
 /// </summary>
 public sealed record RecordMergePreview(
-    RecordSummary Target,
-    RecordSummary Source,
+    RecordSummary Surviving,
+    RecordSummary Merged,
     string Revision,
     string? Refusal,
     RecordMergeImpact Impact,
     IReadOnlyList<RecordMergeValueConflict> Conflicts,
-    IReadOnlyList<string> AliasesAdded);
+    IReadOnlyList<RecordMergeUncarriedValue> Archived,
+    IReadOnlyList<string> AliasesAdded,
+    IReadOnlyList<string> TagsAdded);
 
 public static class RecordMergeLimits
 {
     /// <summary>
-    /// Conflicts listed in one preview. A merge of two records of one type cannot exceed the type's
-    /// field count in practice, so this is a bound rather than a paging scheme.
+    /// Conflicts and archived values listed in one preview. A merge of two records cannot exceed the
+    /// fields their types carry, so this is a sanity bound rather than a paging scheme.
     /// </summary>
-    public const int MaximumConflicts = 500;
+    public const int MaximumReportedValues = 500;
 }

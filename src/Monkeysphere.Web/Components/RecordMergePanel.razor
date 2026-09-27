@@ -1,0 +1,307 @@
+@inject IMonkeysphereService Service
+@inject NavigationManager Navigation
+
+@*
+    Two records that turned out to be the same person. One of them is going to stop existing, so the
+    panel's first job is to be unmistakable about which — every heading and every button names the
+    record being deleted rather than talking about "the other one".
+
+    Nothing it says is a guess: the preview comes from the same plan the merge runs, so the counts and
+    the conflicts shown are the counts and conflicts that happen.
+*@
+<section class="panel record-merge">
+    <h2>Merge a duplicate</h2>
+    <p>
+        If this record and another are the same thing, merging folds them into one. The record that is
+        merged away is deleted, but nothing it held is lost: whatever this record's type can hold becomes
+        its data, and everything else stays readable below under <em>Imported source data</em>.
+    </p>
+
+    <div class="form-grid">
+        <label>
+            Find a record
+            <input @bind="_query" placeholder="Name" aria-label="Find a record to merge" />
+        </label>
+        <label>
+            Duplicate record
+            <SearchableSelect TValue="string" @bind-Value="_otherValue" Options="Candidates" AriaLabel="Duplicate record" />
+        </label>
+        <label>
+            Which one survives
+            <SearchableSelect TValue="string" @bind-Value="_directionValue" Options="DirectionOptions" AriaLabel="Which record survives" />
+        </label>
+    </div>
+    <div class="action-row">
+        <button class="button" type="button" @onclick="SearchAsync">Search records</button>
+        <button class="button" type="button" disabled="@(_otherValue.Length == 0)" @onclick="PreviewAsync">Preview merge</button>
+    </div>
+
+    @if (_message is string message)
+    {
+        <p class="error" role="alert">@message</p>
+    }
+
+    @if (_preview is RecordMergePreview preview)
+    {
+        @if (preview.Refusal is string refusal)
+        {
+            <p class="error" role="alert">@refusal</p>
+        }
+        else
+        {
+            <div class="merge-summary">
+                <h3>
+                    <strong>@preview.Merged.DisplayName</strong> will be deleted.
+                    <strong>@preview.Surviving.DisplayName</strong> will remain.
+                </h3>
+                <ul class="item-list">
+                    <li>@Count(preview.Impact.FieldValuesCarried, "field value") carried over.</li>
+                    <li>@Count(preview.Impact.AliasesAdded, "alias") and @Count(preview.Impact.TagsAdded, "tag") added.</li>
+                    <li>@Count(preview.Impact.ImagesCarried, "image") moved across.</li>
+                    <li>
+                        @Count(preview.Impact.RelationshipsRepointed, "relationship") repointed at
+                        @preview.Surviving.DisplayName.
+                        @if (preview.Impact.RelationshipsDropped > 0)
+                        {
+                            <span class="muted">
+                                @Count(preview.Impact.RelationshipsDropped, "relationship") dropped as a duplicate
+                                or as a link between these two records.
+                            </span>
+                        }
+                    </li>
+                    @if (preview.Impact.RemindersCarried + preview.Impact.RemindersDropped > 0)
+                    {
+                        <li>
+                            @Count(preview.Impact.RemindersCarried, "reminder") carried over.
+                            @if (preview.Impact.RemindersDropped > 0)
+                            {
+                                <span class="muted">
+                                    @Count(preview.Impact.RemindersDropped, "reminder") dropped, because the value it
+                                    was about is not being kept.
+                                </span>
+                            }
+                        </li>
+                    }
+                    <li>
+                        @Count(preview.Impact.FieldValuesArchivedOnly, "value") kept as source data only,
+                        readable but no longer part of the record.
+                    </li>
+                </ul>
+            </div>
+
+            @if (preview.Conflicts.Count > 0)
+            {
+                <h3>Both records have a value for these</h3>
+                <p>
+                    This record's value is kept by default. Whichever you choose, the other is still readable
+                    afterwards as source data.
+                </p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>@preview.Surviving.DisplayName</th>
+                                <th>@preview.Merged.DisplayName</th>
+                                <th>Keep</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (RecordMergeValueConflict conflict in preview.Conflicts)
+                            {
+                                <tr>
+                                    <th scope="row">@conflict.FieldName</th>
+                                    <td>@Describe(conflict.SurvivingValues)</td>
+                                    <td>@Describe(conflict.MergedValues)</td>
+                                    <td>
+                                        <SearchableSelect TValue="string"
+                                                          Value="@Resolution(conflict.FieldDefinitionId)"
+                                                          ValueChanged="value => ChooseAsync(conflict.FieldDefinitionId, value)"
+                                                          Options="ResolutionOptions(conflict)"
+                                                          AriaLabel="@($"Which value to keep for {conflict.FieldName}")" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (preview.AliasesAdded.Count > 0)
+            {
+                <p>
+                    <strong>@preview.Merged.DisplayName</strong> goes on as
+                    @* A different name is another name the same person went by, not a disagreement. *@
+                    @string.Join(", ", preview.AliasesAdded.Select(alias => $"“{alias}”")) in the aliases.
+                </p>
+            }
+
+            @if (preview.Archived.Count > 0)
+            {
+                <h3>Kept as source data only</h3>
+                <ul class="item-list">
+                    @foreach (RecordMergeUncarriedValue archived in preview.Archived)
+                    {
+                        <li>
+                            <strong>@archived.FieldName</strong>
+                            <code class="source-value">@Describe(archived.Values)</code>
+                            <span class="muted">@archived.Reason</span>
+                        </li>
+                    }
+                </ul>
+            }
+
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_confirmed" />
+                I understand <strong>@preview.Merged.DisplayName</strong> will be deleted.
+            </label>
+            <button class="button danger" type="button" disabled="@(!_confirmed || _merging)" @onclick="MergeAsync">
+                Merge and delete @preview.Merged.DisplayName
+            </button>
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid RecordId { get; set; }
+
+    /// <summary>Raised after a merge that leaves this record standing, so the page can reload it.</summary>
+    [Parameter]
+    public EventCallback OnMerged { get; set; }
+
+    private const string ThisSurvives = "this";
+    private const string OtherSurvives = "other";
+
+    private IReadOnlyList<RecordSummary> _candidates = [];
+    private readonly Dictionary<Guid, RecordMergeResolution> _choices = [];
+    private RecordMergePreview? _preview;
+    private string _query = string.Empty;
+    private string _otherValue = string.Empty;
+    private string _directionValue = ThisSurvives;
+    private string? _message;
+    private bool _confirmed;
+    private bool _merging;
+
+    private IReadOnlyList<ComboboxOption<string>> Candidates =>
+        [new ComboboxOption<string>(string.Empty, "Choose…"),
+         .. _candidates.Select(candidate => new ComboboxOption<string>(
+             candidate.Id.ToString(), $"{candidate.DisplayName} ({candidate.RecordTypeName})"))];
+
+    // Merging the wrong way round is the one mistake here that cannot be undone, so the choice is
+    // spelled out as an outcome rather than as a direction.
+    private IReadOnlyList<ComboboxOption<string>> DirectionOptions =>
+    [
+        new ComboboxOption<string>(ThisSurvives, "This record — delete the one I pick"),
+        new ComboboxOption<string>(OtherSurvives, "The record I pick — delete this one"),
+    ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_candidates.Count == 0) await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        PagedResult<RecordSummary> result = await Service.SearchRecordsAsync(new RecordSearch(Query: _query, PageSize: 100));
+        _candidates = [.. result.Items.Where(item => item.Id != RecordId)];
+        if (!_candidates.Any(item => item.Id.ToString() == _otherValue))
+        {
+            _otherValue = string.Empty;
+            Discard();
+        }
+    }
+
+    private async Task ChooseAsync(Guid fieldDefinitionId, string value)
+    {
+        _choices[fieldDefinitionId] = Enum.Parse<RecordMergeResolution>(value);
+
+        // Re-previewed rather than patched, because a choice changes what is carried and what is only
+        // archived, and a summary that no longer matches the choices is worse than no summary.
+        await PreviewAsync();
+    }
+
+    private async Task PreviewAsync()
+    {
+        _message = null;
+        _confirmed = false;
+        if (!Guid.TryParse(_otherValue, out Guid other))
+        {
+            Discard();
+            return;
+        }
+
+        (Guid surviving, Guid merged) = Pair(other);
+        RecordMergeChoice[] choices = [.. _choices.Select(choice => new RecordMergeChoice(choice.Key, choice.Value))];
+        _preview = await Service.PreviewRecordMergeAsync(surviving, merged, choices);
+        if (_preview is null) _message = "One of those records is no longer there. Search again.";
+    }
+
+    private async Task MergeAsync()
+    {
+        if (_preview is not RecordMergePreview preview || !_confirmed) return;
+        _merging = true;
+        try
+        {
+            RecordMergeChoice[] choices = [.. _choices.Select(choice => new RecordMergeChoice(choice.Key, choice.Value))];
+            await Service.MergeRecordsAsync(preview.Surviving.Id, preview.Merged.Id, choices, preview.Revision);
+
+            Guid surviving = preview.Surviving.Id;
+            Discard();
+            _otherValue = string.Empty;
+            if (surviving == RecordId)
+            {
+                await OnMerged.InvokeAsync();
+                return;
+            }
+
+            // This record is the one that no longer exists, so staying on its page would show a record
+            // that has been deleted.
+            Navigation.NavigateTo($"/records/{surviving}", forceLoad: true);
+        }
+        catch (Exception exception) when (exception is DomainValidationException or ConcurrencyConflictException
+            or RecordCommandNotFoundException or InvalidOperationException)
+        {
+            _message = exception.Message;
+            await PreviewAsync();
+        }
+        finally
+        {
+            _merging = false;
+        }
+    }
+
+    private (Guid Surviving, Guid Merged) Pair(Guid other) =>
+        _directionValue == OtherSurvives ? (other, RecordId) : (RecordId, other);
+
+    private void Discard()
+    {
+        _preview = null;
+        _choices.Clear();
+        _confirmed = false;
+    }
+
+    private string Resolution(Guid fieldDefinitionId) =>
+        (_choices.TryGetValue(fieldDefinitionId, out RecordMergeResolution chosen)
+            ? chosen
+            : RecordMergeResolution.KeepSurviving).ToString();
+
+    private IReadOnlyList<ComboboxOption<string>> ResolutionOptions(RecordMergeValueConflict conflict) =>
+    [
+        new ComboboxOption<string>(nameof(RecordMergeResolution.KeepSurviving), $"{_preview!.Surviving.DisplayName}'s value"),
+        new ComboboxOption<string>(nameof(RecordMergeResolution.TakeMerged), $"{_preview.Merged.DisplayName}'s value"),
+        new ComboboxOption<string>(nameof(RecordMergeResolution.KeepBoth),
+            conflict.TypeId == FieldTypes.Tags ? "Both, combined into one list" : "Both"),
+    ];
+
+    private static string Describe(IReadOnlyList<RecordValue> values) =>
+        values.Count == 0 ? "—" : string.Join("; ", values.Select(Describe));
+
+    private static string Describe(RecordValue value) =>
+        value.Tags.Count > 0 ? string.Join(", ", value.Tags)
+        : value.Location?.DisplayContext
+            ?? value.TemporalValue ?? value.DateValue ?? value.NumberValue ?? value.TextValue ?? "—";
+
+    private static string Count(int count, string noun) =>
+        $"{count.ToString("N0", CultureInfo.CurrentCulture)} {noun}{(count == 1 ? string.Empty : "s")}";
+}

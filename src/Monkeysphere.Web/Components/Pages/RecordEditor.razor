@@ -326,6 +326,10 @@ else
 
             @if (_record is not null)
             {
+                @* Above the source panel deliberately: what a merge keeps is read there, so the two
+                   belong next to each other, and above the delete panel because merging is what somebody
+                   reaching for delete on a duplicate actually wanted. *@
+                <RecordMergePanel RecordId="_record.Record.Id" OnMerged="ReloadAfterMerge" />
                 <RecordSourcePanel RecordId="_record.Record.Id" />
             }
 
@@ -353,6 +357,15 @@ else
     private IReadOnlyList<RecordType> _types = [];
     private RecordTypeDetails? _selectedType;
     private RecordDetails? _record;
+
+    /// <summary>
+    /// After a merge this record has gained the other's data, so everything on the page is stale: not
+    /// only the fields, but the relationships that were repointed at it and its retained source material.
+    /// </summary>
+    private void ReloadAfterMerge()
+    {
+        if (RecordId is Guid id) Navigation.NavigateTo($"/records/{id}", forceLoad: true);
+    }
 
     private async Task ReloadBackstageStateAsync()
     {

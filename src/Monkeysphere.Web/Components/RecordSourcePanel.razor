@@ -6,9 +6,11 @@
     <section class="panel record-source">
         <h2>Imported source data</h2>
         <p>
-            Exactly what the importer received, kept as it arrived. Lines marked
+            Exactly what arrived, kept as it arrived &mdash; from an import, or from a record that was merged
+            into this one. Lines marked
             <span class="pill source-opaque">not used</span> were understood by nothing and exist only here &mdash;
-            custom properties and embedded payloads live in this list and nowhere else in the record.
+            custom properties, embedded payloads, and anything a merge could not carry live in this list and
+            nowhere else in the record.
         </p>
 
         <h3>Where it came from</h3>
@@ -108,6 +110,8 @@
     private static string KindLabel(string kind) => kind switch
     {
         RecordSourceKinds.VCard => "vCard",
+        // The format carries the merged-away record's own name, so the two read as one phrase.
+        RecordSourceKinds.Merge => "Merged from",
         _ => kind,
     };
 

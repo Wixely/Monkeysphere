@@ -131,6 +131,31 @@ public interface IMonkeysphereStore
 
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// What merging <paramref name="mergedRecordId"/> into <paramref name="survivingRecordId"/> would
+    /// do. Null when either record does not exist or the caller cannot see it. A pair that cannot be
+    /// merged comes back with a refusal rather than throwing, so a picker can say why.
+    /// </summary>
+    Task<RecordMergePreview?> PreviewRecordMergeAsync(
+        Guid survivingRecordId,
+        Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice>? choices,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Folds one record into another and deletes it. Everything it held survives: what the survivor's
+    /// type can hold becomes its data, and the rest — including every value a choice discarded —
+    /// becomes retained source material, readable beside an imported card's original lines.
+    /// </summary>
+    Task MergeRecordsAsync(
+        Guid survivingRecordId,
+        Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice> choices,
+        string expectedRevision,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default);
+
+
     Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<RecordImage>> ListRecordImagesAsync(Guid recordId, CancellationToken cancellationToken = default);
@@ -285,6 +310,30 @@ public interface IMonkeysphereService
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteRecordAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What merging <paramref name="mergedRecordId"/> into <paramref name="survivingRecordId"/> would
+    /// do. Null when either record does not exist or the caller cannot see it. A pair that cannot be
+    /// merged comes back with a refusal rather than throwing, so a picker can say why.
+    /// </summary>
+    Task<RecordMergePreview?> PreviewRecordMergeAsync(
+        Guid survivingRecordId,
+        Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice>? choices,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Folds one record into another and deletes it. Everything it held survives: what the survivor's
+    /// type can hold becomes its data, and the rest — including every value a choice discarded —
+    /// becomes retained source material, readable beside an imported card's original lines.
+    /// </summary>
+    Task MergeRecordsAsync(
+        Guid survivingRecordId,
+        Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice> choices,
+        string expectedRevision,
+        CancellationToken cancellationToken = default);
+
 
     Task<PagedResult<RecordSummary>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken = default);
 }
