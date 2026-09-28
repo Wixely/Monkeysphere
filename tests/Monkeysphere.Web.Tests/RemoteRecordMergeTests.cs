@@ -53,7 +53,7 @@ public sealed partial class RemoteDiscoveryTests
         DnaXGeneratedCredential both = await manager.RotateAsync(DnaXRemoteSurface.Mcp, deleteOnly.Version, ["records.write", "records.delete"]);
         using JsonDocument discovery = await SendAsync(client, surface.EndpointPath!, both.Secret, "tools/call", "get_capabilities");
         RemoteCapabilities capabilities = Structured(discovery).Deserialize<RemoteCapabilities>(JsonOptions)!;
-        Assert.Equal("1.38", capabilities.ContractVersion);
+        Assert.Equal("1.39", capabilities.ContractVersion);
         Assert.True(capabilities.Tools.Single(tool => tool.Name == "merge_records").Allowed);
         Assert.True(capabilities.Tools.Single(tool => tool.Name == "preview_record_merge").Allowed);
 

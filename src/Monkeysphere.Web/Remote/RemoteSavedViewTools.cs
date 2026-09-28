@@ -24,7 +24,12 @@ public sealed record RemoteSavedView(
     IReadOnlyList<string> Tags,
     bool ShowTags,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    /// <summary>
+    /// How the view is drawn: <c>Grid</c> or <c>Gallery</c>. Last in the shape and defaulted, so a
+    /// client written against an earlier contract deserializes a view unchanged.
+    /// </summary>
+    string Kind = nameof(SavedViewKind.Grid));
 
 /// <summary>
 /// One row of a view once it has been run: the record, and the values of the fields the view asks
@@ -34,7 +39,32 @@ public sealed record RemoteSavedView(
 public sealed record RemoteSavedViewRow(
     RemoteRecordSummary Record,
     IReadOnlyList<RemoteRecordValue> Values,
-    IReadOnlyList<string> Tags);
+    IReadOnlyList<string> Tags)
+{
+    /// <summary>
+    /// The record's own images, for a gallery view. Ids only: the bytes come from
+    /// <c>read_record_image</c> under the media grant, because a view manager reading pictures out of
+    /// the deployment would be a different permission than the one it holds.
+    /// </summary>
+    public IReadOnlyList<RemoteGalleryImage> Images { get; init; } = [];
+
+    /// <summary>The whole count, so a caller knows the collage is a sample rather than all of them.</summary>
+    public int TotalImageCount { get; init; }
+
+    /// <summary>
+    /// What this record is connected to, for a gallery view. Carried because a gallery draws these as
+    /// pictures rather than listing them, so a client rendering the same view needs them in the same
+    /// call rather than one relationship query per row.
+    /// </summary>
+    public IReadOnlyList<RemoteGalleryRelation> Related { get; init; } = [];
+
+    public int TotalRelatedCount { get; init; }
+}
+
+public sealed record RemoteGalleryImage(Guid Id, string? Caption, bool IsCover);
+
+public sealed record RemoteGalleryRelation(
+    Guid RecordId, string DisplayName, string Label, bool IsOutgoing, Guid? ImageId, bool IsExpired);
 
 /// <summary>The bounds a saved view is held to, so a client can plan within them rather than discover them by being refused.</summary>
 public sealed record RemoteSavedViewLimits(
@@ -43,7 +73,9 @@ public sealed record RemoteSavedViewLimits(
     int MaximumTags = SavedViewService.MaximumTags,
     int MaximumNameLength = SavedViewService.MaximumNameLength,
     int MaximumQueryLength = SavedViewService.MaximumQueryLength,
-    int MaximumRowsPerPageWithValues = RemoteSavedViewProjection.MaximumRowsWithValues);
+    int MaximumRowsPerPageWithValues = RemoteSavedViewProjection.MaximumRowsWithValues,
+    int MaximumCollageImages = SavedViewService.MaximumCollageImages,
+    int MaximumRelatedLinks = SavedViewService.MaximumRelatedLinks);
 
 public static class RemoteSavedViewProjection
 {
@@ -68,7 +100,8 @@ public static class RemoteSavedViewProjection
         details.Tags,
         details.View.ShowTags,
         details.View.CreatedAtUtc,
-        details.View.UpdatedAtUtc);
+        details.View.UpdatedAtUtc,
+        details.View.Kind.ToString());
 }
 
 internal static class RemoteRecordFilterProjection
@@ -103,7 +136,7 @@ internal static class RemoteRecordFilterProjection
 public sealed class MonkeysphereSavedViewReadTools
 {
     [McpServerTool(Name = "list_saved_views", ReadOnly = true)]
-    [Description("Lists one domain's saved record views with the record type each selects, its search text, grouping and sort. Requires records.read or views.manage. Omitted domainId selects Default. Returns view definitions only, never record content; run_saved_view returns the records. Column and filter detail is omitted here — call get_saved_view for one view's full definition.")]
+    [Description("Lists one domain's saved record views with the record type each selects, its search text, grouping, sort and how it is drawn (kind Grid or Gallery). Requires records.read or views.manage. Omitted domainId selects Default. Returns view definitions only, never record content; run_saved_view returns the records. Column and filter detail is omitted here — call get_saved_view for one view's full definition.")]
     public static Task<CallToolResult> ListAsync(
         ISavedViewService views,
         ICurrentDomainScope currentDomain,
@@ -121,11 +154,12 @@ public sealed class MonkeysphereSavedViewReadTools
             return stored.Select(view => new RemoteSavedView(
                 view.Id, view.Name, view.RecordTypeId, view.Query,
                 view.GroupByFieldDefinitionId, view.SortFieldDefinitionId, view.SortDescending,
-                [], [], [], view.ShowTags, view.CreatedAtUtc, view.UpdatedAtUtc)).ToArray();
+                [], [], [], view.ShowTags, view.CreatedAtUtc, view.UpdatedAtUtc,
+                view.Kind.ToString())).ToArray();
         });
 
     [McpServerTool(Name = "get_saved_view", ReadOnly = true)]
-    [Description("Gets one saved view's full definition: its record type, search text, column fields, up to 10 AND-combined field filters, the universal tags every record must carry, grouping, sort and whether it shows a tags column. Requires records.read or views.manage and an explicit id. Omitted domainId selects Default. A view that does not exist in the selected domain returns empty rather than an error. Returns no record content.")]
+    [Description("Gets one saved view's full definition: its record type, search text, column fields, up to 10 AND-combined field filters, the universal tags every record must carry, grouping, sort, whether it shows tags, and kind — Grid draws a row per record, Gallery draws a panel per record led by a collage of its images and captioned with the same chosen fields. Requires records.read or views.manage and an explicit id. Omitted domainId selects Default. A view that does not exist in the selected domain returns empty rather than an error. Returns no record content.")]
     public static Task<CallToolResult> GetAsync(
         ISavedViewService views,
         ICurrentDomainScope currentDomain,
@@ -146,10 +180,11 @@ public sealed class MonkeysphereSavedViewReadTools
 
     [RemoteToolScopes("records.read")]
     [McpServerTool(Name = "run_saved_view", ReadOnly = true)]
-    [Description("Runs a saved view and returns its rows: the matching records with the values of the fields the view lists as columns, plus its group-by field, and the record's universal tags when the view shows them. Requires records.read, because this returns record content; views.manage alone does not reach it. Needs an explicit id. Omitted domainId selects Default. Pages are 1-10000. pageSize defaults to 25 and may be 1-50 while values are included, or 1-100 with includeValues false, because each row with values costs a record read exactly as the browser's grid does. Results and totalCount share a database snapshot; pages across separate calls are live, not pinned.")]
+    [Description("Runs a saved view and returns its rows: the matching records with the values of the fields the view lists as columns, plus its group-by field, and the record's universal tags when the view shows them. A Gallery view additionally returns each record's image ids with its whole image count, and what the record is connected to with each related record's cover image id, because a gallery draws those as pictures and one call should render one page; those extras arrive with includeValues true, since includeValues false is the cheap mode that reads no record. Image bytes are not returned — read_record_image serves them under the media grant. Requires records.read, because this returns record content; views.manage alone does not reach it. Needs an explicit id. Omitted domainId selects Default. Pages are 1-10000. pageSize defaults to 25 and may be 1-50 while values are included, or 1-100 with includeValues false, because each row with values costs a record read exactly as the browser's grid does. Results and totalCount share a database snapshot; pages across separate calls are live, not pinned.")]
     public static Task<CallToolResult> RunAsync(
         MonkeysphereRemoteQueries queries,
         ISavedViewService views,
+        IGalleryViewService gallery,
         IHttpContextAccessor accessor,
         Guid id,
         int page = 1,
@@ -158,7 +193,7 @@ public sealed class MonkeysphereSavedViewReadTools
         Guid? domainId = null,
         CancellationToken cancellationToken = default) =>
         RemoteReadResults.RunAsync(accessor, () =>
-            queries.RunSavedViewAsync(views, id, page, pageSize, includeValues, domainId, cancellationToken));
+            queries.RunSavedViewAsync(views, gallery, id, page, pageSize, includeValues, domainId, cancellationToken));
 }
 
 /// <summary>
@@ -174,7 +209,7 @@ public sealed class MonkeysphereSavedViewReadTools
 public sealed class MonkeysphereSavedViewWriteTools
 {
     [McpServerTool(Name = "create_saved_view", ReadOnly = false, Destructive = false)]
-    [Description("Creates a saved view in a domain. Requires views.manage, an explicit domainId, a name and a recordTypeId. Every field named as a column, filter, group or sort must be attached to that record type, and a field belonging to another type is refused rather than dropped. Tags are trimmed and de-duplicated by the same rules a record's own tags follow, and every one of them narrows the view. Not idempotent: calling twice creates two views, because a view has no natural identity beyond its name and two views may legitimately share one.")]
+    [Description("Creates a saved view in a domain. Requires views.manage, an explicit domainId, a name and a recordTypeId. kind chooses how it is drawn: Grid, the default, gives a row per record with the named fields as columns; Gallery gives a panel per record led by a collage of that record's images, with the same named fields as the caption beneath and its relationships drawn as pictures. Everything else means the same thing either way, because the kind changes only the drawing and never which records are selected. Every field named as a column, filter, group or sort must be attached to that record type, and a field belonging to another type is refused rather than dropped. Tags are trimmed and de-duplicated by the same rules a record's own tags follow, and every one of them narrows the view. Not idempotent: calling twice creates two views, because a view has no natural identity beyond its name and two views may legitimately share one.")]
     public static Task<CallToolResult> CreateAsync(
         ISavedViewService views,
         ICurrentDomainScope currentDomain,
@@ -190,6 +225,7 @@ public sealed class MonkeysphereSavedViewWriteTools
         Guid? sortFieldDefinitionId = null,
         bool sortDescending = false,
         bool showTags = false,
+        string? kind = null,
         CancellationToken cancellationToken = default) =>
         RemoteReadResults.RunAsync(accessor, async () =>
         {
@@ -197,13 +233,13 @@ public sealed class MonkeysphereSavedViewWriteTools
             using IDisposable domain = currentDomain.Use(domainId);
             SaveViewRequest request = Request(
                 name, recordTypeId, query, columnFieldDefinitionIds, filters, tags,
-                groupByFieldDefinitionId, sortFieldDefinitionId, sortDescending, showTags);
+                groupByFieldDefinitionId, sortFieldDefinitionId, sortDescending, showTags, kind);
             return RemoteSavedViewProjection.Map(
                 await views.CreateAsync(request, cancellationToken).ConfigureAwait(false));
         });
 
     [McpServerTool(Name = "update_saved_view", ReadOnly = false, Destructive = false)]
-    [Description("Replaces a saved view's definition. Requires views.manage, an explicit domainId and id, a name and a recordTypeId. This is a replacement rather than a merge: a list left out is stored empty, not left as it stands, because a caller clearing a view's filters has no other way to say so. Read the view with get_saved_view first and send back what you intend to keep. A saved view carries no revision and the last write wins, as it does in the browser.")]
+    [Description("Replaces a saved view's definition. Requires views.manage, an explicit domainId and id, a name and a recordTypeId. This is a replacement rather than a merge: a list left out is stored empty, not left as it stands, because a caller clearing a view's filters has no other way to say so — and an omitted kind reverts the view to Grid, so send it back to keep a Gallery. Read the view with get_saved_view first and send back what you intend to keep. A saved view carries no revision and the last write wins, as it does in the browser.")]
     public static Task<CallToolResult> UpdateAsync(
         ISavedViewService views,
         ICurrentDomainScope currentDomain,
@@ -220,6 +256,7 @@ public sealed class MonkeysphereSavedViewWriteTools
         Guid? sortFieldDefinitionId = null,
         bool sortDescending = false,
         bool showTags = false,
+        string? kind = null,
         CancellationToken cancellationToken = default) =>
         RemoteReadResults.RunAsync(accessor, async () =>
         {
@@ -232,13 +269,13 @@ public sealed class MonkeysphereSavedViewWriteTools
                 ?? throw new RecordCommandNotFoundException("Saved view was not found in this domain.");
             SaveViewRequest request = Request(
                 name, recordTypeId, query, columnFieldDefinitionIds, filters, tags,
-                groupByFieldDefinitionId, sortFieldDefinitionId, sortDescending, showTags);
+                groupByFieldDefinitionId, sortFieldDefinitionId, sortDescending, showTags, kind);
             return RemoteSavedViewProjection.Map(
                 await views.UpdateAsync(id, request, cancellationToken).ConfigureAwait(false));
         });
 
     [McpServerTool(Name = "duplicate_saved_view", ReadOnly = false, Destructive = false)]
-    [Description("Copies a saved view under a new name, keeping its record type, search text, columns, filters, tags, grouping and sort. Requires views.manage, an explicit domainId, id and name. The copy is a new view with its own id; the original is untouched.")]
+    [Description("Copies a saved view under a new name, keeping its record type, search text, columns, filters, tags, grouping, sort and kind. Requires views.manage, an explicit domainId, id and name. The copy is a new view with its own id; the original is untouched.")]
     public static Task<CallToolResult> DuplicateAsync(
         ISavedViewService views,
         ICurrentDomainScope currentDomain,
@@ -283,8 +320,18 @@ public sealed class MonkeysphereSavedViewWriteTools
         Guid? groupBy,
         Guid? sortBy,
         bool sortDescending,
-        bool showTags)
+        bool showTags,
+        string? kind)
     {
+        // Named rather than numbered, and rejected here so an unknown spelling reads as the caller's
+        // mistake rather than as a validation failure about an integer they never sent.
+        SavedViewKind drawnAs = kind is null
+            ? SavedViewKind.Grid
+            : Enum.TryParse(kind, ignoreCase: true, out SavedViewKind parsed) && Enum.IsDefined(parsed)
+                ? parsed
+                : throw new DomainValidationException(
+                    $"kind must be one of: {string.Join(", ", Enum.GetNames<SavedViewKind>())}.");
+
         // Rejected here rather than counted after normalization, because a caller sending eleven
         // filters has made a mistake worth naming and the service's own bound would report it
         // against the de-duplicated list instead of the one that was sent.
@@ -304,7 +351,8 @@ public sealed class MonkeysphereSavedViewWriteTools
             sortBy,
             sortDescending,
             tags,
-            showTags);
+            showTags,
+            drawnAs);
     }
 }
 

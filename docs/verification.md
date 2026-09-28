@@ -1,5 +1,19 @@
 # Verification status
 
+2026-09-28 gallery views, browser verification. Driven interactively through the real sign-in against a locally launched process on a data root seeded by `eng/SeedGalleryDemo.cs`, which exists so this can be repeated and which draws its pictures rather than downloading any.
+
+The **Gallery** kind appears in the saved-view editor, the view list marks each view Grid or Gallery, and applying one on Records swaps the table for panels while the filter controls above it stay exactly as they are — the point of making this a kind rather than a page.
+
+**Every collage arrangement was seen with the number of pictures it is for.** One fills the panel; two split it; three leads with one picture and stacks two beside it; four stacks three; five leads with one and makes a two-by-two. Tornado, with nine, drew five and said **+4 more**, linking to the record. Blue Peter, with none, drew its record type's symbol and "No pictures yet." rather than a broken frame. Captions appeared over the pictures that have them and not over the ones that do not.
+
+Connections were drawn as pictures: Flying Scotsman showed Doncaster Works and LNER Apple Green as thumbnails of **those records'** own covers, and Eastleigh Works — which has no picture — as its type's symbol. Tornado's ended connection to InterCity Swallow was drawn faded and labelled `carries livery · over` rather than dropped.
+
+**Two visual defects were found this way and fixed.** The "+4 more" badge sat bottom-right, directly on top of the last tile's caption, so "Tornado · view 5" was half hidden; it now sits top-right, where nothing competes. And a connected tile whose record name wrapped to two lines was taller than the one beside it, leaving a step along the bottom of the row; the tiles now fill their cells. Neither was reachable from the test host, which asserts projections rather than pixels.
+
+The full suite passed 562 tests (84 Core, 215 Data, 263 Web). Schema 41. Contract 1.39, still 117 tools.
+
+Outstanding: a grouped gallery was exercised by `GalleryViewTests.AGalleryCanGroupByAFieldItDoesNotAlsoPrint` and by the seeded "Locomotives by class — gallery" view, but the grouped headings were not looked at by hand. A live-client run of `run_saved_view` against a Gallery view on a separately launched published Release process is also outstanding, along with the same for 1.38's merge tools. Owner: Agent; review 2026-10-12.
+
 2026-09-28 record merging, browser verification. The merge was driven interactively through the real sign-in against a locally launched process on a data root seeded by `eng/SeedMergeDemo.cs`, which exists so this can be repeated.
 
 **Merge a duplicate** renders at the bottom of a record, above **Delete record** and beside the retained-source panel it writes to. The picker excludes the record itself. Previewing Augusta Ada King into Ada Lovelace reported exactly what the seed set up: one field value carried, two aliases and one tag added, one image moved, **one relationship repointed and two dropped** — the duplicate `parent of` the same child and the `knows` link between the two duplicates — and **one reminder dropped**, because the day it was about was not the day being kept. Both conflicting fields were listed with the survivor's value selected by default, and both were named again under **Kept as source data only**.

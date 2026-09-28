@@ -5,7 +5,7 @@ namespace Monkeysphere.Data;
 public static class MonkeysphereSchema
 {
     public static DnaXMigrationManifest Manifest { get; } = new(
-        currentVersion: 40,
+        currentVersion: 41,
         migrations:
         [
             DnaXMigration.Sql(1, "initial-configurable-records", "Create configurable record storage", """
@@ -1051,6 +1051,21 @@ public static class MonkeysphereSchema
                 CREATE TRIGGER RecordSourceImports_ContactImport_DELETE AFTER DELETE ON RecordSourceImports BEGIN
                     UPDATE ContactImportState SET Revision = lower(hex(randomblob(16))) WHERE Id = 1;
                 END;
+                """),
+            DnaXMigration.Sql(41, "saved-view-kind", "Let a saved view be drawn as a gallery of images instead of a grid", """
+                -- Some records are mostly pictures. A row of text about a locomotive photographed
+                -- nine times tells you almost nothing, and the grid is the only thing a saved view
+                -- could ever be.
+                --
+                -- What a view selects does not change: the same search, filters, tags, sort and
+                -- grouping choose the same records either way. Only the drawing differs, which is
+                -- why this is one column on the existing view rather than a second kind of view with
+                -- its own table, its own filters and its own way of drifting from them.
+                --
+                -- Defaulted to 0, so every view that already exists stays the grid it was and
+                -- nothing that reads one has to be told.
+                ALTER TABLE SavedViews ADD COLUMN Kind INTEGER NOT NULL DEFAULT 0
+                    CHECK (Kind IN (0, 1));
                 """),
         ]);
 }

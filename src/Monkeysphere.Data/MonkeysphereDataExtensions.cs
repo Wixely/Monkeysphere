@@ -99,6 +99,7 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IRelationshipGraphService, RelationshipGraphService>();
         services.AddScoped<ISavedViewStore, SqliteSavedViewStore>();
         services.AddScoped<ISavedViewService, SavedViewService>();
+        services.AddScoped<IGalleryViewService, GalleryViewService>();
         services.AddScoped<IGraphViewStore, SqliteGraphViewStore>();
         services.AddScoped<IGraphViewService, GraphViewService>();
         services.AddScoped<IDashboardStore, SqliteDashboardStore>();

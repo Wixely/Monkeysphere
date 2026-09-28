@@ -673,6 +673,44 @@ carried as "not used".
 Outstanding: a live-client run of the two new tools against a separately launched published Release
 process, as every prior contract revision has had. Owner: Agent; review 2026-10-12.
 
+## Gallery views
+
+Status: Complete on `feature/record-merge`. Owner: Agent. Review: 2026-10-12.
+
+Some collections are mostly pictures. A row of text about a locomotive photographed nine times says
+almost nothing, and until now the grid was the only thing a saved view could ever be.
+
+A saved view now has a **kind**. `Grid` is what every view has always been. `Gallery` gives each record
+a large panel led by a collage of that record's own images, with the fields a grid would use as columns
+printed underneath as the caption, and whatever the record is connected to drawn beneath that as
+pictures rather than listed as names — because what a photographed thing is connected to is usually
+another photographed thing.
+
+**The kind changes the drawing and nothing else.** The same search, filters, tags, grouping and sort
+choose the same records either way, which is why this is one column on the existing view rather than a
+second kind of view with its own filters and its own way of drifting from them. Schema 41 adds it,
+defaulted, so every view that already exists stays the grid it was.
+
+**The collage arranges itself by how many pictures there are**, because a tiling designed for five
+leaves four empty holes when a record has one: one fills the panel, two split it, three and four lead
+with one picture and stack the rest beside it, five leads with one and makes a two-by-two. Beyond five
+the panel says how many more there are and links to the record rather than growing.
+
+`RecordValueText` was lifted out of the records grid, where it had been private, so a value reads the
+same under a collage as it does in a table — two copies would agree today and disagree the first time
+a field type gained a way of being read.
+
+Over MCP this is contract 1.39: no new tools, one new field, and a gallery's rows carry image **ids**
+and connected records so one call renders one page. Not the bytes — `read_record_image` serves those
+under the media grant, and running a view must not become a way around it.
+
+`eng/SeedGalleryDemo.cs` seeds a trainspotting collection to try it on, with locomotives carrying 0, 1,
+2, 3, 4, 5 and 9 pictures so every collage arrangement appears, pictures drawn in deliberately
+different shapes, depots and liveries to connect to, and one connection marked as over.
+
+Later consideration: a gallery of one record's own images as a lightbox rather than links out to each
+picture. Owner: TBD; review 2026-10-26.
+
 ## Saved graph layouts
 
 Status: Complete and merged to `main`.

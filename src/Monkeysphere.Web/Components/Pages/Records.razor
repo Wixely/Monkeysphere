@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject IMonkeysphereService Service
 @inject ISavedViewService SavedViews
+@inject IGalleryViewService Gallery
 
 <PageTitle>Records · Monkeysphere</PageTitle>
 
@@ -10,7 +11,7 @@
     <div>
         <p class="eyebrow">Memory</p>
         <h1>Records</h1>
-        <p>Search records directly or apply a reusable saved grid view.</p>
+        <p>Search records directly, or apply a saved view as a grid or a gallery of pictures.</p>
     </div>
     <div class="action-row wrap">
         <a class="button" href="/structures/saved-views">Manage views</a>
@@ -32,7 +33,12 @@
     @if (_activeView is not null)
     {
         <span class="muted">
-            @_activeView.View.Name · @_activeView.Filters.Count saved filter(s) · @_activeView.ColumnFieldDefinitionIds.Count column(s)
+            @_activeView.View.Name
+            <span class="pill">@(_activeView.View.Kind == SavedViewKind.Gallery ? "Gallery" : "Grid")</span>
+            · @_activeView.Filters.Count saved filter(s)
+            @* A gallery has no columns to count: the same chosen fields become the caption under
+               each collage, so they are named as what they actually are here. *@
+            · @_activeView.ColumnFieldDefinitionIds.Count @(_activeView.View.Kind == SavedViewKind.Gallery ? "detail(s)" : "column(s)")
         </span>
     }
 </section>
@@ -71,6 +77,23 @@
     @if (_results.Items.Count == 0)
     {
         <p class="empty-state">No records match.</p>
+    }
+    else if (_activeView is { View.Kind: SavedViewKind.Gallery })
+    {
+        @* Grouping means the same thing it does in a grid: a heading, then the records under it. *@
+        @foreach (GalleryGroup group in BuildGalleryGroups())
+        {
+            @if (_activeView.View.GroupByFieldDefinitionId.HasValue)
+            {
+                <h3 class="group-heading">@group.Name</h3>
+            }
+            <div class="gallery-grid">
+                @foreach (GalleryPanel panel in group.Panels)
+                {
+                    <GalleryPanelCard Panel="panel" OnChanged="SearchAsync" />
+                }
+            </div>
+        }
     }
     else if (_activeView is not null)
     {
@@ -158,6 +181,7 @@
     private IReadOnlyList<RecordTypeField> _filterFields = [];
     private IReadOnlyList<RecordTypeField> _columns = [];
     private readonly List<GridRow> _gridRows = [];
+    private IReadOnlyList<GalleryPanel> _panels = [];
     private SavedViewDetails? _activeView;
     private PagedResult<RecordSummary> _results = new([], 1, 25, 0);
     private string _savedViewValue = string.Empty;
@@ -282,8 +306,17 @@
     private async Task LoadGridRowsAsync()
     {
         _gridRows.Clear();
+        _panels = [];
         if (_activeView is null)
         {
+            return;
+        }
+
+        if (_activeView.View.Kind == SavedViewKind.Gallery)
+        {
+            // Built from the records this page actually shows rather than from a second search, so
+            // ad-hoc narrowing applied on top of the view describes the panels on screen.
+            _panels = await Gallery.BuildAsync(_activeView, _results.Items);
             return;
         }
 
@@ -299,11 +332,30 @@
             Dictionary<Guid, string> values = details?.Values
                 .Where(value => includedFields.Contains(value.FieldDefinitionId))
                 .GroupBy(value => value.FieldDefinitionId)
-                .ToDictionary(group => group.Key, group => string.Join(", ", group.Select(FormatValue))) ?? [];
+                .ToDictionary(group => group.Key, group => string.Join(", ", group.Select(RecordValueText.Format))) ?? [];
             // The details were already fetched for the field columns, and they carry the record's
             // universal tags, so showing them costs no further read.
             _gridRows.Add(new GridRow(summary, values, details?.Tags ?? []));
         }
+    }
+
+    /// <summary>
+    /// Grouped by the same field the grid would group by, reading the value out of the panel's own
+    /// details rather than re-fetching it: a view that groups by a field it does not also show has
+    /// nothing to group on, which is the rule the grid already follows.
+    /// </summary>
+    private IReadOnlyList<GalleryGroup> BuildGalleryGroups()
+    {
+        if (_activeView?.View.GroupByFieldDefinitionId is null)
+        {
+            return [new GalleryGroup(string.Empty, _panels)];
+        }
+
+        return _panels
+            .GroupBy(panel => panel.GroupValue ?? "Unspecified", StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new GalleryGroup(group.Key, [.. group]))
+            .ToArray();
     }
 
     private IReadOnlyList<GridGroup> BuildGroups()
@@ -320,29 +372,10 @@
             .ToArray();
     }
 
-    private static string FormatValue(RecordValue value)
-    {
-        if (value.Tags.Count > 0)
-        {
-            return string.Join(", ", value.Tags);
-        }
-
-        if (value.TemporalValue is not null)
-        {
-            return (value.IsApproximate ? "≈ " : string.Empty) + value.TemporalValue;
-        }
-
-        if (value.Location is not null)
-        {
-            return LocationValues.Format(value.Location);
-        }
-
-        return value.TextValue ?? value.NumberValue ?? value.DateValue ?? string.Empty;
-    }
-
     private sealed record GridRow(
         RecordSummary Record,
         IReadOnlyDictionary<Guid, string> Values,
         IReadOnlyList<string> Tags);
     private sealed record GridGroup(string Name, IReadOnlyList<GridRow> Rows);
+    private sealed record GalleryGroup(string Name, IReadOnlyList<GalleryPanel> Panels);
 }

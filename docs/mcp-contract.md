@@ -1,6 +1,6 @@
 # MCP contract
 
-- Contract version: 1.38
+- Contract version: 1.39
 - Status: Local implementation; live deployment not verified
 - Reviewed: 2026-09-28
 - Owner: Agent
@@ -1391,3 +1391,50 @@ difference between a retry and a second deletion. The receipt names both records
 its new revision, and the merged-away one as `deleted`, so a replay still says what became of it.
 
 The merge is not reversible. Schema version 40 widens the retained-source kind to accept `merge`.
+
+## A saved view can be a gallery in 1.39
+
+Contract 1.39 adds no tools — still 117 — and one field. A saved view now has a `kind`: `Grid`, which
+is what every view has always been, or `Gallery`.
+
+### The kind changes the drawing, never the selection
+
+The same search text, filters, tags, grouping and sort choose the same records either way. That is
+why this is one field on the existing view rather than a second kind of view with its own tools: two
+would have to be kept in step, and the first divergence would be a filter that behaved differently
+depending on how the results were drawn.
+
+A gallery gives each record a large panel led by a collage of that record's own images, for subjects
+where the photographs are the point and a row of text is nearly useless. The fields a grid would use
+as columns become the caption printed under the collage instead of being ignored.
+
+### What `run_saved_view` returns for a gallery
+
+Everything a grid row returns, plus what a gallery is made of, so one call renders one page:
+
+- `images` — the record's image **ids**, at most `maximumCollageImages`, cover first. `totalImageCount`
+  is the record's whole count, so a client can say "and four more" rather than implying five is all.
+- `related` — what the record is connected to, each with **that record's** cover image id, its label,
+  its direction and whether the connection is over. `totalRelatedCount` bounds the same way.
+
+**No image bytes.** These are ids; `read_record_image` serves the bytes under the media grant. A
+credential that can ask a view a question is not thereby a credential that can read pictures out of
+the deployment, and running a gallery does not quietly become that.
+
+The extras arrive with `includeValues` true. `includeValues` false is the cheap mode that reads no
+record at all, and a collage cannot be built without reading one.
+
+`get_capabilities` publishes `maximumCollageImages` and `maximumRelatedLinks` alongside the other
+saved-view limits, so a client lays out against them rather than discovering them by counting.
+
+### Compatibility
+
+`kind` is last in the view shape and defaults to `Grid`, so a client written against 1.38
+deserializes a view unchanged and keeps creating grids. The gallery fields on a row default to empty
+for the same reason.
+
+One thing to know: `update_saved_view` replaces rather than merges, as it always has, so **an omitted
+`kind` reverts a gallery to a grid** — exactly as an omitted filter list stores no filters. Read the
+view first and send back what you mean to keep. `duplicate_saved_view` keeps the kind.
+
+Schema version 41 adds the column, defaulted, so every view that already exists stays the grid it was.
