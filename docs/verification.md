@@ -1,5 +1,15 @@
 # Verification status
 
+2026-09-29 release 0.7.0-alpha.1. `eng/Build.ps1` passed: text/encoding and supply-chain checks, locked restore, Release build with zero warnings, and the full suite at 562 tests (84 Core, 215 Data, 263 Web). Schema 41. MCP contract 1.39, 117 tools.
+
+This release carries **record merging** and the **Gallery view kind**, both verified interactively in the browser against locally launched processes on seeded data roots — the two entries below record what was watched rather than asserted, and the four wording and two layout defects those sessions found.
+
+**What is outstanding is the live-client half.** Every prior contract revision has been driven by the external client against a separately launched published Release process over its randomized endpoint; 1.38's `preview_record_merge` and `merge_records` and 1.39's Gallery rows have not been. They are covered by the test host and by the browser, which is automated evidence plus interactive evidence, but not the interoperability evidence the earlier milestones carry. `eng/VerifyMcpLiveClient.py` needs extending for both. Treat the remote surface of these two features as unproven against a real client until that is done.
+
+Also outstanding from earlier and unchanged by this release: accessibility conformance, which remains unowned and is a beta blocker.
+
+Owner: Agent; next action: extend the live client for 1.38 and 1.39; review 2026-10-12.
+
 2026-09-28 gallery views, browser verification. Driven interactively through the real sign-in against a locally launched process on a data root seeded by `eng/SeedGalleryDemo.cs`, which exists so this can be repeated and which draws its pictures rather than downloading any.
 
 The **Gallery** kind appears in the saved-view editor, the view list marks each view Grid or Gallery, and applying one on Records swaps the table for panels while the filter controls above it stay exactly as they are — the point of making this a kind rather than a page.
