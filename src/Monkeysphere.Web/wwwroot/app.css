@@ -568,7 +568,16 @@ h3 {
 
 .panel,
 .auth-card {
-    padding: clamp(1rem, 2.25vw, 1.5rem);
+    /* The floor matters more than the ceiling: below about a 700px window the old
+       1rem minimum put a bordered control within 16px of the panel's own border,
+       which reads as a mistake rather than as a margin. */
+    padding: clamp(1.25rem, 2.25vw, 1.6rem);
+
+    /* And a little more below than above. A panel almost always opens with a
+       heading, whose line box carries its own air above the text, and ends with a
+       button, a field or a note whose edge sits hard against the boundary. Equal
+       padding therefore looks bottom-heavy even when it measures the same. */
+    padding-bottom: clamp(1.6rem, 2.9vw, 2rem);
     margin-bottom: 1rem;
     border: 1px solid var(--line);
     border-radius: .9rem;
@@ -1202,6 +1211,15 @@ input[type="checkbox"] {
     align-items: center;
     gap: .6rem;
     font-weight: 500;
+}
+
+/* A confirmation tick is almost always followed by the button it unlocks, and the
+   two were sitting flush: 16px of air above the tick and none between it and the
+   thing it arms. The button is the more consequential of the pair, so it gets a
+   little room of its own rather than reading as part of the label. */
+.checkbox-label + .button,
+.checkbox-label + .action-row {
+    margin-top: .8rem;
 }
 
 .form-grid {
