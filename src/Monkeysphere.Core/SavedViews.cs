@@ -1,5 +1,27 @@
 namespace Monkeysphere.Core;
 
+/// <summary>
+/// How a saved view draws the records it selects. The selection itself is identical either way: the
+/// same search text, filters, tags, sort and grouping produce the same records, and only the drawing
+/// differs. That is why this is one flag on one view rather than two kinds of saved view.
+/// </summary>
+public enum SavedViewKind
+{
+    /// <summary>A row per record, a column per chosen field. What every saved view was before this.</summary>
+    Grid,
+
+    /// <summary>
+    /// A large panel per record, led by a collage of that record's own images.
+    ///
+    /// For subjects where the pictures are the point and a row of text is nearly useless: a
+    /// locomotive photographed nine times, a plant through a season, a place across years. The
+    /// chosen columns become the details printed under the collage rather than a table header, and
+    /// the record's relationships are drawn as pictures too, because what a photographed thing is
+    /// connected to is usually another photographed thing.
+    /// </summary>
+    Gallery,
+}
+
 public sealed record SavedView(
     Guid Id,
     string Name,
@@ -17,6 +39,13 @@ public sealed record SavedView(
     /// there is no field definition to name, and every record in the view has them.
     /// </summary>
     public bool ShowTags { get; init; }
+
+    /// <summary>
+    /// How the view draws. An init property with a default rather than a constructor parameter, for
+    /// the same reason <see cref="ShowTags"/> is one: every view that existed before this is a grid,
+    /// and nothing that reads a view should have to say so.
+    /// </summary>
+    public SavedViewKind Kind { get; init; }
 }
 
 public sealed record SavedViewDetails(
@@ -41,7 +70,8 @@ public sealed record SaveViewRequest(
     Guid? SortFieldDefinitionId = null,
     bool SortDescending = false,
     IReadOnlyList<string>? Tags = null,
-    bool ShowTags = false);
+    bool ShowTags = false,
+    SavedViewKind Kind = SavedViewKind.Grid);
 
 public interface ISavedViewStore
 {
@@ -88,6 +118,20 @@ public sealed class SavedViewService(
 {
     /// <summary>The same bound the remote record query puts on the same list, so the two agree.</summary>
     public const int MaximumTags = 10;
+
+    /// <summary>
+    /// Pictures drawn in one gallery panel's collage. A record with forty photographs of the same
+    /// locomotive should not make one panel forty images tall: the collage is a way in, and the
+    /// record's own page is where all of them live. The rest are counted, not drawn.
+    /// </summary>
+    public const int MaximumCollageImages = 5;
+
+    /// <summary>
+    /// Related records drawn under a gallery panel. What a photographed thing is connected to is
+    /// usually another photographed thing, so these are pictures rather than a list of names, and a
+    /// bound keeps a well-connected record from burying its own collage.
+    /// </summary>
+    public const int MaximumRelatedLinks = 8;
 
     /// <summary>
     /// The rest of the bounds a view is held to. Named rather than written into the checks below
@@ -142,7 +186,8 @@ public sealed class SavedViewService(
             source.View.SortFieldDefinitionId,
             source.View.SortDescending,
             source.Tags,
-            source.View.ShowTags);
+            source.View.ShowTags,
+            source.View.Kind);
         return await CreateAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
@@ -167,6 +212,12 @@ public sealed class SavedViewService(
         if (query?.Length > MaximumQueryLength)
         {
             throw new DomainValidationException($"Saved view search text cannot exceed {MaximumQueryLength} characters.");
+        }
+
+        if (!Enum.IsDefined(request.Kind))
+        {
+            throw new DomainValidationException(
+                $"A saved view must be drawn one of the named ways: {string.Join(", ", Enum.GetNames<SavedViewKind>())}.");
         }
 
         RecordTypeDetails type = await records.GetRecordTypeAsync(request.RecordTypeId, cancellationToken).ConfigureAwait(false)

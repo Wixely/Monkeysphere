@@ -12,7 +12,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         IEnumerable<SavedViewRow> rows = await connection.QueryAsync<SavedViewRow>(new CommandDefinition("""
             SELECT Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                   SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc
+                   SortDescending, ShowTags, Kind, CreatedAtUtc, UpdatedAtUtc
             FROM SavedViews
             ORDER BY Name COLLATE NOCASE, Id;
             """, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -24,7 +24,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         await using SqliteConnection connection = await connections.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         SavedViewRow? row = await connection.QuerySingleOrDefaultAsync<SavedViewRow>(new CommandDefinition("""
             SELECT Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                   SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc
+                   SortDescending, ShowTags, Kind, CreatedAtUtc, UpdatedAtUtc
             FROM SavedViews
             WHERE Id = @Id;
             """,
@@ -120,6 +120,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                         SortFieldDefinitionId = @SortFieldDefinitionId,
                         SortDescending = @SortDescending,
                         ShowTags = @ShowTags,
+                        Kind = @Kind,
                         UpdatedAtUtc = @Now
                     WHERE Id = @Id;
                     """, Parameters(id, request, timestamp), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
@@ -143,10 +144,10 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
                 await connection.ExecuteAsync(new CommandDefinition("""
                     INSERT INTO SavedViews
                         (Id, Name, RecordTypeId, Query, GroupByFieldDefinitionId, SortFieldDefinitionId,
-                         SortDescending, ShowTags, CreatedAtUtc, UpdatedAtUtc)
+                         SortDescending, ShowTags, Kind, CreatedAtUtc, UpdatedAtUtc)
                     VALUES
                         (@Id, @Name, @RecordTypeId, @Query, @GroupByFieldDefinitionId, @SortFieldDefinitionId,
-                         @SortDescending, @ShowTags, @Now, @Now);
+                         @SortDescending, @ShowTags, @Kind, @Now, @Now);
                     """, Parameters(id, request, timestamp), transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
             }
 
@@ -222,6 +223,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         SortFieldDefinitionId = request.SortFieldDefinitionId is Guid sort ? Key(sort) : null,
         SortDescending = request.SortDescending ? 1 : 0,
         ShowTags = request.ShowTags ? 1 : 0,
+        Kind = (int)request.Kind,
         Now = timestamp,
     };
 
@@ -237,6 +239,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
         ParseTimestamp(row.UpdatedAtUtc))
     {
         ShowTags = row.ShowTags != 0,
+        Kind = (SavedViewKind)row.Kind,
     };
 
     private static string Key(Guid value) => value.ToString("D", CultureInfo.InvariantCulture);
@@ -249,6 +252,7 @@ public sealed class SqliteSavedViewStore(MonkeysphereConnectionFactory connectio
     {
         public required string Id { get; init; }
         public long ShowTags { get; init; }
+        public long Kind { get; init; }
         public required string Name { get; init; }
         public required string RecordTypeId { get; init; }
         public string? Query { get; init; }

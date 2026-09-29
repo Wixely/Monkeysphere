@@ -71,6 +71,8 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<RecordBatchService>();
         services.AddScoped<IRecordDeletionStore, SqliteMonkeysphereStore>();
         services.AddScoped<RecordDeletionService>();
+        services.AddScoped<IRecordMergeStore, SqliteMonkeysphereStore>();
+        services.AddScoped<RecordMergeCommandService>();
         services.AddScoped<IApplicationCommandAudit, SqliteApplicationCommandAudit>();
         services.AddScoped<ICalendarStore, SqliteCalendarStore>();
         services.AddScoped<ICalendarService, CalendarService>();
@@ -97,6 +99,7 @@ public static class MonkeysphereDataExtensions
         services.AddScoped<IRelationshipGraphService, RelationshipGraphService>();
         services.AddScoped<ISavedViewStore, SqliteSavedViewStore>();
         services.AddScoped<ISavedViewService, SavedViewService>();
+        services.AddScoped<IGalleryViewService, GalleryViewService>();
         services.AddScoped<IGraphViewStore, SqliteGraphViewStore>();
         services.AddScoped<IGraphViewService, GraphViewService>();
         services.AddScoped<IDashboardStore, SqliteDashboardStore>();

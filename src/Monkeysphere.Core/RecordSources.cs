@@ -10,7 +10,14 @@ public static class RecordSourceKinds
     /// <summary>A vCard contact, as parsed from the imported file.</summary>
     public const string VCard = "vcard";
 
-    public static readonly IReadOnlyList<string> All = [VCard];
+    /// <summary>
+    /// A record that was merged into another and no longer exists. Its whole state is kept here so
+    /// that merging two duplicates never loses what the loser held, which is the same promise import
+    /// makes about the lines it did not understand.
+    /// </summary>
+    public const string Merge = "merge";
+
+    public static readonly IReadOnlyList<string> All = [VCard, Merge];
 
     public static string Normalize(string? kind) =>
         kind is not null && All.Contains(kind, StringComparer.Ordinal)

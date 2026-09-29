@@ -1,0 +1,131 @@
+@*
+    One record as a gallery panel: a collage of its own photographs, what the view chose to caption
+    them with, and the records it is connected to drawn as pictures too.
+
+    The collage layout is chosen by how many images there are rather than fixed, because a tiling
+    designed for five leaves four empty holes when a record has one. Each count gets an arrangement
+    that fills its panel: one fills it, two split it, three and four make a lead picture with a
+    column beside it, five makes a lead with a two-by-two.
+*@
+<article class="gallery-panel gallery-images-@Panel.Images.Count">
+    @if (Panel.Images.Count == 0)
+    {
+        <div class="gallery-collage empty">
+            <span class="gallery-placeholder" aria-hidden="true">@(string.IsNullOrWhiteSpace(Panel.Record.RecordTypeSymbol) ? "•" : Panel.Record.RecordTypeSymbol)</span>
+            <p class="muted">No pictures yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="gallery-collage">
+            @foreach (GalleryImage image in Panel.Images)
+            {
+                <a class="gallery-tile" href="/records/@Panel.Record.Id/images/@image.Id/preview"
+                   target="_blank" rel="noopener"
+                   title="@(image.Caption ?? Panel.Record.DisplayName)">
+                    @* The preview variant, not the thumbnail: a collage tile is large, and a
+                       thumbnail stretched to fill one looks like a mistake. *@
+                    <img src="/records/@Panel.Record.Id/images/@image.Id/preview"
+                         alt="@(image.Caption ?? $"Picture of {Panel.Record.DisplayName}")" loading="lazy" />
+                    @if (image.Caption is { Length: > 0 } caption)
+                    {
+                        <span class="gallery-caption">@caption</span>
+                    }
+                </a>
+            }
+            @if (Panel.TotalImageCount > Panel.Images.Count)
+            {
+                @* Said rather than silently truncated, and it links to where all of them are. *@
+                <a class="gallery-more" href="/records/@Panel.Record.Id">
+                    +@(Panel.TotalImageCount - Panel.Images.Count) more
+                </a>
+            }
+        </div>
+    }
+
+    <div class="gallery-body">
+        <h3 class="gallery-title">
+            <a href="/records/@Panel.Record.Id">@Panel.Record.DisplayName</a>
+        </h3>
+        <p class="gallery-meta">
+            <span class="pill">@Panel.Record.RecordTypeName</span>
+            <span class="muted">@Count(Panel.TotalImageCount, "picture")</span>
+            <span class="muted">Updated @Panel.Record.UpdatedAtUtc.ToLocalTime().ToString("d", CultureInfo.CurrentCulture)</span>
+        </p>
+
+        @if (Panel.Details.Count > 0)
+        {
+            @* The view's chosen columns. A grid would head a table with these; a gallery has no
+               table, so they are the caption rather than something quietly dropped. *@
+            <dl class="gallery-details">
+                @foreach (GalleryDetail detail in Panel.Details)
+                {
+                    <dt>@detail.FieldName</dt>
+                    <dd>@detail.Text</dd>
+                }
+            </dl>
+        }
+
+        @if (Panel.Tags.Count > 0)
+        {
+            <ul class="gallery-tags">
+                @foreach (string tag in Panel.Tags)
+                {
+                    <li class="pill"><span aria-hidden="true">#</span>@tag</li>
+                }
+            </ul>
+        }
+
+        @if (Panel.Related.Count > 0)
+        {
+            <div class="gallery-related">
+                <h4>
+                    Connected
+                    @if (Panel.TotalRelatedCount > Panel.Related.Count)
+                    {
+                        <span class="muted">@Panel.Related.Count of @Panel.TotalRelatedCount</span>
+                    }
+                </h4>
+                <ul>
+                    @foreach (GalleryRelation relation in Panel.Related)
+                    {
+                        <li>
+                            <a class="gallery-relation @(relation.IsExpired ? "expired" : null)" href="/records/@relation.RecordId">
+                                @if (relation.ImageId is Guid relatedImage)
+                                {
+                                    <img src="/records/@relation.RecordId/images/@relatedImage/preview"
+                                         alt="" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <span class="gallery-relation-placeholder" aria-hidden="true">@(string.IsNullOrWhiteSpace(relation.RecordTypeSymbol) ? "•" : relation.RecordTypeSymbol)</span>
+                                }
+                                <span class="gallery-relation-text">
+                                    <span class="gallery-relation-label">@relation.Label@(relation.IsExpired ? " · over" : null)</span>
+                                    <span class="gallery-relation-name">@relation.DisplayName</span>
+                                </span>
+                            </a>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <div class="gallery-actions">
+            <a class="button" href="/records/@Panel.Record.Id">Open record</a>
+            <BackstageRecordActions RecordId="Panel.Record.Id" State="Panel.Record.BackstageState" OnChanged="OnChanged" />
+        </div>
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public GalleryPanel Panel { get; set; } = null!;
+
+    /// <summary>Raised when a backstage action changes the record, so the page can re-read it.</summary>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private static string Count(int count, string singular, string? plural = null) =>
+        $"{count.ToString("N0", CultureInfo.CurrentCulture)} {(count == 1 ? singular : plural ?? singular + "s")}";
+}

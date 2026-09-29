@@ -9,7 +9,7 @@ public sealed record RecordCommandIdentity(Guid DomainId, string Surface, string
     /// </summary>
     private static readonly HashSet<string> KnownActions =
     [
-        "records.create", "records.patch", "records.batch", "records.delete",
+        "records.create", "records.patch", "records.batch", "records.delete", "records.merge",
         "relationships.create", "relationships.update", "relationships.delete", "relationship_types.create",
         "relationship_types.rename", "relationship_types.retire",
         "record_types.create", "record_types.update", "record_types.retire", "record_types.merge",

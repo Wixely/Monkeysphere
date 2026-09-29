@@ -1,8 +1,8 @@
 # MCP contract
 
-- Contract version: 1.37
+- Contract version: 1.39
 - Status: Local implementation; live deployment not verified
-- Reviewed: 2026-09-27
+- Reviewed: 2026-09-28
 - Owner: Agent
 - Next review: 2026-10-24
 
@@ -1312,3 +1312,129 @@ still uses two codes for this condition — `stale_revision` in record and tag w
 `get_record` still returns `tags` as an array of names. Colour and icon are catalogue properties
 rather than record content, so a client that wants them calls `list_tags`; this keeps 1.21 clients
 working unchanged.
+
+## Merging duplicate records in 1.38
+
+Contract 1.38 has 117 tools, adding two: `preview_record_merge` and `merge_records`. Importing
+contacts produces duplicates, and until now dealing with one meant copying a few fields across by
+hand and deleting the rest, which loses whatever nobody thought to copy.
+
+### Nothing is lost, and that is the contract
+
+A merge folds one record into another and deletes it. What the surviving record's type can hold
+becomes its data. Everything else is written to the survivor's retained source material under the new
+kind `merge`, readable with `get_record_source` beside the lines of an imported vCard the application
+never understood:
+
+- Values a choice discarded, from **either** record. A caller that sets a field to `TakeMerged`
+  displaces the surviving record's own value, and that value is archived too. This is the one path
+  where a merge could still lose something a person was looking at when they agreed to it, so it is
+  the path the tests name.
+- Every field the surviving record's type has no place for, which is how merging across types stays
+  non-destructive: a company's registration number folded into a person is readable afterwards even
+  though a person has nowhere to keep one.
+- The merged-away record's display name, aliases, tags and every field value, whether carried or not,
+  so the archive reads as what that record *was* rather than as a list of leftovers.
+
+The merged-away record's name also becomes an alias on the survivor, because a different name is
+another name the same person went by rather than a disagreement to resolve.
+
+### Both `records.write` and `records.delete`, not either
+
+`merge_records` deletes a record and writes to another, so it demands both grants. Neither alone
+reaches it, and neither alone learns whether the records exist.
+
+Without `records.delete` a credential permitted only to edit could destroy any record by merging it
+away. Without `records.write` a credential permitted only to delete could write another record's data
+onto a record it is not otherwise allowed to touch. Both are checked before anything is read.
+
+### What a caller has to decide
+
+Only a field **both** records hold a value for. The model carries no cardinality flag, so it cannot
+be told that a record has one date of birth and many photographs; a field only one record uses is
+carried without asking. `preview_record_merge` reports the rest as `conflicts`, each with the
+`resolution` the preview was computed with, so a caller that supplied nothing sees the default it is
+about to accept rather than having to know what the default is.
+
+- `KeepSurviving` — the default.
+- `TakeMerged` — the other record's value, with the survivor's own archived.
+- `KeepBoth` — both values on the field, because two phone numbers beat throwing one away. On a tags
+  field this combines the two lists instead of leaving two lists on one field.
+
+### What is dropped, and why each one has to be
+
+Three things cannot be carried, and the preview counts each:
+
+- A relationship between the two records, which repointing would turn into the survivor related to
+  itself — forbidden by the table and meaningless anyway.
+- A relationship duplicating one the survivor already has: same type, same other record, and for a
+  directional type the same way round. Direction matters, so this is decided by the type's
+  directionality rather than by endpoint equality.
+- A reminder about a value that is not kept, including the survivor's own when a choice replaces its
+  values. A reminder names its value by ordinal rather than by identity, so carried values are
+  renumbered on the survivor and their reminders renumbered with them; left alone a reminder would
+  quietly become about whichever value now sits at its old number.
+
+Images are always kept, both records' worth. Only the cover is singular, so a moved cover becomes an
+ordinary image rather than colliding with the one-cover-per-record index.
+
+### Revision, and why it is broader than a record's own
+
+`expectedRevision` comes from `preview_record_merge` and covers both records' own revisions **and**
+their deletion revisions, which the database maintains across every table hanging off a record. That
+is exactly the surface a merge touches, so any change to either record — a new relationship, a new
+reminder, an edited value — invalidates the preview and the merge refuses with `stale_revision`
+rather than merging something other than what was agreed.
+
+An identical retry replays the receipt for 24 hours, which for a command that deletes a record is the
+difference between a retry and a second deletion. The receipt names both records: the survivor with
+its new revision, and the merged-away one as `deleted`, so a replay still says what became of it.
+
+The merge is not reversible. Schema version 40 widens the retained-source kind to accept `merge`.
+
+## A saved view can be a gallery in 1.39
+
+Contract 1.39 adds no tools — still 117 — and one field. A saved view now has a `kind`: `Grid`, which
+is what every view has always been, or `Gallery`.
+
+### The kind changes the drawing, never the selection
+
+The same search text, filters, tags, grouping and sort choose the same records either way. That is
+why this is one field on the existing view rather than a second kind of view with its own tools: two
+would have to be kept in step, and the first divergence would be a filter that behaved differently
+depending on how the results were drawn.
+
+A gallery gives each record a large panel led by a collage of that record's own images, for subjects
+where the photographs are the point and a row of text is nearly useless. The fields a grid would use
+as columns become the caption printed under the collage instead of being ignored.
+
+### What `run_saved_view` returns for a gallery
+
+Everything a grid row returns, plus what a gallery is made of, so one call renders one page:
+
+- `images` — the record's image **ids**, at most `maximumCollageImages`, cover first. `totalImageCount`
+  is the record's whole count, so a client can say "and four more" rather than implying five is all.
+- `related` — what the record is connected to, each with **that record's** cover image id, its label,
+  its direction and whether the connection is over. `totalRelatedCount` bounds the same way.
+
+**No image bytes.** These are ids; `read_record_image` serves the bytes under the media grant. A
+credential that can ask a view a question is not thereby a credential that can read pictures out of
+the deployment, and running a gallery does not quietly become that.
+
+The extras arrive with `includeValues` true. `includeValues` false is the cheap mode that reads no
+record at all, and a collage cannot be built without reading one.
+
+`get_capabilities` publishes `maximumCollageImages` and `maximumRelatedLinks` alongside the other
+saved-view limits, so a client lays out against them rather than discovering them by counting.
+
+### Compatibility
+
+`kind` is last in the view shape and defaults to `Grid`, so a client written against 1.38
+deserializes a view unchanged and keeps creating grids. The gallery fields on a row default to empty
+for the same reason.
+
+One thing to know: `update_saved_view` replaces rather than merges, as it always has, so **an omitted
+`kind` reverts a gallery to a grid** — exactly as an omitted filter list stores no filters. Read the
+view first and send back what you mean to keep. `duplicate_saved_view` keeps the kind.
+
+Schema version 41 adds the column, defaulted, so every view that already exists stays the grid it was.

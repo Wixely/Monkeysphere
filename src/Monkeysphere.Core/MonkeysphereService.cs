@@ -467,6 +467,16 @@ public sealed class MonkeysphereService(
     public Task<RecordDetails?> GetRecordAsync(Guid id, CancellationToken cancellationToken = default) =>
         store.GetRecordAsync(id, cancellationToken);
 
+    public Task<RecordMergePreview?> PreviewRecordMergeAsync(Guid survivingRecordId, Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice>? choices, CancellationToken cancellationToken = default) =>
+        store.PreviewRecordMergeAsync(survivingRecordId, mergedRecordId, choices, cancellationToken);
+
+    public Task MergeRecordsAsync(Guid survivingRecordId, Guid mergedRecordId,
+        IReadOnlyList<RecordMergeChoice> choices, string expectedRevision,
+        CancellationToken cancellationToken = default) =>
+        store.MergeRecordsAsync(survivingRecordId, mergedRecordId, choices, expectedRevision,
+            timeProvider.GetUtcNow(), cancellationToken);
+
     public async Task<RecordDetails> UpdateRecordAsync(
         Guid id,
         string displayName,

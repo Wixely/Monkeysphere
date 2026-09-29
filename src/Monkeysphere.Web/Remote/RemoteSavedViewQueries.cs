@@ -12,6 +12,7 @@ public sealed partial class MonkeysphereRemoteQueries
 {
     public async Task<RemotePage<RemoteSavedViewRow>> RunSavedViewAsync(
         ISavedViewService views,
+        IGalleryViewService gallery,
         Guid id,
         int page,
         int pageSize,
@@ -51,6 +52,32 @@ public sealed partial class MonkeysphereRemoteQueries
         if (details.View.GroupByFieldDefinitionId is Guid group)
         {
             wanted.Add(group);
+        }
+
+        if (details.View.Kind == SavedViewKind.Gallery)
+        {
+            // Built by the same projection the browser's gallery draws from, so a client rendering
+            // this view sees the same collage, the same captions and the same connections rather
+            // than a second arrangement of the same records that agrees only by coincidence.
+            IReadOnlyList<GalleryPanel> panels = await gallery
+                .BuildAsync(details, result.Items, cancellationToken).ConfigureAwait(false);
+            return new(
+                [.. panels.Select(panel => new RemoteSavedViewRow(
+                    MapSummary(panel.Record),
+                    // The same value projection every other remote read uses, so a gallery row's
+                    // values are the shape a client already parses rather than a rendered line.
+                    [.. panel.Details.SelectMany(detail => detail.Values).Select(MapValue)],
+                    panel.Tags)
+                {
+                    Images = [.. panel.Images.Select(image =>
+                        new RemoteGalleryImage(image.Id, image.Caption, image.IsCover))],
+                    TotalImageCount = panel.TotalImageCount,
+                    Related = [.. panel.Related.Select(relation => new RemoteGalleryRelation(
+                        relation.RecordId, relation.DisplayName, relation.Label, relation.IsOutgoing,
+                        relation.ImageId, relation.IsExpired))],
+                    TotalRelatedCount = panel.TotalRelatedCount,
+                })],
+                result.Page, result.PageSize, result.TotalCount);
         }
 
         List<RemoteSavedViewRow> rows = [];

@@ -16,7 +16,7 @@
     <div>
         <p class="eyebrow">Reusable views</p>
         <h1>Saved views</h1>
-        <p>Reuse record-grid layouts and relationship-graph filters.</p>
+        <p>Reuse record grids, galleries of pictures, and relationship-graph filters.</p>
     </div>
     <a class="button" href="/records">Open records</a>
 </div>
@@ -44,6 +44,7 @@
                     <li>
                         <button class="text-button" type="button" @onclick="() => EditAsync(view.Id)">@view.Name</button>
                         <span class="pill">@TypeName(view.RecordTypeId)</span>
+                        <span class="pill">@(view.Kind == SavedViewKind.Gallery ? "Gallery" : "Grid")</span>
                     </li>
                 }
             </ul>
@@ -78,6 +79,12 @@
                 <input @bind="_name" maxlength="200" />
             </label>
             <label>
+                Drawn as
+                @* First among the settings because it changes what the rest of them mean: the same
+                   chosen fields are a table's columns in a grid and a collage's caption in a gallery. *@
+                <SearchableSelect TValue="string" @bind-Value="_kindValue" Options="KindOptions" AriaLabel="Drawn as" />
+            </label>
+            <label>
                 Record type
                 <SearchableSelect TValue="string" Value="_recordTypeValue" Options="RecordTypeOptions" AriaLabel="Record type" OnSelected="RecordTypeChangedAsync" />
             </label>
@@ -105,7 +112,7 @@
                property of the record and not of the type, so there is no field to tick. *@
             <label class="checkbox-label">
                 <input type="checkbox" @bind="_showTags" />
-                Show a tags column
+                @(_kindValue == nameof(SavedViewKind.Gallery) ? "Show tags on each panel" : "Show a tags column")
             </label>
             <div class="field">
                 <span>Only records carrying these tags</span>
@@ -119,8 +126,19 @@
             </div>
         </fieldset>
 
+        @if (_kindValue == nameof(SavedViewKind.Gallery))
+        {
+            <p class="muted saved-view-kind-note">
+                A gallery gives each record a large panel led by a collage of its own pictures, for
+                subjects where the photographs are the point. The fields ticked below become the
+                details printed under each collage rather than table columns, grouping and sorting
+                work exactly as they do in a grid, and whatever the record is connected to is drawn
+                beneath it as pictures too.
+            </p>
+        }
+
         <fieldset class="field-picker">
-            <legend>Columns</legend>
+            <legend>@(_kindValue == nameof(SavedViewKind.Gallery) ? "Details under each collage" : "Columns")</legend>
             @if (_fields.Count == 0)
             {
                 <p class="empty-state">Select a record type to choose columns.</p>
@@ -199,6 +217,7 @@
     private IReadOnlyList<string> _tags = [];
     private IReadOnlyList<TagInput.TagPill> _tagSuggestions = [];
     private bool _showTags;
+    private string _kindValue = nameof(SavedViewKind.Grid);
     private readonly List<FilterEditor> _filters = [];
     private Guid? _editingId;
     private string _name = string.Empty;
@@ -210,6 +229,12 @@
     private bool _confirmDelete;
     private string? _message;
     private bool _isError;
+
+    private static IReadOnlyList<ComboboxOption<string>> KindOptions { get; } =
+    [
+        new ComboboxOption<string>(nameof(SavedViewKind.Grid), "Grid — a row per record"),
+        new ComboboxOption<string>(nameof(SavedViewKind.Gallery), "Gallery — a panel of pictures per record"),
+    ];
 
     private IReadOnlyList<ComboboxOption<string>> RecordTypeOptions =>
         [new ComboboxOption<string>(string.Empty, "Select a type"), .. _types.Select(type => new ComboboxOption<string>(type.Id.ToString(), type.Name))];
@@ -319,6 +344,7 @@
         _sortDescending = details.View.SortDescending;
         _tags = details.Tags;
         _showTags = details.View.ShowTags;
+        _kindValue = details.View.Kind.ToString();
         _confirmDelete = false;
         await LoadFieldsAsync();
         _selectedColumns.Clear();
@@ -392,7 +418,8 @@
             ParseOptionalGuid(_sortFieldValue),
             _sortDescending,
             _tags,
-            _showTags);
+            _showTags,
+            Enum.TryParse(_kindValue, out SavedViewKind kind) ? kind : SavedViewKind.Grid);
     }
 
     private void TagsChanged(IReadOnlyList<string> tags) => _tags = tags;
@@ -404,6 +431,7 @@
         _recordTypeValue = string.Empty;
         _tags = [];
         _showTags = false;
+        _kindValue = nameof(SavedViewKind.Grid);
         _query = string.Empty;
         _groupFieldValue = string.Empty;
         _sortFieldValue = string.Empty;
