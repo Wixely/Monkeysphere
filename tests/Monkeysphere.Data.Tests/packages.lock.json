@@ -233,7 +233,7 @@
           "DnaX.Data.Migrations.Sqlite": "[10.0.0-alpha.3, )",
           "DnaX.Hosting": "[10.0.0-alpha.3, )",
           "Microsoft.Data.Sqlite": "[10.0.11, )",
-          "Monkeysphere.Core": "[1.0.0, )",
+          "Monkeysphere.Core": "[0.7.0-alpha.1, )",
           "SkiaSharp": "[4.151.1, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.151.1, )"
         }
