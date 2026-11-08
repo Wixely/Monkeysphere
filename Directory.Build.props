@@ -9,7 +9,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <VersionPrefix>0.7.0</VersionPrefix>
     <VersionSuffix>alpha.1</VersionSuffix>
-    <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>10.0.14</RuntimeFrameworkVersion>
     <RepositoryUrl>https://github.com/Wixely/Monkeysphere</RepositoryUrl>
   </PropertyGroup>
 </Project>
